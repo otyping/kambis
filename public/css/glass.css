@@ -1,0 +1,85 @@
+/* glass.css — ระบบการ์ดกระจก (Glassmorphism)
+ *
+ * ความลึกมี 3 ชั้นเท่านั้น: ฉากหลัง Three.js → การ์ด → modal
+ * ห้ามซ้อนกระจกบนกระจกเกิน 2 ชั้น เพราะ blur จะทับกันจนอ่านไม่ออก
+ *
+ * โหมดสว่างใช้ฝ้าขาว โหมดมืดใช้ฝ้าโปร่ง — สลับผ่าน --glass-fill ใน tokens.css
+ */
+
+.glass {
+  position: relative;
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-border-soft);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+
+/* เบราว์เซอร์ที่ไม่รองรับ backdrop-filter ต้องได้พื้นทึบพอให้อ่านออก */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass {
+    background: var(--glass-solid);
+  }
+}
+
+/* แสงสะท้อนบางบนขอบบน ทำให้ดูเป็นแผ่นกระจกจริง */
+.glass::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: var(--glass-sheen);
+  opacity: 0.75;
+}
+
+/* การ์ดที่กดได้ — ขอบเน้นบอกว่ามี interaction */
+.glass--interactive {
+  border-color: var(--glass-border);
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
+    border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+
+.glass--interactive:hover,
+.glass--interactive:focus-visible {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lift), 0 0 0 1px var(--accent-line);
+  border-color: var(--accent-line);
+}
+
+.glass--interactive:active {
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glass--interactive:hover,
+  .glass--interactive:focus-visible {
+    transform: none;
+  }
+}
+
+/* ป้ายกระจกขนาดเล็ก ใช้กับ chip และ badge */
+.glass-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 5px 11px;
+  font-size: 12.5px;
+  line-height: 1.3;
+  border-radius: var(--r-full);
+  background: var(--well-inset);
+  border: 1px solid var(--glass-border-soft);
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+/* พื้นสำหรับวางกราฟ — ต่างจากการ์ดเพื่อให้สีของกราฟมี contrast พอ */
+.chart-well {
+  background: var(--chart-well);
+  border: 1px solid var(--glass-border-soft);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+}

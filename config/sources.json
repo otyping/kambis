@@ -1,0 +1,565 @@
+{
+  "$comment": "GENERATED FILE — ห้ามแก้ด้วยมือ. สร้างจาก \"แบบฟอร์มรายงาน Kambis.txt\" ด้วย node scripts/sync-sources.js",
+  "generatedFrom": "แบบฟอร์มรายงาน Kambis.txt",
+  "generatedAt": "2026-07-30T02:58:59.419Z",
+  "sourceMtime": "2026-07-30T02:25:20.624Z",
+  "unmatchedLabels": [],
+  "sources": [
+    {
+      "key": "dailyTrim",
+      "parser": "dailyTrim",
+      "icon": "daily",
+      "labelInTxt": "แบบฟอร์มน้ำหนักดอกทริมรายวัน",
+      "titleTh": "น้ำหนักดอกทริมรายวัน",
+      "titleEn": "Daily Trim Weight",
+      "sheetId": "1vT06aSogV-zZAbSiLvHnDY-cF74TokqrNe8cM01n7Qs",
+      "linkedGid": "1316608308",
+      "sheetUrl": "https://docs.google.com/spreadsheets/d/1vT06aSogV-zZAbSiLvHnDY-cF74TokqrNe8cM01n7Qs/edit",
+      "tabs": [
+        {
+          "gid": "1316608308",
+          "name": "ครอป G4/2 -7 NOV 25"
+        },
+        {
+          "gid": "1533652005",
+          "name": "ครอป G 1/3-17 NOV 25"
+        },
+        {
+          "gid": "1960408512",
+          "name": "ครอป G 1/1 -17 NOV 25"
+        },
+        {
+          "gid": "1504235912",
+          "name": "ครอป G2/3 -28 NOV 25"
+        },
+        {
+          "gid": "403271994",
+          "name": "ครอป G3/3 -12 DEC 25"
+        },
+        {
+          "gid": "2141271270",
+          "name": "ครอป G 3/1-12 DEC 25"
+        },
+        {
+          "gid": "90668085",
+          "name": "ครอป G 2/1-28 NOV25"
+        },
+        {
+          "gid": "1057178337",
+          "name": "ครอป G4/1-27 DEC 25"
+        },
+        {
+          "gid": "1696579958",
+          "name": "ครอป G4/3 -27 DEC 25"
+        },
+        {
+          "gid": "212754061",
+          "name": "ครอป G 1/2 - 21 Jan 26"
+        },
+        {
+          "gid": "55916782",
+          "name": "ครอป G 2/2 -21 JAN 26"
+        },
+        {
+          "gid": "2042898527",
+          "name": "ครอป G 3/2 -27 JAN 26"
+        },
+        {
+          "gid": "321582245",
+          "name": "ครอป G 4/2 - 4 FEB 26"
+        },
+        {
+          "gid": "1378975638",
+          "name": "ครอป G1/1-12 FEB 26"
+        },
+        {
+          "gid": "1628107495",
+          "name": "ครอป G 2/3 - 27 FEB 26"
+        },
+        {
+          "gid": "1946561488",
+          "name": "ครอป G2/1-27 FEB 26"
+        },
+        {
+          "gid": "1231722217",
+          "name": "ครอป G3/1 - 16 MAR 26"
+        },
+        {
+          "gid": "1811835313",
+          "name": "ครอป G 3/3 - 16 MAR 26"
+        },
+        {
+          "gid": "703994131",
+          "name": "ครอป G4/3-24MAR26"
+        },
+        {
+          "gid": "69399786",
+          "name": "ครอป G4/1 - 24 Mar 26"
+        },
+        {
+          "gid": "599428237",
+          "name": "ชีต5"
+        },
+        {
+          "gid": "1214487407",
+          "name": "สำเนาของ"
+        }
+      ],
+      "tabDiscoveryError": null
+    },
+    {
+      "key": "perCrop",
+      "parser": "perCrop",
+      "icon": "crop",
+      "labelInTxt": "แบบฟอร์มน้ำหนักดอกทริมต่อครอป",
+      "titleTh": "น้ำหนักดอกทริมต่อครอป",
+      "titleEn": "Yield per Crop",
+      "sheetId": "1slS8uH2reQsT5xbhVidtvkq_JjvQAFea-oHW2viF2KQ",
+      "linkedGid": "793646202",
+      "sheetUrl": "https://docs.google.com/spreadsheets/d/1slS8uH2reQsT5xbhVidtvkq_JjvQAFea-oHW2viF2KQ/edit",
+      "tabs": [
+        {
+          "gid": "499561428",
+          "name": "SUMMARY SHEET"
+        },
+        {
+          "gid": "1984725249",
+          "name": "ครอป G1/06JAN25"
+        },
+        {
+          "gid": "1369270554",
+          "name": "ครอป G2/23JAN25"
+        },
+        {
+          "gid": "1249898711",
+          "name": "ครอป G4/14FEB25"
+        },
+        {
+          "gid": "1303723582",
+          "name": "ครอป G3/13MAR25"
+        },
+        {
+          "gid": "975182399",
+          "name": "ครอป G1/18MAR25"
+        },
+        {
+          "gid": "1082549057",
+          "name": "ครอป G2/1ARP25"
+        },
+        {
+          "gid": "187666598",
+          "name": "ครอป G4/18ARP25"
+        },
+        {
+          "gid": "574010562",
+          "name": "ครอป G3/03MAY25"
+        },
+        {
+          "gid": "685129897",
+          "name": "ครอป G1/16MAY25"
+        },
+        {
+          "gid": "1959118825",
+          "name": "ครอป G1/04JUN25"
+        },
+        {
+          "gid": "1700308788",
+          "name": "ครอป G4/24JUN25"
+        },
+        {
+          "gid": "1413881467",
+          "name": "ครอป G1/08AUG25"
+        },
+        {
+          "gid": "767479976",
+          "name": "ครอป G2/22AUG25"
+        },
+        {
+          "gid": "1722573765",
+          "name": "ครอป G3/04SEP25"
+        },
+        {
+          "gid": "268088913",
+          "name": "ครอป G4/15SEP25"
+        },
+        {
+          "gid": "1437542573",
+          "name": "ครอป G1/2-24 OCT 25"
+        },
+        {
+          "gid": "1205765439",
+          "name": "ครอป G2/2 -24 OCT 25"
+        },
+        {
+          "gid": "664632665",
+          "name": "ครอบ G3/2 -29 OCT 25"
+        },
+        {
+          "gid": "793646202",
+          "name": "ครอป G4/2 -7 NOV 25"
+        },
+        {
+          "gid": "785239101",
+          "name": "ครอป G 1/1 -17 NOV 25"
+        },
+        {
+          "gid": "1675126908",
+          "name": "ครอป G 1/3-17 NOV 25"
+        },
+        {
+          "gid": "861494189",
+          "name": "ครอป G 2/1-28 NOV25"
+        },
+        {
+          "gid": "531326976",
+          "name": "ครอป G2/3 -28 NOV 25"
+        },
+        {
+          "gid": "563316508",
+          "name": "ครอป G 3/1-12 DEC 25"
+        },
+        {
+          "gid": "5044186",
+          "name": "ครอป G3/3 -12 DEC 25"
+        },
+        {
+          "gid": "402316751",
+          "name": "ครอป G4/1-22 DEC 25"
+        },
+        {
+          "gid": "1299978483",
+          "name": "ครอป G4/3-22 DEC 25"
+        },
+        {
+          "gid": "1212750193",
+          "name": "ครอป G1/2-21Jan26"
+        },
+        {
+          "gid": "186467453",
+          "name": "ครอป G2/2-21JAN26"
+        },
+        {
+          "gid": "271929706",
+          "name": "ครอป G 3/2 -21JAN 26"
+        },
+        {
+          "gid": "1923454980",
+          "name": "ครอป G 4/2 - 4 FEB 26"
+        },
+        {
+          "gid": "320922165",
+          "name": "ครอป G1/1-12 FEB 26"
+        },
+        {
+          "gid": "2142088763",
+          "name": "ครอป G 2/3 - 27 FEB 26"
+        },
+        {
+          "gid": "58793566",
+          "name": "ครอป G2/1-27 FEB 26"
+        },
+        {
+          "gid": "1183290304",
+          "name": "ครอป G3/1 - 16 MAR 26"
+        },
+        {
+          "gid": "1818587353",
+          "name": "ครอป G3/3 - 16 MAR 26"
+        },
+        {
+          "gid": "1887374763",
+          "name": "ครอป G4/3-24MAR26"
+        }
+      ],
+      "tabDiscoveryError": null
+    },
+    {
+      "key": "outbound",
+      "parser": "outbound",
+      "icon": "truck",
+      "labelInTxt": "ขนย้ายออกจากฟาร์ม",
+      "titleTh": "ขนย้ายออกจากฟาร์ม",
+      "titleEn": "Farm Outbound",
+      "sheetId": "1DBUnbx-EUp6xWMZqaipQhDFnsfPHSaMrN8e7GYIVGEU",
+      "linkedGid": "1416844262",
+      "sheetUrl": "https://docs.google.com/spreadsheets/d/1DBUnbx-EUp6xWMZqaipQhDFnsfPHSaMrN8e7GYIVGEU/edit",
+      "tabs": [
+        {
+          "gid": "1634475006",
+          "name": "08/05/2026 Summary for SGS"
+        },
+        {
+          "gid": "1411519530",
+          "name": "30/06/2026 Summary for SGS"
+        },
+        {
+          "gid": "0",
+          "name": "ต้นฉบับ"
+        },
+        {
+          "gid": "1416844262",
+          "name": "24/02/2026"
+        },
+        {
+          "gid": "1096063149",
+          "name": "03/03/2026"
+        },
+        {
+          "gid": "493686221",
+          "name": "12/03/2026"
+        },
+        {
+          "gid": "460133012",
+          "name": "24/03/2026"
+        },
+        {
+          "gid": "2043940675",
+          "name": "30/03/2026"
+        },
+        {
+          "gid": "312552232",
+          "name": "03/04/2026"
+        },
+        {
+          "gid": "88952748",
+          "name": "04/04/2026"
+        },
+        {
+          "gid": "401677006",
+          "name": "17/04/2026"
+        },
+        {
+          "gid": "1617009927",
+          "name": "20/04/2026"
+        },
+        {
+          "gid": "1605227238",
+          "name": "24/04/2026"
+        },
+        {
+          "gid": "267379194",
+          "name": "07/05/2026"
+        },
+        {
+          "gid": "1068447882",
+          "name": "07/05/2026 ดอกส่งนอก for SGS"
+        },
+        {
+          "gid": "1595052586",
+          "name": "18/05/2026"
+        },
+        {
+          "gid": "948968140",
+          "name": "20/05/2026"
+        },
+        {
+          "gid": "1883997119",
+          "name": "17/06/2026"
+        },
+        {
+          "gid": "1214444262",
+          "name": "21/06/26"
+        },
+        {
+          "gid": "1909006413",
+          "name": "29/06/26 ของกรุงเทพ"
+        },
+        {
+          "gid": "1410600690",
+          "name": "29/06/26ของส่งนอก for SGS"
+        },
+        {
+          "gid": "217920420",
+          "name": "02/07/26"
+        },
+        {
+          "gid": "1877788402",
+          "name": "07/07/26"
+        },
+        {
+          "gid": "1522118467",
+          "name": "21/07/26"
+        },
+        {
+          "gid": "1175717159",
+          "name": "สำเนาของ"
+        },
+        {
+          "gid": "1097603400",
+          "name": "แพรเช็คของ"
+        },
+        {
+          "gid": "1369687875",
+          "name": "คงเหลือ 29/06/69"
+        },
+        {
+          "gid": "1968601502",
+          "name": "คงเหลือ 02/07/69 พีแพร"
+        }
+      ],
+      "tabDiscoveryError": null
+    },
+    {
+      "key": "inbound",
+      "parser": "inbound",
+      "icon": "inbox",
+      "labelInTxt": "รับดอกถึงกรุงเทพ",
+      "titleTh": "รับดอกถึงกรุงเทพ",
+      "titleEn": "Bangkok Inbound",
+      "sheetId": "1LaYot4j0ej5hNvYdWdH2F8vHAonSX0rJ3d6N-MHkx_o",
+      "linkedGid": "1021936733",
+      "sheetUrl": "https://docs.google.com/spreadsheets/d/1LaYot4j0ej5hNvYdWdH2F8vHAonSX0rJ3d6N-MHkx_o/edit",
+      "tabs": [
+        {
+          "gid": "0",
+          "name": "ต้นฉบับ"
+        },
+        {
+          "gid": "263304139",
+          "name": "24/02/2026"
+        },
+        {
+          "gid": "1021936733",
+          "name": "03/03/2026"
+        },
+        {
+          "gid": "1241643520",
+          "name": "13/03/2026"
+        },
+        {
+          "gid": "1007053040",
+          "name": "24/03/2026"
+        },
+        {
+          "gid": "1818151425",
+          "name": "30/03/2026"
+        },
+        {
+          "gid": "1227867081",
+          "name": "03/01/2026"
+        },
+        {
+          "gid": "799860729",
+          "name": "04/04/2026"
+        },
+        {
+          "gid": "1768535657",
+          "name": "17/04/2026"
+        },
+        {
+          "gid": "655262320",
+          "name": "20/04/2026"
+        },
+        {
+          "gid": "480378801",
+          "name": "24/04/2026"
+        },
+        {
+          "gid": "757511110",
+          "name": "07/05/2026"
+        },
+        {
+          "gid": "1434679253",
+          "name": "07/05/2026 ดอกส่งนอก for SGS"
+        },
+        {
+          "gid": "841316286",
+          "name": "18/05/2026"
+        },
+        {
+          "gid": "1792322520",
+          "name": "20/05/2026"
+        },
+        {
+          "gid": "1902501800",
+          "name": "22/05/2026"
+        },
+        {
+          "gid": "1763210610",
+          "name": "17/06/2026"
+        },
+        {
+          "gid": "638472058",
+          "name": "21/06/26"
+        },
+        {
+          "gid": "1075099541",
+          "name": "29/06/2026"
+        },
+        {
+          "gid": "1132569210",
+          "name": "29/06/26ของส่งนอก for SGS"
+        },
+        {
+          "gid": "1650052998",
+          "name": "02/07/2026"
+        },
+        {
+          "gid": "602579387",
+          "name": "07/07/2026"
+        }
+      ],
+      "tabDiscoveryError": null
+    },
+    {
+      "key": "sales",
+      "parser": "sales",
+      "icon": "sales",
+      "labelInTxt": "แบบฟอร์มขายดอก",
+      "titleTh": "การขายดอก",
+      "titleEn": "Sales",
+      "sheetId": "1YAFf-U6n7duXMdMLEAYGpog2k3sJKQdtgmaysNsxVJE",
+      "linkedGid": "0",
+      "sheetUrl": "https://docs.google.com/spreadsheets/d/1YAFf-U6n7duXMdMLEAYGpog2k3sJKQdtgmaysNsxVJE/edit",
+      "tabs": [
+        {
+          "gid": "0",
+          "name": "Feb-March"
+        },
+        {
+          "gid": "721807701",
+          "name": "April"
+        },
+        {
+          "gid": "728062889",
+          "name": "May"
+        },
+        {
+          "gid": "1740055315",
+          "name": "June"
+        },
+        {
+          "gid": "733564465",
+          "name": "July"
+        }
+      ],
+      "tabDiscoveryError": null
+    },
+    {
+      "key": "inventory",
+      "parser": "inventory",
+      "icon": "stock",
+      "labelInTxt": "แบบฟอร์มสินค้าคงเหลือกรุงเทพ",
+      "titleTh": "สินค้าคงเหลือ",
+      "titleEn": "Inventory",
+      "sheetId": "1CpwP6GiuCRcTc3PFNkbsuOPzdKADoCgmvcERGYHkuIw",
+      "linkedGid": null,
+      "sheetUrl": "https://docs.google.com/spreadsheets/d/1CpwP6GiuCRcTc3PFNkbsuOPzdKADoCgmvcERGYHkuIw/edit",
+      "tabs": [
+        {
+          "gid": "1615602670",
+          "name": "Stock หัวหิน"
+        },
+        {
+          "gid": "449768216",
+          "name": "Stock กรุงเทพ"
+        },
+        {
+          "gid": "711346728",
+          "name": "ส่งของให้ ลค.  Stock กรุงเทพ"
+        }
+      ],
+      "tabDiscoveryError": null
+    }
+  ]
+}

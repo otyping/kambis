@@ -1,0 +1,217 @@
+/**
+ * loader.js — ตัวประสานงาน: อ่าน config → ดึงทุก tab → แปลง → ตรวจสอบ
+ *
+ * เป็นทางเดียวที่ข้อมูลเข้าสู่ระบบ ทุกเส้นทางต้องผ่านที่นี่
+ * และทุกครั้งที่โหลดเสร็จต้องรัน Data Analysis (บังคับตาม CLAUDE.md ข้อ 2)
+ */
+import { readFile, stat } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { fetchText, csvUrl, mapLimit } from './fetcher.js';
+import { parseCsv, trimTrailingEmptyRows } from './csv.js';
+import { writeTabCache, readTabCache, writeSnapshot, readSnapshot } from './cache.js';
+import { getParser } from './parsers/index.js';
+import { analyze } from './analysis.js';
+import { buildKpi } from './aggregate.js';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const CONFIG = path.join(ROOT, 'config', 'sources.json');
+const SOURCE_TXT = path.join(ROOT, 'แบบฟอร์มรายงาน Kambis.txt');
+
+const TAB_CONCURRENCY = 4;
+
+/** อ่าน config/sources.json พร้อมเตือนถ้าไฟล์ .txt ใหม่กว่า */
+export async function loadConfig() {
+  let raw;
+  try {
+    raw = await readFile(CONFIG, 'utf8');
+  } catch {
+    throw new Error(
+      'ไม่พบ config/sources.json — รัน `node scripts/sync-sources.js` ก่อนเริ่มเซิร์ฟเวอร์'
+    );
+  }
+  const config = JSON.parse(raw);
+
+  let outdated = false;
+  try {
+    const [txtStat, cfgStat] = await Promise.all([stat(SOURCE_TXT), stat(CONFIG)]);
+    outdated = txtStat.mtimeMs > cfgStat.mtimeMs;
+  } catch {
+    /* ไม่มีไฟล์ .txt ก็ปล่อยผ่าน — sync ครั้งหน้าจะฟ้องเอง */
+  }
+
+  return { ...config, outdated };
+}
+
+/**
+ * ดึง CSV ของ tab หนึ่ง — ถ้าดึงไม่ได้ให้ตกไปใช้ cache
+ * @returns {{gid, name, rows, status:'ok'|'stale'|'error', cachedAt?:string, error?:string}}
+ */
+async function loadTab(source, tab) {
+  try {
+    const text = await fetchText(csvUrl(source.sheetId, tab.gid));
+    await writeTabCache(source.key, tab.gid, text);
+    return {
+      gid: tab.gid,
+      name: tab.name,
+      rows: trimTrailingEmptyRows(parseCsv(text)),
+      status: 'ok',
+    };
+  } catch (err) {
+    const cached = await readTabCache(source.key, tab.gid);
+    if (cached) {
+      return {
+        gid: tab.gid,
+        name: tab.name,
+        rows: trimTrailingEmptyRows(parseCsv(cached.text)),
+        status: 'stale',
+        cachedAt: cached.cachedAt,
+        error: err.message,
+      };
+    }
+    return { gid: tab.gid, name: tab.name, rows: [], status: 'error', error: err.message };
+  }
+}
+
+/**
+ * โหลดและแปลงข้อมูลของรายงานหนึ่ง
+ * @param {object} source รายการจาก config/sources.json
+ * @param {(event:object)=>void} [onProgress]
+ */
+export async function loadSource(source, onProgress) {
+  const started = Date.now();
+  onProgress?.({ type: 'source:start', key: source.key, tabCount: source.tabs.length });
+
+  let done = 0;
+  const tabs = await mapLimit(source.tabs, TAB_CONCURRENCY, async (tab) => {
+    const result = await loadTab(source, tab);
+    done++;
+    onProgress?.({
+      type: 'tab:done',
+      key: source.key,
+      done,
+      total: source.tabs.length,
+      tabName: tab.name,
+      status: result.status,
+    });
+    return result;
+  });
+
+  const errors = tabs.filter((t) => t.status === 'error');
+  const stales = tabs.filter((t) => t.status === 'stale');
+
+  let parsed = { rows: [], tabs: [], warnings: [] };
+  let parseError = null;
+  try {
+    parsed = getParser(source.parser)({ tabs, sourceKey: source.key });
+  } catch (err) {
+    parseError = err.message;
+  }
+
+  // ผสมสถานะการดึงข้อมูลเข้ากับสรุป tab จาก parser
+  const statusByGid = new Map(tabs.map((t) => [t.gid, t]));
+  const tabInfo = parsed.tabs.map((t) => {
+    const fetched = statusByGid.get(t.gid);
+    return { ...t, fetchStatus: fetched?.status ?? 'unknown', fetchError: fetched?.error ?? null };
+  });
+
+  const status = parseError || errors.length === tabs.length ? 'error' : stales.length ? 'stale' : 'ok';
+
+  const result = {
+    key: source.key,
+    parser: source.parser,
+    icon: source.icon,
+    titleTh: source.titleTh,
+    titleEn: source.titleEn,
+    sheetUrl: source.sheetUrl,
+    status,
+    rows: parsed.rows,
+    tabs: tabInfo,
+    warnings: parsed.warnings,
+    error: parseError || (errors.length ? `${errors.length} tab ดึงไม่สำเร็จ` : null),
+    tabCount: source.tabs.length,
+    tabsOk: tabs.filter((t) => t.status === 'ok').length,
+    tabsStale: stales.length,
+    tabsError: errors.length,
+    rowCount: parsed.rows.length,
+    durationMs: Date.now() - started,
+  };
+
+  onProgress?.({
+    type: 'source:done',
+    key: source.key,
+    status,
+    rowCount: result.rowCount,
+    durationMs: result.durationMs,
+  });
+
+  return result;
+}
+
+/**
+ * โหลดข้อมูลทั้งหมด แปลง รวม KPI และ **วิเคราะห์ความถูกต้องเสมอ**
+ * @param {(event:object)=>void} [onProgress]
+ */
+export async function loadAll(onProgress) {
+  const started = Date.now();
+  const config = await loadConfig();
+
+  onProgress?.({
+    type: 'start',
+    sources: config.sources.map((s) => ({ key: s.key, titleTh: s.titleTh, titleEn: s.titleEn })),
+  });
+
+  // โหลดทีละรายงานตามลำดับ เพื่อให้ progress บน loading screen เดินเป็นระเบียบ
+  // และไม่ยิง Google พร้อมกันเกิน TAB_CONCURRENCY
+  const sources = {};
+  for (const source of config.sources) {
+    sources[source.key] = await loadSource(source, onProgress);
+  }
+
+  onProgress?.({ type: 'analysis:start' });
+  const analysis = analyze(sources);
+  const kpi = buildKpi(sources, analysis);
+  onProgress?.({ type: 'analysis:done', score: analysis.score, counts: analysis.counts });
+
+  const payload = {
+    meta: {
+      fetchedAt: new Date().toISOString(),
+      durationMs: Date.now() - started,
+      cacheHit: false,
+      configGeneratedAt: config.generatedAt,
+      configOutdated: config.outdated,
+      sources: Object.values(sources).map((s) => ({
+        key: s.key,
+        titleTh: s.titleTh,
+        titleEn: s.titleEn,
+        icon: s.icon,
+        sheetUrl: s.sheetUrl,
+        status: s.status,
+        tabCount: s.tabCount,
+        tabsOk: s.tabsOk,
+        tabsStale: s.tabsStale,
+        tabsError: s.tabsError,
+        rowCount: s.rowCount,
+        durationMs: s.durationMs,
+        error: s.error,
+      })),
+    },
+    sources,
+    kpi,
+    analysis,
+  };
+
+  await writeSnapshot(payload);
+  onProgress?.({ type: 'done', durationMs: payload.meta.durationMs });
+  return payload;
+}
+
+/** อ่าน payload ล่าสุดจากดิสก์ (ใช้ตอนออฟไลน์) */
+export async function loadFromSnapshot() {
+  const snap = await readSnapshot();
+  if (!snap) return null;
+  return {
+    ...snap.data,
+    meta: { ...snap.data.meta, cacheHit: true, snapshotAt: snap.cachedAt },
+  };
+}

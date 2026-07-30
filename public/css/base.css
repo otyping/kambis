@@ -1,0 +1,118 @@
+/* base.css — reset และสไตล์พื้นฐาน */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: 'Noto Sans Thai', 'IBM Plex Sans Thai', 'Sarabun', -apple-system,
+    BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink);
+  background: var(--bg-base);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+/* พื้นหลังสำรองเมื่อ WebGL ใช้ไม่ได้ หรือผู้ใช้ปิด animation
+ * ใช้ color-mix เพื่อให้เฉดตามโหมดสว่าง/มืดโดยไม่ต้องเขียนสองชุด
+ */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background:
+    radial-gradient(900px 600px at 12% -8%, var(--wash-1), transparent 62%),
+    radial-gradient(760px 520px at 88% 6%, var(--wash-2), transparent 60%),
+    radial-gradient(680px 620px at 50% 108%, var(--wash-3), transparent 62%),
+    linear-gradient(168deg, var(--bg-base) 0%, var(--bg-raise) 46%, var(--bg-deep) 100%);
+}
+
+/* เบราว์เซอร์ที่ไม่รองรับ color-mix ยังต้องได้พื้นหลังที่อ่านออก */
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  body::before {
+    background: linear-gradient(168deg, var(--bg-base) 0%, var(--bg-raise) 46%, var(--bg-deep) 100%);
+  }
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+figure {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+a {
+  color: var(--accent);
+  text-decoration-color: var(--accent-line);
+  text-underline-offset: 3px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--r-sm);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ตัวเลขต้องเรียงตรงหลักเสมอ */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+#three-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  display: block;
+  pointer-events: none;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--well-inset);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: var(--r-full);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover);
+}

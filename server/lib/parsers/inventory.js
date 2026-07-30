@@ -1,0 +1,141 @@
+/**
+ * parsers/inventory.js — แบบฟอร์มสินค้าคงเหลือ
+ *
+ * หนึ่ง tab = หนึ่งคลัง (Stock หัวหิน / Stock กรุงเทพ) เป็นภาพนิ่ง ณ วันที่อัปเดต
+ *
+ * โครงคอลัมน์ (ยืนยันจากข้อมูลจริงทั้งสอง tab):
+ *   0 Strain · 1 XXL · 2 XL · 3 L · 4 M · 5 S · 6 XS
+ *   7 Shake · 8 Shake2 · 9 Sugarleaf · 10 Kief · 11 ดอกปั่น · 12 ดอกร่อน · 13 เศษดอก
+ *   14 รวมน้ำหนักดอก · 15 รวมน้ำหนักที่ไม่ใช่ดอก
+ *
+ * tab "Stock กรุงเทพ" หัวคอลัมน์ S/XS/Shake/Sugarleaf หายเพราะ merge
+ * จึง map ตามตำแหน่งโดยอ้างโครงมาตรฐานของ "Stock หัวหิน" แทนการอ่านป้ายชื่อ
+ */
+import { isEmptyRow } from '../csv.js';
+import { num, makeRecord, canonicalStrain } from '../normalize.js';
+
+const COL = {
+  strain: 0,
+  XXL: 1,
+  XL: 2,
+  L: 3,
+  M: 4,
+  S: 5,
+  XS: 6,
+  shake: 7,
+  shake2: 8,
+  sugarleaf: 9,
+  kief: 10,
+  dokPan: 11,
+  dokRon: 12,
+  sesDok: 13,
+  statedFlower: 14,
+  statedNonFlower: 15,
+};
+
+const TOTAL_RE = /^\s*(total|รวม|ผลรวม)/i;
+
+/** หาชื่อคลังและวันที่อัปเดตจากสองแถวบนสุด */
+function readLocationHeader(rows) {
+  for (let r = 0; r < Math.min(rows.length, 5); r++) {
+    const first = String(rows[r][0] ?? '').trim();
+    const second = String(rows[r][1] ?? '').trim();
+    if (!first || /สถานที่|strain/i.test(first)) continue;
+    if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(second)) {
+      return { location: first, updatedText: second };
+    }
+  }
+  return { location: null, updatedText: null };
+}
+
+export function parse({ tabs, sourceKey = 'inventory' }) {
+  const records = [];
+  const tabSummaries = [];
+  const warnings = [];
+
+  for (const tab of tabs) {
+    const rows = tab.rows || [];
+
+    // tab ที่ไม่ใช่ภาพสต็อก (เช่น "ส่งของให้ ลค.") ใช้คนละโครง — ข้ามแต่บันทึกไว้
+    if (!/^stock/i.test(String(tab.name).trim())) {
+      tabSummaries.push({ gid: tab.gid, name: tab.name, skipped: 'not-a-stock-tab', rowCount: 0 });
+      continue;
+    }
+
+    const { location, updatedText } = readLocationHeader(rows);
+    const locationName = location || String(tab.name).replace(/^stock\s*/i, '').trim();
+
+    let statedTotalRow = null;
+    let rowCount = 0;
+
+    for (let r = 0; r < rows.length; r++) {
+      const row = rows[r];
+      if (isEmptyRow(row)) continue;
+
+      const strainText = String(row[COL.strain] ?? '').trim();
+      if (!strainText) continue;
+      if (/^strain$/i.test(strainText) || /สถานที่/.test(strainText)) continue;
+      if (strainText === locationName) continue;
+
+      if (TOTAL_RE.test(strainText)) {
+        statedTotalRow = {
+          flowerTotal: num(row[COL.statedFlower]),
+          nonFlowerTotal: num(row[COL.statedNonFlower]),
+          rowIndex: r,
+        };
+        continue;
+      }
+
+      const sizes = {
+        XXL: num(row[COL.XXL]),
+        XL: num(row[COL.XL]),
+        L: num(row[COL.L]),
+        M: num(row[COL.M]),
+        S: num(row[COL.S]),
+        XS: num(row[COL.XS]),
+      };
+      const nonFlower = {
+        shake: num(row[COL.shake]),
+        shake2: num(row[COL.shake2]),
+        sugarleaf: num(row[COL.sugarleaf]),
+        kief: num(row[COL.kief]),
+        dokPan: num(row[COL.dokPan]),
+        dokRon: num(row[COL.dokRon]),
+        sesDok: num(row[COL.sesDok]),
+      };
+
+      records.push(
+        makeRecord({
+          date: null,
+          crop: null,
+          strain: canonicalStrain(strainText),
+          sizes,
+          nonFlower,
+          source: sourceKey,
+          tab: tab.name,
+          rowIndex: r,
+          raw: {
+            strainText,
+            statedFlowerTotal: num(row[COL.statedFlower]),
+            statedNonFlowerTotal: num(row[COL.statedNonFlower]),
+          },
+          extra: { location: locationName, updatedText },
+        })
+      );
+      rowCount++;
+    }
+
+    if (rowCount === 0) warnings.push({ tab: tab.name, message: 'ไม่พบรายการสต็อก' });
+
+    tabSummaries.push({
+      gid: tab.gid,
+      name: tab.name,
+      location: locationName,
+      updatedText,
+      rowCount,
+      statedTotal: statedTotalRow,
+    });
+  }
+
+  return { rows: records, tabs: tabSummaries, warnings };
+}

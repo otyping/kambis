@@ -1,0 +1,367 @@
+/* tokens.css — ตัวแปรกลางของธีม (รองรับโหมดสว่าง/มืด)
+ *
+ * ธีมสีจาก https://colorhunt.co/palette/fbf5dde7e1b1306d290d530e
+ *   #FBF5DD ครีมสว่าง · #E7E1B1 ครีมเข้ม · #306D29 เขียว · #0D530E เขียวเข้ม
+ *
+ * สี 4 ตัวนี้เป็นสีของ UI ส่วนสีของกราฟเป็นชุดที่ derive มาแล้ว
+ * และผ่านการตรวจ contrast + ความต่างสำหรับตาบอดสี (CVD) แยกกันทั้งสองโหมด
+ * ห้ามเอาสี UI ไปใช้เป็นสีของแท่งกราฟโดยตรง
+ *
+ * ลำดับของกฎมีความหมาย ห้ามสลับ:
+ *   1. :root                       → ค่าเริ่มต้น = โหมดสว่าง
+ *   2. @media prefers-color-scheme → ตาม OS เมื่อผู้ใช้ยังไม่เลือกเอง
+ *   3. [data-theme='dark']         → ผู้ใช้เลือกมืด ต้องชนะ OS
+ *   4. [data-theme='light']        → ผู้ใช้เลือกสว่าง ต้องชนะ OS
+ */
+
+:root {
+  /* ── สีแบรนด์ 4 ตัว (คงที่ทั้งสองโหมด) ── */
+  --paper: #fbf5dd;
+  --khaki: #e7e1b1;
+  --leaf: #306d29;
+  --forest: #0d530e;
+
+  /* ── ระยะและรูปทรง ── */
+  --r-sm: 10px;
+  --r-md: 16px;
+  --r-lg: 22px;
+  --r-full: 999px;
+
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --dur: 260ms;
+
+  --max-w: 1560px;
+  --header-h: 68px;
+}
+
+/* ═══════════════════════════════════════════════════════
+   โหมดสว่าง — ค่าเริ่มต้น
+   ═══════════════════════════════════════════════════════ */
+:root {
+  color-scheme: light;
+
+  --bg-deep: #efe7c4;
+  --bg-base: #fbf5dd;
+  --bg-raise: #fffdf4;
+
+  /* กระจกบนพื้นสว่าง = ฝ้าขาว ไม่ใช่ฝ้าดำ */
+  --glass-fill: linear-gradient(145deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.5));
+  --glass-fill-strong: linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.72));
+  --glass-solid: #fdfaea;
+  --glass-border: rgba(13, 83, 14, 0.26);
+  --glass-border-soft: rgba(13, 83, 14, 0.14);
+  --glass-blur: 18px;
+  --glass-sheen: linear-gradient(150deg, rgba(255, 255, 255, 0.7), transparent 40%);
+
+  --header-bg: rgba(251, 245, 221, 0.82);
+  --header-border: rgba(13, 83, 14, 0.18);
+
+  /* ตัวอักษร — contrast ≥ 4.5:1 บนพื้นกระจก */
+  --ink: #0d2a0c;
+  --ink-soft: #2f5a2b;
+  --ink-mute: #5d7a58;
+
+  /* สีเน้น — ใช้กับตัวเลข KPI, ปุ่มหลัก, ลิงก์ */
+  --accent: #0d530e;
+  --accent-strong: #0a4009;
+  --accent-ink: #fbf5dd;
+  --accent-line: rgba(13, 83, 14, 0.3);
+  --tint-accent: rgba(13, 83, 14, 0.09);
+
+  /* ── สีของกราฟ (ตรวจครบ 6 ข้อบนพื้น --chart-well) ──
+   * lightness band · chroma · CVD ΔE 10.5 (protan) · normal ΔE 16.3 · contrast ≥ 3:1
+   */
+  --chart-well: #fffdf4;
+  --series-1: #93801a;
+  --series-2: #04724f;
+  --series-1-fade: rgba(147, 128, 26, 0.24);
+  --series-1-fade0: rgba(147, 128, 26, 0);
+  --chart-grid: rgba(13, 42, 12, 0.11);
+  --chart-axis: rgba(13, 42, 12, 0.22);
+
+  /* ไล่เฉดตามขนาดดอก (ordinal XXL → XS) — lightness ลดลงต่อเนื่อง */
+  --size-xxl: #b3aa55;
+  --size-xl: #95973a;
+  --size-l: #748a30;
+  --size-m: #51792b;
+  --size-s: #2e6927;
+  --size-xs: #0d530e;
+
+  /* สถานะ (สงวนไว้ ห้ามใช้เป็นสีของ series) */
+  --sev-critical: #a3231b;
+  --sev-warning: #7d5800;
+  --sev-info: #2e6927;
+  --sev-ok: #1b6b2b;
+  --tint-critical: rgba(163, 35, 27, 0.1);
+  --tint-warning: rgba(125, 88, 0, 0.12);
+  --tint-ok: rgba(27, 107, 43, 0.1);
+  --line-critical: rgba(163, 35, 27, 0.34);
+  --line-warning: rgba(125, 88, 0, 0.34);
+  --line-ok: rgba(27, 107, 43, 0.32);
+
+  --table-head-bg: #efe9cd;
+  --well-inset: rgba(13, 42, 12, 0.05);
+  --tip-bg: rgba(255, 253, 244, 0.98);
+  --scroll-thumb: rgba(13, 83, 14, 0.28);
+  --scroll-thumb-hover: rgba(13, 83, 14, 0.5);
+  --modal-scrim: rgba(60, 70, 40, 0.42);
+  --modal-bg: linear-gradient(150deg, rgba(255, 253, 244, 0.97), rgba(245, 239, 214, 0.97));
+
+  --shadow-card: 0 6px 22px rgba(40, 55, 25, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  --shadow-lift: 0 14px 36px rgba(40, 55, 25, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  --shadow-modal: 0 30px 70px rgba(30, 45, 20, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+
+  /* ฉากหลัง Three.js */
+  --bg-orb-1: #306d29;
+  --bg-orb-2: #b3aa55;
+  --bg-orb-3: #0d530e;
+  --bg-dust-opacity: 0.5;
+  --wash-1: rgba(13, 83, 14, 0.09);
+  --wash-2: rgba(48, 109, 41, 0.14);
+  --wash-3: rgba(231, 225, 177, 0.4);
+}
+
+/* ═══════════════════════════════════════════════════════
+   โหมดมืด
+   ═══════════════════════════════════════════════════════ */
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme='light'])) {
+    color-scheme: dark;
+
+    --bg-deep: #041104;
+    --bg-base: #071b0a;
+    --bg-raise: #0c2c0e;
+
+    --glass-fill: linear-gradient(145deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.03));
+    --glass-fill-strong: linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.055));
+    --glass-solid: #17421a;
+    --glass-border: rgba(231, 225, 177, 0.24);
+    --glass-border-soft: rgba(251, 245, 221, 0.13);
+    --glass-sheen: linear-gradient(150deg, rgba(255, 255, 255, 0.13), transparent 38%);
+
+    --header-bg: rgba(8, 30, 10, 0.76);
+    --header-border: rgba(231, 225, 177, 0.16);
+
+    --ink: #fbf5dd;
+    --ink-soft: #dcd7ae;
+    --ink-mute: #a3b295;
+
+    --accent: #e7e1b1;
+    --accent-strong: #cfc891;
+    --accent-ink: #0b2408;
+    --accent-line: rgba(231, 225, 177, 0.34);
+    --tint-accent: rgba(231, 225, 177, 0.12);
+
+    /* CVD ΔE 9.7 (protan) · normal ΔE 15.3 · contrast ≥ 3:1 บน --chart-well */
+    --chart-well: #0a2e0a;
+    --series-1: #a89526;
+    --series-2: #2c8d64;
+    --series-1-fade: rgba(168, 149, 38, 0.28);
+    --series-1-fade0: rgba(168, 149, 38, 0);
+    --chart-grid: rgba(251, 245, 221, 0.09);
+    --chart-axis: rgba(251, 245, 221, 0.18);
+
+    --size-xxl: #fbf5dd;
+    --size-xl: #e7e1b1;
+    --size-l: #c9c57e;
+    --size-m: #9fae55;
+    --size-s: #6c9440;
+    --size-xs: #47853a;
+
+    --sev-critical: #ff8a80;
+    --sev-warning: #e7c24a;
+    --sev-info: #9ed7a3;
+    --sev-ok: #86d992;
+    --tint-critical: rgba(255, 138, 128, 0.13);
+    --tint-warning: rgba(231, 194, 74, 0.13);
+    --tint-ok: rgba(134, 217, 146, 0.12);
+    --line-critical: rgba(255, 138, 128, 0.42);
+    --line-warning: rgba(231, 194, 74, 0.4);
+    --line-ok: rgba(134, 217, 146, 0.38);
+
+    --table-head-bg: #17401a;
+    --well-inset: rgba(255, 255, 255, 0.06);
+    --tip-bg: rgba(6, 24, 7, 0.97);
+    --scroll-thumb: rgba(231, 225, 177, 0.28);
+    --scroll-thumb-hover: rgba(231, 225, 177, 0.48);
+    --modal-scrim: rgba(3, 12, 4, 0.7);
+    --modal-bg: linear-gradient(150deg, rgba(28, 66, 30, 0.94), rgba(11, 36, 12, 0.96));
+
+    --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    --shadow-lift: 0 16px 44px rgba(0, 0, 0, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+    --shadow-modal: 0 32px 80px rgba(0, 0, 0, 0.66), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+
+    --bg-orb-1: #306d29;
+    --bg-orb-2: #e7e1b1;
+    --bg-orb-3: #0d530e;
+    --bg-dust-opacity: 0.72;
+    --wash-1: rgba(231, 225, 177, 0.05);
+    --wash-2: rgba(48, 109, 41, 0.12);
+    --wash-3: rgba(13, 83, 14, 0.16);
+  }
+}
+
+/* ผู้ใช้เลือกโหมดมืดเอง — ต้องชนะค่าจาก OS */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg-deep: #041104;
+  --bg-base: #071b0a;
+  --bg-raise: #0c2c0e;
+
+  --glass-fill: linear-gradient(145deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.03));
+  --glass-fill-strong: linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.055));
+  --glass-solid: #17421a;
+  --glass-border: rgba(231, 225, 177, 0.24);
+  --glass-border-soft: rgba(251, 245, 221, 0.13);
+  --glass-sheen: linear-gradient(150deg, rgba(255, 255, 255, 0.13), transparent 38%);
+
+  --header-bg: rgba(8, 30, 10, 0.76);
+  --header-border: rgba(231, 225, 177, 0.16);
+
+  --ink: #fbf5dd;
+  --ink-soft: #dcd7ae;
+  --ink-mute: #a3b295;
+
+  --accent: #e7e1b1;
+  --accent-strong: #cfc891;
+  --accent-ink: #0b2408;
+  --accent-line: rgba(231, 225, 177, 0.34);
+  --tint-accent: rgba(231, 225, 177, 0.12);
+
+  --chart-well: #0a2e0a;
+  --series-1: #a89526;
+  --series-2: #2c8d64;
+  --series-1-fade: rgba(168, 149, 38, 0.28);
+  --series-1-fade0: rgba(168, 149, 38, 0);
+  --chart-grid: rgba(251, 245, 221, 0.09);
+  --chart-axis: rgba(251, 245, 221, 0.18);
+
+  --size-xxl: #fbf5dd;
+  --size-xl: #e7e1b1;
+  --size-l: #c9c57e;
+  --size-m: #9fae55;
+  --size-s: #6c9440;
+  --size-xs: #47853a;
+
+  --sev-critical: #ff8a80;
+  --sev-warning: #e7c24a;
+  --sev-info: #9ed7a3;
+  --sev-ok: #86d992;
+  --tint-critical: rgba(255, 138, 128, 0.13);
+  --tint-warning: rgba(231, 194, 74, 0.13);
+  --tint-ok: rgba(134, 217, 146, 0.12);
+  --line-critical: rgba(255, 138, 128, 0.42);
+  --line-warning: rgba(231, 194, 74, 0.4);
+  --line-ok: rgba(134, 217, 146, 0.38);
+
+  --table-head-bg: #17401a;
+  --well-inset: rgba(255, 255, 255, 0.06);
+  --tip-bg: rgba(6, 24, 7, 0.97);
+  --scroll-thumb: rgba(231, 225, 177, 0.28);
+  --scroll-thumb-hover: rgba(231, 225, 177, 0.48);
+  --modal-scrim: rgba(3, 12, 4, 0.7);
+  --modal-bg: linear-gradient(150deg, rgba(28, 66, 30, 0.94), rgba(11, 36, 12, 0.96));
+
+  --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  --shadow-lift: 0 16px 44px rgba(0, 0, 0, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  --shadow-modal: 0 32px 80px rgba(0, 0, 0, 0.66), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+
+  --bg-orb-1: #306d29;
+  --bg-orb-2: #e7e1b1;
+  --bg-orb-3: #0d530e;
+  --bg-dust-opacity: 0.72;
+  --wash-1: rgba(231, 225, 177, 0.05);
+  --wash-2: rgba(48, 109, 41, 0.12);
+  --wash-3: rgba(13, 83, 14, 0.16);
+}
+
+/* ผู้ใช้เลือกโหมดสว่างเอง — ต้องชนะค่าจาก OS ที่เป็นมืด */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --bg-deep: #efe7c4;
+  --bg-base: #fbf5dd;
+  --bg-raise: #fffdf4;
+
+  --glass-fill: linear-gradient(145deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.5));
+  --glass-fill-strong: linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.72));
+  --glass-solid: #fdfaea;
+  --glass-border: rgba(13, 83, 14, 0.26);
+  --glass-border-soft: rgba(13, 83, 14, 0.14);
+  --glass-sheen: linear-gradient(150deg, rgba(255, 255, 255, 0.7), transparent 40%);
+
+  --header-bg: rgba(251, 245, 221, 0.82);
+  --header-border: rgba(13, 83, 14, 0.18);
+
+  --ink: #0d2a0c;
+  --ink-soft: #2f5a2b;
+  --ink-mute: #5d7a58;
+
+  --accent: #0d530e;
+  --accent-strong: #0a4009;
+  --accent-ink: #fbf5dd;
+  --accent-line: rgba(13, 83, 14, 0.3);
+  --tint-accent: rgba(13, 83, 14, 0.09);
+
+  --chart-well: #fffdf4;
+  --series-1: #93801a;
+  --series-2: #04724f;
+  --series-1-fade: rgba(147, 128, 26, 0.24);
+  --series-1-fade0: rgba(147, 128, 26, 0);
+  --chart-grid: rgba(13, 42, 12, 0.11);
+  --chart-axis: rgba(13, 42, 12, 0.22);
+
+  --size-xxl: #b3aa55;
+  --size-xl: #95973a;
+  --size-l: #748a30;
+  --size-m: #51792b;
+  --size-s: #2e6927;
+  --size-xs: #0d530e;
+
+  --sev-critical: #a3231b;
+  --sev-warning: #7d5800;
+  --sev-info: #2e6927;
+  --sev-ok: #1b6b2b;
+  --tint-critical: rgba(163, 35, 27, 0.1);
+  --tint-warning: rgba(125, 88, 0, 0.12);
+  --tint-ok: rgba(27, 107, 43, 0.1);
+  --line-critical: rgba(163, 35, 27, 0.34);
+  --line-warning: rgba(125, 88, 0, 0.34);
+  --line-ok: rgba(27, 107, 43, 0.32);
+
+  --table-head-bg: #efe9cd;
+  --well-inset: rgba(13, 42, 12, 0.05);
+  --tip-bg: rgba(255, 253, 244, 0.98);
+  --scroll-thumb: rgba(13, 83, 14, 0.28);
+  --scroll-thumb-hover: rgba(13, 83, 14, 0.5);
+  --modal-scrim: rgba(60, 70, 40, 0.42);
+  --modal-bg: linear-gradient(150deg, rgba(255, 253, 244, 0.97), rgba(245, 239, 214, 0.97));
+
+  --shadow-card: 0 6px 22px rgba(40, 55, 25, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  --shadow-lift: 0 14px 36px rgba(40, 55, 25, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  --shadow-modal: 0 30px 70px rgba(30, 45, 20, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+
+  --bg-orb-1: #306d29;
+  --bg-orb-2: #b3aa55;
+  --bg-orb-3: #0d530e;
+  --bg-dust-opacity: 0.5;
+  --wash-1: rgba(13, 83, 14, 0.09);
+  --wash-2: rgba(48, 109, 41, 0.14);
+  --wash-3: rgba(231, 225, 177, 0.4);
+}
+
+/* ผู้ใช้ที่ตั้งค่าลดการเคลื่อนไหว — ปิด transition ทั้งหมด */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur: 1ms;
+  }
+}

@@ -1,0 +1,803 @@
+/* components.css — ชิ้นส่วน UI ทั้งหมด */
+
+/* ── ปุ่ม ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-height: 40px;
+  padding: 0 var(--sp-4);
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: var(--r-full);
+  border: 1px solid var(--glass-border-soft);
+  background: var(--well-inset);
+  color: var(--ink);
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+
+.btn:hover {
+  background: var(--tint-accent);
+  border-color: var(--accent-line);
+}
+
+.btn--primary {
+  background: linear-gradient(140deg, var(--accent), var(--accent-strong));
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.btn--primary:hover {
+  background: linear-gradient(140deg, var(--accent-strong), var(--accent));
+}
+
+.btn[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn__spin {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: none;
+}
+
+.btn.is-busy .btn__spin {
+  display: block;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── ตัวสลับภาษา ── */
+.lang-toggle {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: var(--r-full);
+  background: var(--well-inset);
+  border: 1px solid var(--glass-border-soft);
+}
+
+.lang-toggle button {
+  min-width: 42px;
+  min-height: 32px;
+  padding: 0 var(--sp-3);
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: var(--r-full);
+  color: var(--ink-mute);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.lang-toggle button[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* ── ปุ่มสลับโหมดสว่าง/มืด ── */
+.theme-toggle {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-full);
+  border: 1px solid var(--glass-border-soft);
+  background: var(--well-inset);
+  color: var(--ink-soft);
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.theme-toggle:hover {
+  background: var(--tint-accent);
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+.theme-toggle__icon {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+.theme-toggle svg {
+  position: absolute;
+  inset: 0;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+
+/* โหมดสว่างโชว์ดวงจันทร์ (กดเพื่อไปมืด) โหมดมืดโชว์ดวงอาทิตย์ */
+.theme-toggle__sun {
+  opacity: 0;
+  transform: rotate(-90deg) scale(0.6);
+}
+.theme-toggle__moon {
+  opacity: 1;
+  transform: none;
+}
+
+:root[data-theme='dark'] .theme-toggle__sun {
+  opacity: 1;
+  transform: none;
+}
+:root[data-theme='dark'] .theme-toggle__moon {
+  opacity: 0;
+  transform: rotate(90deg) scale(0.6);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme='light'])) .theme-toggle__sun {
+    opacity: 1;
+    transform: none;
+  }
+  :root:where(:not([data-theme='light'])) .theme-toggle__moon {
+    opacity: 0;
+    transform: rotate(90deg) scale(0.6);
+  }
+}
+
+/* ── badge คุณภาพข้อมูล ── */
+.health-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 6px 13px;
+  border-radius: var(--r-full);
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid;
+  background: var(--well-inset);
+}
+
+.health-badge__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
+.health-badge[data-level='good'] {
+  color: var(--sev-ok);
+  border-color: var(--line-ok);
+}
+.health-badge[data-level='warn'] {
+  color: var(--sev-warning);
+  border-color: var(--line-warning);
+}
+.health-badge[data-level='bad'] {
+  color: var(--sev-critical);
+  border-color: var(--line-critical);
+}
+
+/* ── KPI ── */
+.kpi {
+  padding: var(--sp-4);
+  border-radius: var(--r-md);
+  min-width: 0;
+}
+
+.kpi__label {
+  font-size: 12.5px;
+  color: var(--ink-mute);
+  margin-bottom: var(--sp-2);
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kpi__value {
+  font-size: clamp(22px, 2.1vw, 30px);
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--accent);
+  letter-spacing: -0.01em;
+}
+
+.kpi__unit {
+  font-size: 0.5em;
+  font-weight: 600;
+  color: var(--ink-mute);
+  margin-left: 3px;
+}
+
+.kpi__hint {
+  margin-top: var(--sp-2);
+  font-size: 12px;
+  color: var(--ink-mute);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── การ์ดรายงาน ── */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-5);
+  text-align: left;
+  width: 100%;
+  min-width: 0;
+}
+
+.card__head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+}
+
+.card__icon {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  background: var(--tint-accent);
+  border: 1px solid var(--accent-line);
+}
+
+.card__icon svg {
+  width: 20px;
+  height: 20px;
+  stroke: var(--accent);
+  fill: none;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.card__titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.card__title {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.card__sub {
+  font-size: 12.5px;
+  color: var(--ink-mute);
+}
+
+.card__metric {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.card__metric-value {
+  font-size: clamp(26px, 2.6vw, 34px);
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1.05;
+  letter-spacing: -0.015em;
+}
+
+.card__metric-unit {
+  font-size: 14px;
+  color: var(--ink-mute);
+  font-weight: 600;
+}
+
+.card__stats {
+  display: flex;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.card__stat b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-top: auto;
+  padding-top: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.card__cta {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* chip คุณภาพข้อมูลบนการ์ด */
+.quality-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--r-full);
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid;
+}
+
+.quality-chip[data-level='good'] {
+  color: var(--sev-ok);
+  border-color: var(--line-ok);
+  background: var(--tint-ok);
+}
+.quality-chip[data-level='warn'] {
+  color: var(--sev-warning);
+  border-color: var(--line-warning);
+  background: var(--tint-warning);
+}
+.quality-chip[data-level='bad'] {
+  color: var(--sev-critical);
+  border-color: var(--line-critical);
+  background: var(--tint-critical);
+}
+
+/* แถบสัดส่วน — ใช้บนการ์ดแทนกราฟเต็มรูปแบบ */
+.mini-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.mini-bar {
+  display: grid;
+  grid-template-columns: 84px 1fr auto;
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: 12.5px;
+}
+
+.mini-bar__label {
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mini-bar__track {
+  display: block;
+  height: 8px;
+  border-radius: var(--r-full);
+  background: var(--well-inset);
+  overflow: hidden;
+}
+
+/* ต้องเป็น block — span ที่เป็น inline จะไม่รับค่า width/height */
+.mini-bar__fill {
+  display: block;
+  height: 100%;
+  min-width: 3px;
+  border-radius: var(--r-full);
+  background: var(--series-1);
+  transition: width 600ms var(--ease);
+}
+
+.mini-bar__value {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  min-width: 62px;
+  text-align: right;
+}
+
+/* ── Modal ── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: none;
+  padding: var(--sp-5);
+  background: var(--modal-scrim);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  overflow-y: auto;
+}
+
+.modal-backdrop.is-open {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.modal {
+  width: min(1120px, 100%);
+  margin: auto;
+  padding: var(--sp-5);
+  border-radius: var(--r-lg);
+  background: var(--modal-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-modal);
+  -webkit-backdrop-filter: blur(26px) saturate(150%);
+  backdrop-filter: blur(26px) saturate(150%);
+  animation: modal-in var(--dur) var(--ease);
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.99);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal {
+    animation: none;
+  }
+}
+
+.modal__head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--glass-border-soft);
+}
+
+.modal__title {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.modal__sub {
+  font-size: 13px;
+  color: var(--ink-mute);
+  margin-top: 2px;
+}
+
+.modal__close {
+  margin-left: auto;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--glass-border-soft);
+  background: var(--well-inset);
+  font-size: 22px;
+  line-height: 1;
+  color: var(--ink-soft);
+}
+
+.modal__close:hover {
+  background: var(--tint-critical);
+  border-color: var(--line-critical);
+  color: var(--sev-critical);
+}
+
+.modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+/* ── บล็อกย่อยใน modal ── */
+.panel__title {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: var(--sp-3);
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.panel__title span {
+  font-weight: 500;
+  font-size: 12.5px;
+  color: var(--ink-mute);
+}
+
+.panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--sp-4);
+}
+
+/* ── ตาราง ── */
+.table-wrap {
+  overflow-x: auto;
+  border-radius: var(--r-md);
+  border: 1px solid var(--glass-border-soft);
+  max-height: 460px;
+  overflow-y: auto;
+}
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+table.data th,
+table.data td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--glass-border-soft);
+}
+
+table.data thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--table-head-bg);
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+table.data thead th:hover {
+  background: var(--tint-accent);
+}
+
+table.data thead th[aria-sort='ascending']::after {
+  content: ' ▲';
+  font-size: 9px;
+}
+table.data thead th[aria-sort='descending']::after {
+  content: ' ▼';
+  font-size: 9px;
+}
+
+table.data td.n {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+table.data tbody tr:hover {
+  background: var(--tint-accent);
+}
+
+table.data .muted {
+  color: var(--ink-mute);
+}
+
+/* ── รายการ finding ── */
+.findings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.finding {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border-radius: var(--r-sm);
+  background: var(--well-inset);
+  border-left: 3px solid;
+  font-size: 13px;
+}
+
+.finding[data-sev='critical'] {
+  border-left-color: var(--sev-critical);
+}
+.finding[data-sev='warning'] {
+  border-left-color: var(--sev-warning);
+}
+.finding[data-sev='info'] {
+  border-left-color: var(--sev-info);
+}
+
+.finding__icon {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.finding[data-sev='critical'] .finding__icon {
+  color: var(--sev-critical);
+}
+.finding[data-sev='warning'] .finding__icon {
+  color: var(--sev-warning);
+}
+.finding[data-sev='info'] .finding__icon {
+  color: var(--sev-info);
+}
+
+.finding__msg {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.finding__meta {
+  margin-top: 5px;
+  font-size: 11.5px;
+  color: var(--ink-mute);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  flex-wrap: wrap;
+}
+
+/* ป้ายบอกว่า finding นี้มาจากไฟล์ Google Sheet ไหน */
+.finding__sheet {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  background: var(--tint-accent);
+  border: 1px solid var(--accent-line);
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+a.finding__sheet:hover {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* ── ตัวกรอง ── */
+.filter-row {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: var(--sp-3);
+}
+
+.filter-row select,
+.filter-row input {
+  min-height: 38px;
+  padding: 0 var(--sp-3);
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--bg-raise);
+  border: 1px solid var(--glass-border-soft);
+  border-radius: var(--r-sm);
+  max-width: 100%;
+}
+
+.filter-row select option {
+  background: var(--bg-raise);
+  color: var(--ink);
+}
+
+.seg {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border-radius: var(--r-full);
+  background: var(--well-inset);
+  border: 1px solid var(--glass-border-soft);
+  flex-wrap: wrap;
+}
+
+.seg button {
+  min-height: 32px;
+  padding: 0 var(--sp-3);
+  font-size: 12.5px;
+  font-weight: 600;
+  border-radius: var(--r-full);
+  color: var(--ink-mute);
+}
+
+.seg button[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* ── กราฟ ── */
+.chart {
+  position: relative;
+}
+
+.chart canvas {
+  display: block;
+  width: 100%;
+}
+
+.chart__empty {
+  display: grid;
+  place-items: center;
+  min-height: 140px;
+  color: var(--ink-mute);
+  font-size: 13px;
+  text-align: center;
+}
+
+.legend {
+  display: flex;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  margin-top: var(--sp-3);
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+.legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.legend__swatch {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  flex: none;
+}
+
+.chart-tip {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  padding: 7px 11px;
+  border-radius: var(--r-sm);
+  background: var(--tip-bg);
+  border: 1px solid var(--accent-line);
+  color: var(--ink);
+  font-size: 12.5px;
+  white-space: nowrap;
+  box-shadow: var(--shadow-card);
+  opacity: 0;
+  transition: opacity 120ms linear;
+}
+
+.chart-tip.is-on {
+  opacity: 1;
+}
+
+.chart-tip b {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── แถบแจ้งเตือนข้อมูลเก่า ── */
+.notice {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-4);
+  border-radius: var(--r-md);
+  font-size: 13.5px;
+  background: var(--tint-warning);
+  border: 1px solid var(--line-warning);
+  color: var(--ink);
+}
+
+.notice[hidden] {
+  display: none;
+}

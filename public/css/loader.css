@@ -1,0 +1,219 @@
+/* loader.css — หน้าจอโหลดข้อมูล
+ * แสดงทุกครั้งที่ดึงข้อมูล (เปิดหน้าเว็บ และกด Refresh)
+ */
+
+.loader {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: var(--sp-5);
+  background: radial-gradient(900px 700px at 50% 30%, var(--bg-raise), var(--bg-deep));
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  transition: opacity 420ms var(--ease), visibility 420ms var(--ease);
+}
+
+.loader[hidden] {
+  display: none;
+}
+
+.loader.is-hiding {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.loader__panel {
+  width: min(460px, 100%);
+  padding: var(--sp-6) var(--sp-5);
+  border-radius: var(--r-lg);
+  background: var(--glass-fill-strong);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-modal);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+  text-align: center;
+}
+
+/* โลโก้พร้อมวงโคจร */
+.loader__mark {
+  position: relative;
+  width: 116px;
+  height: 116px;
+  margin: 0 auto var(--sp-5);
+  display: grid;
+  place-items: center;
+}
+
+.loader__logo {
+  width: 66px;
+  height: 66px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 16px var(--accent-line));
+}
+
+.loader__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: var(--accent);
+  border-right-color: var(--accent-line);
+  animation: orbit 1.5s linear infinite;
+}
+
+.loader__ring--2 {
+  inset: 13px;
+  border-top-color: transparent;
+  border-right-color: transparent;
+  border-bottom-color: var(--series-2);
+  border-left-color: var(--glass-border-soft);
+  animation-duration: 2.3s;
+  animation-direction: reverse;
+}
+
+@keyframes orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loader__title {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: var(--sp-1);
+}
+
+.loader__status {
+  font-size: 13px;
+  color: var(--ink-soft);
+  min-height: 20px;
+  margin-bottom: var(--sp-4);
+}
+
+/* แถบความคืบหน้า */
+.loader__track {
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--well-inset);
+  overflow: hidden;
+  margin-bottom: var(--sp-5);
+}
+
+.loader__fill {
+  height: 100%;
+  width: 0%;
+  border-radius: var(--r-full);
+  background: linear-gradient(90deg, var(--series-2), var(--accent), var(--size-xl));
+  transition: width 380ms var(--ease);
+}
+
+/* รายการแหล่งข้อมูล */
+.loader__sources {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.loader__source {
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  color: var(--ink-mute);
+  background: var(--well-inset);
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+
+.loader__source[data-state='loading'] {
+  color: var(--ink);
+  background: var(--tint-accent);
+}
+
+.loader__source[data-state='ok'] {
+  color: var(--ink-soft);
+}
+
+.loader__source[data-state='error'] {
+  color: var(--sev-critical);
+  background: var(--tint-critical);
+}
+
+.loader__source[data-state='stale'] {
+  color: var(--sev-warning);
+  background: var(--tint-warning);
+}
+
+.loader__icon {
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+}
+
+.loader__source[data-state='pending'] .loader__icon::before {
+  content: '○';
+}
+.loader__source[data-state='loading'] .loader__icon::before {
+  content: '◐';
+  animation: spin 1s linear infinite;
+  display: block;
+}
+.loader__source[data-state='ok'] .loader__icon::before {
+  content: '✓';
+  color: var(--sev-ok);
+}
+.loader__source[data-state='stale'] .loader__icon::before {
+  content: '⚠';
+}
+.loader__source[data-state='error'] .loader__icon::before {
+  content: '✕';
+}
+
+.loader__count {
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-mute);
+}
+
+.loader__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ขั้นตอนวิเคราะห์ข้อมูล — ขั้นสุดท้ายก่อนแสดงผล */
+.loader__analysis {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--glass-border-soft);
+  font-size: 13px;
+  color: var(--ink-mute);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-height: 24px;
+}
+
+.loader__analysis[data-state='running'] {
+  color: var(--ink);
+}
+
+.loader__analysis[data-state='done'] {
+  color: var(--sev-ok);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loader__ring {
+    animation: none;
+    border-color: var(--accent-line);
+  }
+  .loader__source[data-state='loading'] .loader__icon::before {
+    animation: none;
+  }
+}

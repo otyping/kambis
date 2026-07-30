@@ -1,0 +1,9 @@
+# แคชข้อมูลจาก Google Sheets — สร้างใหม่ได้เสมอ ไม่ต้องเก็บใน git
+data/cache/
+data/
+
+node_modules/
+npm-debug.log*
+.DS_Store
+Thumbs.db
+*.log

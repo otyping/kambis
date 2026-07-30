@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#fbf5dd" />
+
+    <!-- ตั้งโหมดก่อน paint กันหน้าจอกระพริบเป็นสีผิดตอนโหลด -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('kambis.theme');
+          if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+      })();
+    </script>
+    <meta
+      name="description"
+      content="Kambis Executive Report Dashboard — รายงานผู้บริหารฟาร์มและการขาย อ่านข้อมูลสดจาก Google Sheets พร้อมตรวจสอบความถูกต้องอัตโนมัติ"
+    />
+    <title>Kambis · รายงานผู้บริหาร</title>
+
+    <link rel="icon" href="assets/logo-kambis.png" />
+    <link rel="stylesheet" href="css/tokens.css" />
+    <link rel="stylesheet" href="css/base.css" />
+    <link rel="stylesheet" href="css/glass.css" />
+    <link rel="stylesheet" href="css/layout.css" />
+    <link rel="stylesheet" href="css/components.css" />
+    <link rel="stylesheet" href="css/loader.css" />
+    <link rel="stylesheet" href="css/responsive.css" />
+  </head>
+
+  <body>
+    <!-- ฉากหลัง Three.js — ถ้า WebGL ใช้ไม่ได้ จะเห็น gradient จาก base.css แทน -->
+    <canvas id="three-canvas" aria-hidden="true"></canvas>
+
+    <!-- ── หน้าจอโหลดข้อมูล ── -->
+    <div
+      id="loader"
+      class="loader"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div class="loader__panel">
+        <div class="loader__mark">
+          <span class="loader__ring" aria-hidden="true"></span>
+          <span class="loader__ring loader__ring--2" aria-hidden="true"></span>
+          <img class="loader__logo" src="assets/logo-kambis.png" alt="Kambis" />
+        </div>
+
+        <h1 class="loader__title" data-i18n="loader.title">กำลังโหลดข้อมูล</h1>
+        <p class="loader__status" id="loader-status"></p>
+
+        <div class="loader__track">
+          <div class="loader__fill" id="loader-fill"></div>
+        </div>
+
+        <div class="loader__sources" id="loader-sources"></div>
+        <div class="loader__analysis" id="loader-analysis" data-state="idle"></div>
+      </div>
+    </div>
+
+    <!-- ── Header ── -->
+    <header class="site-header">
+      <div class="site-header__inner">
+        <div class="brand">
+          <img class="brand__logo" src="assets/logo-kambis.png" alt="Kambis" />
+          <div>
+            <div class="brand__title" data-i18n="app.title">รายงานผู้บริหาร</div>
+            <div class="brand__sub" data-i18n="app.subtitle">ระบบรายงานฟาร์มและการขาย Kambis</div>
+          </div>
+        </div>
+
+        <div class="header-tools">
+          <span class="glass-chip" id="updated-at"></span>
+
+          <button
+            type="button"
+            class="health-badge"
+            id="health-badge"
+            data-level="good"
+            aria-live="polite"
+          ></button>
+
+          <div class="lang-toggle" id="lang-toggle" role="group" aria-label="Language / ภาษา">
+            <button type="button" data-lang="th" aria-pressed="true">ไทย</button>
+            <button type="button" data-lang="en" aria-pressed="false">EN</button>
+          </div>
+
+          <button
+            type="button"
+            class="theme-toggle"
+            id="theme-toggle"
+            data-i18n-label="action.theme"
+            aria-label="สลับโหมดสว่าง/มืด"
+            aria-pressed="false"
+          >
+            <span class="theme-toggle__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" class="theme-toggle__sun">
+                <circle cx="12" cy="12" r="4.2" />
+                <path d="M12 2.6v2.2M12 19.2v2.2M4.2 12H2M22 12h-2.2M6.3 6.3 4.8 4.8M19.2 19.2l-1.5-1.5M17.7 6.3l1.5-1.5M4.8 19.2l1.5-1.5" />
+              </svg>
+              <svg viewBox="0 0 24 24" class="theme-toggle__moon">
+                <path d="M20 14.2A8.2 8.2 0 0 1 9.8 4 8.4 8.4 0 1 0 20 14.2Z" />
+              </svg>
+            </span>
+          </button>
+
+          <button type="button" class="btn btn--primary" id="btn-refresh">
+            <span class="btn__spin" aria-hidden="true"></span>
+            <span data-i18n="action.refresh">รีเฟรชข้อมูล</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="shell">
+      <div class="notice" id="notice" hidden></div>
+
+      <h2 class="sr-only" data-i18n="kpi.title">ตัวเลขสำคัญ</h2>
+      <section class="kpi-strip" id="kpi-strip" aria-label="KPI"></section>
+
+      <h2 class="sr-only" data-i18n="app.title">รายงานผู้บริหาร</h2>
+      <section class="card-grid" id="card-grid"></section>
+
+      <footer class="site-footer">
+        <span id="footer-meta"></span>
+        <span data-i18n="footer.source"
+          >ลิงก์รายงานทั้งหมดอ่านจากไฟล์ "แบบฟอร์มรายงาน Kambis.txt"</span
+        >
+      </footer>
+    </main>
+
+    <!-- ── Modal รายละเอียด ── -->
+    <div
+      class="modal-backdrop"
+      id="modal-backdrop"
+      aria-hidden="true"
+    >
+      <div
+        class="modal"
+        id="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
+      ></div>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>
