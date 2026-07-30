@@ -12,6 +12,8 @@ import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadAll, loadFromSnapshot, loadConfig } from './lib/loader.js';
+import { ask, MODELS, DEFAULT_MODEL, findModel, hasApiKey, estimateCost } from './lib/claude.js';
+import { buildDataContext, SYSTEM_PROMPT } from './lib/chat-context.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC_DIR = path.join(ROOT, 'public');
@@ -30,6 +32,70 @@ let inFlight = null; // Promise ของการโหลดที่กำล
 
 /** ผู้ฟัง SSE ที่รอความคืบหน้าการโหลดอยู่ */
 const progressClients = new Set();
+
+/**
+ * สถิติการใช้ Claude ตั้งแต่เซิร์ฟเวอร์เริ่มทำงาน
+ *
+ * เก็บในหน่วยความจำอย่างเดียว รีสตาร์ทแล้วเริ่มนับใหม่
+ * แยกรายโมเดลเพราะแต่ละตัวราคาต่างกัน
+ */
+const usageStats = {
+  since: new Date().toISOString(),
+  requests: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  costUsd: 0,
+  byModel: {},
+};
+
+function recordUsage(model, usage) {
+  const cost = estimateCost(model, usage);
+  const bucket = (usageStats.byModel[model] ??= {
+    requests: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    costUsd: 0,
+  });
+
+  for (const target of [usageStats, bucket]) {
+    target.requests += 1;
+    target.inputTokens += usage.input_tokens ?? 0;
+    target.outputTokens += usage.output_tokens ?? 0;
+    target.cacheReadTokens += usage.cache_read_input_tokens ?? 0;
+    target.cacheWriteTokens += usage.cache_creation_input_tokens ?? 0;
+    target.costUsd += cost;
+  }
+  return cost;
+}
+
+/** อ่าน body ของ POST พร้อมจำกัดขนาด กัน request ใหญ่เกินจนกินหน่วยความจำ */
+function readJsonBody(req, limitBytes = 256 * 1024) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > limitBytes) {
+        reject(new Error('เนื้อหาที่ส่งมาใหญ่เกินกำหนด'));
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'));
+      } catch {
+        reject(new Error('รูปแบบ JSON ไม่ถูกต้อง'));
+      }
+    });
+    req.on('error', reject);
+  });
+}
 
 function broadcast(event) {
   const line = `data: ${JSON.stringify(event)}\n\n`;
@@ -235,6 +301,100 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, payload.analysis);
   }
 
+  // ── Chatbot ──
+  if (route === '/api/chat/models') {
+    return sendJson(res, 200, {
+      ready: hasApiKey(),
+      defaultModel: DEFAULT_MODEL,
+      models: MODELS.map((m) => ({
+        id: m.id,
+        label: m.label,
+        descTh: m.descTh,
+        descEn: m.descEn,
+        pricing: m.pricing,
+      })),
+    });
+  }
+
+  if (route === '/api/usage') {
+    return sendJson(res, 200, { ready: hasApiKey(), ...usageStats });
+  }
+
+  if (route === '/api/chat' && req.method === 'POST') {
+    if (!hasApiKey()) {
+      return sendJson(res, 503, {
+        error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเครื่องที่รันเซิร์ฟเวอร์',
+        code: 'NO_API_KEY',
+      });
+    }
+
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      return sendJson(res, 400, { error: err.message });
+    }
+
+    const model = body.model || DEFAULT_MODEL;
+    if (!findModel(model)) return sendJson(res, 400, { error: `ไม่รู้จักโมเดล "${model}"` });
+
+    const history = Array.isArray(body.messages) ? body.messages : [];
+    const turns = history
+      .filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+      .map((m) => ({ role: m.role, content: m.content.slice(0, 8000) }))
+      .slice(-20); // เก็บ 20 เทิร์นล่าสุดพอ ไม่ให้บริบทบวมไปเรื่อย ๆ
+
+    if (!turns.length || turns[turns.length - 1].role !== 'user') {
+      return sendJson(res, 400, { error: 'ต้องมีข้อความจากผู้ใช้เป็นรายการสุดท้าย' });
+    }
+
+    const payload = await getReports();
+
+    /* ติด cache_control ที่บล็อกท้ายของ system
+     *
+     * คำสั่งระบบกับบริบทข้อมูลไม่เปลี่ยนตลอดการสนทนา (จนกว่าจะรีเฟรชข้อมูล)
+     * การแคชไว้ทำให้เทิร์นถัด ๆ ไปจ่ายแค่ประมาณ 10% ของราคา input ปกติ
+     */
+    const system = [
+      { type: 'text', text: SYSTEM_PROMPT },
+      {
+        type: 'text',
+        text: buildDataContext(payload),
+        cache_control: { type: 'ephemeral' },
+      },
+    ];
+
+    try {
+      const result = await ask({ model, system, messages: turns, maxTokens: 2048 });
+      const cost = recordUsage(result.model, result.usage);
+
+      if (result.refused) {
+        return sendJson(res, 200, {
+          refused: true,
+          refusalCategory: result.refusalCategory,
+          text: '',
+          model: result.model,
+          usage: result.usage,
+          costUsd: cost,
+          totals: usageStats,
+        });
+      }
+
+      return sendJson(res, 200, {
+        refused: false,
+        text: result.text,
+        model: result.model,
+        stopReason: result.stopReason,
+        usage: result.usage,
+        costUsd: cost,
+        totals: usageStats,
+      });
+    } catch (err) {
+      const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 502;
+      return sendJson(res, status, { error: err.message, code: err.code ?? err.apiType ?? null });
+    }
+  }
+
   return sendJson(res, 404, { error: 'ไม่พบ endpoint นี้' });
 }
 
@@ -242,7 +402,9 @@ async function handleApi(req, res, url) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
-  if (req.method !== 'GET' && req.method !== 'HEAD') {
+  // อนุญาต POST เฉพาะ endpoint ของ chatbot เท่านั้น ที่เหลืออ่านอย่างเดียว
+  const isChatPost = req.method === 'POST' && url.pathname === '/api/chat';
+  if (req.method !== 'GET' && req.method !== 'HEAD' && !isChatPost) {
     return sendJson(res, 405, { error: 'รองรับเฉพาะ GET' });
   }
 

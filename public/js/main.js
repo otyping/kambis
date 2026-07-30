@@ -15,6 +15,7 @@ import { initTheme, getTheme, toggleTheme, onThemeChange } from './theme.js';
 import { LoadingScreen } from './ui/loader.js';
 import { renderKpiStrip, renderCards, qualityLevel } from './ui/cards.js';
 import { initModal, openCard, close as closeModal } from './ui/modal.js';
+import { initChat, resetChat } from './ui/chat.js';
 
 const el = {
   loader: document.getElementById('loader'),
@@ -100,6 +101,8 @@ async function load({ refresh = false } = {}) {
   try {
     payload = await fetchReports({ refresh });
     render();
+    // ข้อมูลเปลี่ยนแล้ว บทสนทนาเดิมอ้างตัวเลขเก่า จึงต้องเริ่มใหม่
+    if (refresh) resetChat();
     screen.hide();
   } catch (err) {
     screen.fail(err.message, () => load({ refresh: true }));
@@ -121,6 +124,9 @@ function applyStaticText() {
   for (const node of document.querySelectorAll('[data-i18n-label]')) {
     node.setAttribute('aria-label', t(node.dataset.i18nLabel));
   }
+  for (const node of document.querySelectorAll('[data-i18n-placeholder]')) {
+    node.setAttribute('placeholder', t(node.dataset.i18nPlaceholder));
+  }
   el.lang.querySelectorAll('button').forEach((btn) => {
     btn.setAttribute('aria-pressed', String(btn.dataset.lang === getLang()));
   });
@@ -141,6 +147,9 @@ function start() {
   // ฉากหลังไม่ใช่ของจำเป็น — ล้มเหลวก็ใช้ gradient จาก CSS ต่อได้
   initBackground(el.canvas).catch(() => {});
 
+  // ช่องแชทก็ไม่ใช่ของจำเป็น — ถ้าไม่มี API key จะแสดงวิธีตั้งค่าแทน
+  initChat().catch(() => {});
+
   el.refresh.addEventListener('click', () => load({ refresh: true }));
 
   el.theme.addEventListener('click', () => toggleTheme());
@@ -160,6 +169,7 @@ function start() {
   onLangChange(() => {
     applyStaticText();
     closeModal();
+    resetChat();
     render();
   });
 

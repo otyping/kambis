@@ -28,6 +28,7 @@
     <link rel="stylesheet" href="css/layout.css" />
     <link rel="stylesheet" href="css/components.css" />
     <link rel="stylesheet" href="css/loader.css" />
+    <link rel="stylesheet" href="css/chat.css" />
     <link rel="stylesheet" href="css/responsive.css" />
   </head>
 
@@ -147,6 +148,55 @@
         aria-labelledby="modal-title"
       ></div>
     </div>
+
+    <!-- ── ช่องแชท AI ── -->
+    <button type="button" class="chat-fab" id="chat-fab" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.5 9.5 0 0 1-2.8-.4L4 21l1.4-4a8.2 8.2 0 0 1-1.4-4.6 8.4 8.4 0 0 1 9-8.4 8.4 8.4 0 0 1 8 7.5Z"/>
+        <path d="M8.5 11.5h.01M12 11.5h.01M15.5 11.5h.01"/>
+      </svg>
+      <span class="chat-fab__label" data-i18n="chat.ask">ถาม AI</span>
+    </button>
+
+    <section
+      class="chat-panel"
+      id="chat-panel"
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby="chat-title"
+    >
+      <header class="chat-head">
+        <div class="chat-head__title" id="chat-title">
+          <span data-i18n="chat.title">ผู้ช่วยวิเคราะห์ข้อมูล</span>
+          <small data-i18n="chat.subtitle">ถามเกี่ยวกับข้อมูลใน Dashboard</small>
+        </div>
+        <button type="button" class="chat-close" id="chat-close" data-i18n-label="action.close" aria-label="ปิด">
+          &times;
+        </button>
+      </header>
+
+      <div class="chat-bar">
+        <label class="sr-only" for="chat-model" data-i18n="chat.model">โมเดล</label>
+        <select id="chat-model"></select>
+        <span class="chat-usage" id="chat-usage"></span>
+      </div>
+
+      <div class="chat-log" id="chat-log"></div>
+      <div class="chat-typing" id="chat-typing" style="display: none" aria-hidden="true">
+        <span></span><span></span><span></span>
+      </div>
+
+      <div class="chat-input">
+        <label class="sr-only" for="chat-input" data-i18n="chat.placeholder">พิมพ์คำถามเกี่ยวกับข้อมูล…</label>
+        <textarea id="chat-input" rows="1" data-i18n-placeholder="chat.placeholder"
+          placeholder="พิมพ์คำถามเกี่ยวกับข้อมูล…"></textarea>
+        <button type="button" class="chat-send" id="chat-send" data-i18n-label="chat.send" aria-label="ส่ง">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 12 20 4l-7 16-2.5-6.5L4 12Z"/>
+          </svg>
+        </button>
+      </div>
+    </section>
 
     <script type="module" src="js/main.js"></script>
   </body>

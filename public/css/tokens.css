@@ -114,6 +114,7 @@
   --scroll-thumb-hover: rgba(13, 83, 14, 0.5);
   --modal-scrim: rgba(60, 70, 40, 0.42);
   --modal-bg: linear-gradient(150deg, rgba(255, 253, 244, 0.97), rgba(245, 239, 214, 0.97));
+  --chat-bg: #fffdf4;
 
   --shadow-card: 0 6px 22px rgba(40, 55, 25, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.75);
   --shadow-lift: 0 14px 36px rgba(40, 55, 25, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.85);
@@ -194,6 +195,7 @@
     --scroll-thumb-hover: rgba(231, 225, 177, 0.48);
     --modal-scrim: rgba(3, 12, 4, 0.7);
     --modal-bg: linear-gradient(150deg, rgba(28, 66, 30, 0.94), rgba(11, 36, 12, 0.96));
+    --chat-bg: #0d2e10;
 
     --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.1);
     --shadow-lift: 0 16px 44px rgba(0, 0, 0, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.16);
@@ -270,6 +272,7 @@
   --scroll-thumb-hover: rgba(231, 225, 177, 0.48);
   --modal-scrim: rgba(3, 12, 4, 0.7);
   --modal-bg: linear-gradient(150deg, rgba(28, 66, 30, 0.94), rgba(11, 36, 12, 0.96));
+  --chat-bg: #0d2e10;
 
   --shadow-card: 0 8px 32px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.1);
   --shadow-lift: 0 16px 44px rgba(0, 0, 0, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.16);
@@ -345,6 +348,7 @@
   --scroll-thumb-hover: rgba(13, 83, 14, 0.5);
   --modal-scrim: rgba(60, 70, 40, 0.42);
   --modal-bg: linear-gradient(150deg, rgba(255, 253, 244, 0.97), rgba(245, 239, 214, 0.97));
+  --chat-bg: #fffdf4;
 
   --shadow-card: 0 6px 22px rgba(40, 55, 25, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.75);
   --shadow-lift: 0 14px 36px rgba(40, 55, 25, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.85);

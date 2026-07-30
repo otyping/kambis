@@ -122,6 +122,41 @@ const STRINGS = {
     'The report link file changed after the last sync — run node scripts/sync-sources.js',
   ],
 
+  'chat.ask': ['ถาม AI', 'Ask AI'],
+  'chat.title': ['ผู้ช่วยวิเคราะห์ข้อมูล', 'Data Assistant'],
+  'chat.subtitle': ['ถามเกี่ยวกับข้อมูลใน Dashboard', 'Ask about the dashboard data'],
+  'chat.model': ['โมเดล', 'Model'],
+  'chat.send': ['ส่งคำถาม', 'Send'],
+  'chat.placeholder': ['พิมพ์คำถามเกี่ยวกับข้อมูล…', 'Ask about the data…'],
+  'chat.welcome': [
+    'ถามอะไรก็ได้เกี่ยวกับข้อมูลใน Dashboard นี้ — ผมตอบจากตัวเลขที่ดึงมาจริงเท่านั้น ไม่เดา',
+    'Ask anything about this dashboard — I answer only from the loaded figures, never guesses',
+  ],
+  'chat.usage': ['ใช้ไป', 'Used'],
+  'chat.usageDetail': ['การใช้งาน Claude ตั้งแต่เปิดเซิร์ฟเวอร์', 'Claude usage since server start'],
+  'chat.tokens': ['tokens', 'tokens'],
+  'chat.inputTokens': ['token ขาเข้า', 'Input tokens'],
+  'chat.outputTokens': ['token ขาออก', 'Output tokens'],
+  'chat.cacheRead': ['อ่านจากแคช', 'Cache read'],
+  'chat.cacheWrite': ['เขียนลงแคช', 'Cache write'],
+  'chat.requests': ['จำนวนครั้งที่ถาม', 'Requests'],
+  'chat.fromCache': ['จากแคช', 'from cache'],
+  'chat.perMillion': ['ต่อล้าน token', 'per 1M tokens'],
+  'chat.error': ['เกิดข้อผิดพลาด', 'Error'],
+  'chat.refused': [
+    'คำถามนี้ถูกระบบความปลอดภัยของ Claude ปฏิเสธ ลองถามใหม่ด้วยคำอื่น',
+    'Claude declined this request. Try rephrasing the question.',
+  ],
+  'chat.setupTitle': ['ยังใช้งานไม่ได้ — ต้องตั้งค่า API key ก่อน', 'Not available — API key required'],
+  'chat.setupBody': [
+    'ช่องแชทนี้เรียก Claude API จริง จึงต้องมี API key จาก console.anthropic.com (คนละอย่างกับบัญชี Claude Code) ตั้งค่าแล้วเปิดเซิร์ฟเวอร์ใหม่ด้วยคำสั่งนี้',
+    'This chat calls the real Claude API, so it needs an API key from console.anthropic.com (separate from your Claude Code subscription). Set it and restart the server with:',
+  ],
+  'chat.setupNote': [
+    'key จะอยู่ฝั่งเซิร์ฟเวอร์เท่านั้น ไม่ถูกส่งมาที่เบราว์เซอร์',
+    'The key stays server-side and is never sent to the browser.',
+  ],
+
   'footer.source': [
     'ลิงก์รายงานทั้งหมดอ่านจากไฟล์ "แบบฟอร์มรายงาน Kambis.txt"',
     'All report links are read from "แบบฟอร์มรายงาน Kambis.txt"',
