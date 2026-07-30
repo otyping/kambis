@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#fbf5dd" />
+    <meta name="robots" content="noindex, nofollow" />
+
+    <!-- ตั้งโหมดก่อน paint กันหน้าจอกระพริบเป็นสีผิดตอนโหลด -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('kambis.theme');
+          if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+      })();
+    </script>
+
+    <title>เข้าสู่ระบบ · Kambis</title>
+
+    <link rel="icon" href="assets/logo-kambis.png" />
+    <link rel="stylesheet" href="css/tokens.css" />
+    <link rel="stylesheet" href="css/base.css" />
+    <link rel="stylesheet" href="css/glass.css" />
+    <link rel="stylesheet" href="css/login.css" />
+  </head>
+
+  <body class="login-body">
+    <main class="login">
+      <form class="login__panel glass" id="login-form" autocomplete="on">
+        <img class="login__logo" src="assets/logo-kambis.png" alt="Kambis" />
+
+        <h1 class="login__title">รายงานผู้บริหาร</h1>
+        <p class="login__sub">กรุณาเข้าสู่ระบบเพื่อดูรายงาน</p>
+
+        <label class="login__field">
+          <span>ชื่อผู้ใช้</span>
+          <input
+            type="text"
+            id="username"
+            name="username"
+            autocomplete="username"
+            autocapitalize="none"
+            spellcheck="false"
+            required
+            autofocus
+          />
+        </label>
+
+        <label class="login__field">
+          <span>รหัสผ่าน</span>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            autocomplete="current-password"
+            required
+          />
+        </label>
+
+        <p class="login__error" id="login-error" role="alert" hidden></p>
+
+        <button type="submit" class="login__submit" id="login-submit">
+          <span class="login__spin" aria-hidden="true"></span>
+          <span id="login-submit-label">เข้าสู่ระบบ</span>
+        </button>
+
+        <p class="login__note">
+          ข้อมูลในระบบนี้เป็นความลับของบริษัท กรุณาอย่าแชร์บัญชีให้ผู้อื่น
+        </p>
+      </form>
+    </main>
+
+    <script src="js/login.js"></script>
+  </body>
+</html>

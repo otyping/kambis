@@ -11,15 +11,46 @@ import http from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadDotEnv } from './lib/env.js';
+
+/* อ่าน .env เข้ามาเป็น environment variable
+ *
+ * import ของ ES module ถูกยกขึ้นไปทำงานก่อนบรรทัดนี้เสมอ บรรทัดนี้จึงไม่ได้
+ * รันก่อนโมดูลอื่นถูกโหลด — ใช้ได้เพราะ gemini.js อ่าน process.env ตอนถูกเรียก
+ * ไม่ใช่ตอนโหลดโมดูล ถ้าจะเพิ่มโมดูลที่อ่าน key ตอนโหลด ต้องย้ายมาทำที่นี่ก่อน */
+const envLoaded = loadDotEnv();
+
 import { loadAll, loadFromSnapshot, loadConfig } from './lib/loader.js';
-import { ask, MODELS, DEFAULT_MODEL, findModel, hasApiKey, estimateCost } from './lib/claude.js';
+import { ask, MODELS, DEFAULT_MODEL, findModel, hasApiKey, KEY_ENV_NAME } from './lib/gemini.js';
 import { buildDataContext, SYSTEM_PROMPT } from './lib/chat-context.js';
+import {
+  loadAuth,
+  refreshAuthIfChanged,
+  isAuthEnabled,
+  verifyLogin,
+  createSession,
+  verifySession,
+  getSessionCookie,
+  buildSetCookie,
+  isSecureRequest,
+  clientIp,
+  sweepAttempts,
+  listUsers,
+  SESSION_HOURS,
+  DEFAULT_CHAT_QUOTA,
+} from './lib/auth.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const PORT = Number(process.env.PORT) || 5173;
 const HOST = process.env.HOST || '127.0.0.1';
 const MEMORY_TTL_MS = 5 * 60 * 1000;
+
+/* เชื่อ X-Forwarded-For หรือไม่
+ *
+ * ตั้ง TRUST_PROXY=1 เฉพาะเมื่อมี nginx/Caddy คั่นอยู่หน้าจริง ๆ
+ * ถ้าเปิดทั้งที่ไม่มี proxy ใครก็ปลอม header นี้เพื่อหนีการนับล็อกอินผิดได้ */
+const TRUST_PROXY = process.env.TRUST_PROXY === '1';
 
 const STARTED_AT = Date.now();
 
@@ -34,42 +65,71 @@ let inFlight = null; // Promise ของการโหลดที่กำล
 const progressClients = new Set();
 
 /**
- * สถิติการใช้ Claude ตั้งแต่เซิร์ฟเวอร์เริ่มทำงาน
+ * สถิติการใช้ Gemini ตั้งแต่เซิร์ฟเวอร์เริ่มทำงาน
  *
  * เก็บในหน่วยความจำอย่างเดียว รีสตาร์ทแล้วเริ่มนับใหม่
- * แยกรายโมเดลเพราะแต่ละตัวราคาต่างกัน
+ * นับเป็น token ไม่แปลงเป็นเงิน เพราะราคาขึ้นกับว่าบัญชี AI Studio
+ * ที่ใช้อยู่เป็นระดับฟรีหรือแบบเสียเงิน ซึ่งเซิร์ฟเวอร์ไม่มีทางรู้เอง
  */
 const usageStats = {
   since: new Date().toISOString(),
   requests: 0,
   inputTokens: 0,
   outputTokens: 0,
-  cacheReadTokens: 0,
-  cacheWriteTokens: 0,
-  costUsd: 0,
+  thoughtTokens: 0,
+  cachedTokens: 0,
+  totalTokens: 0,
   byModel: {},
 };
 
 function recordUsage(model, usage) {
-  const cost = estimateCost(model, usage);
   const bucket = (usageStats.byModel[model] ??= {
     requests: 0,
     inputTokens: 0,
     outputTokens: 0,
-    cacheReadTokens: 0,
-    cacheWriteTokens: 0,
-    costUsd: 0,
+    thoughtTokens: 0,
+    cachedTokens: 0,
+    totalTokens: 0,
   });
 
   for (const target of [usageStats, bucket]) {
     target.requests += 1;
-    target.inputTokens += usage.input_tokens ?? 0;
-    target.outputTokens += usage.output_tokens ?? 0;
-    target.cacheReadTokens += usage.cache_read_input_tokens ?? 0;
-    target.cacheWriteTokens += usage.cache_creation_input_tokens ?? 0;
-    target.costUsd += cost;
+    target.inputTokens += usage.inputTokens ?? 0;
+    target.outputTokens += usage.outputTokens ?? 0;
+    target.thoughtTokens += usage.thoughtTokens ?? 0;
+    target.cachedTokens += usage.cachedTokens ?? 0;
+    target.totalTokens += usage.totalTokens ?? 0;
   }
-  return cost;
+}
+
+/**
+ * โควตาคำถาม chatbot รายวัน แยกตามผู้ใช้
+ *
+ * ทุกคำถามมีค่าใช้จ่ายจริงกับ Anthropic ถ้าไม่จำกัดไว้ คนเดียวถามรัว ๆ
+ * ก็ทำให้บิลบานปลายได้ นับแบบ UTC วันต่อวัน เก็บในหน่วยความจำ
+ */
+const chatUsageByUser = new Map(); // username -> { day, count }
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** @returns {{allowed:boolean, used:number, limit:number}} */
+function checkChatQuota(username, limit) {
+  const day = todayKey();
+  const rec = chatUsageByUser.get(username);
+  if (!rec || rec.day !== day) {
+    chatUsageByUser.set(username, { day, count: 0 });
+    return { allowed: limit > 0, used: 0, limit };
+  }
+  return { allowed: rec.count < limit, used: rec.count, limit };
+}
+
+function noteChatUse(username) {
+  const day = todayKey();
+  const rec = chatUsageByUser.get(username);
+  if (!rec || rec.day !== day) chatUsageByUser.set(username, { day, count: 1 });
+  else rec.count += 1;
 }
 
 /** อ่าน body ของ POST พร้อมจำกัดขนาด กัน request ใหญ่เกินจนกินหน่วยความจำ */
@@ -231,9 +291,84 @@ async function serveStatic(req, res, urlPath) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// การล็อกอิน
+// ─────────────────────────────────────────────────────────────
+
+/** เส้นทางที่เข้าได้โดยยังไม่ต้องล็อกอิน */
+const OPEN_PATHS = new Set([
+  '/login.html',
+  '/js/login.js',
+  '/js/theme.js',
+  '/api/auth/login',
+  '/api/auth/status',
+  '/favicon.ico',
+]);
+const OPEN_PREFIXES = ['/css/', '/assets/'];
+
+function isOpenPath(pathname) {
+  return OPEN_PATHS.has(pathname) || OPEN_PREFIXES.some((p) => pathname.startsWith(p));
+}
+
+async function handleAuthRoute(req, res, url, user) {
+  const route = url.pathname;
+
+  if (route === '/api/auth/status') {
+    return sendJson(res, 200, {
+      enabled: isAuthEnabled(),
+      user: user ?? null,
+      sessionHours: SESSION_HOURS,
+    });
+  }
+
+  if (route === '/api/auth/me') {
+    if (!user) return sendJson(res, 401, { error: 'ยังไม่ได้ล็อกอิน', code: 'AUTH_REQUIRED' });
+    const quota = checkChatQuota(user.username, user.chatQuotaPerDay ?? DEFAULT_CHAT_QUOTA);
+    return sendJson(res, 200, { user, chatQuota: quota });
+  }
+
+  if (route === '/api/auth/login' && req.method === 'POST') {
+    if (!isAuthEnabled()) {
+      return sendJson(res, 400, {
+        error: 'เซิร์ฟเวอร์นี้ยังไม่ได้เปิดระบบล็อกอิน',
+        code: 'AUTH_DISABLED',
+      });
+    }
+
+    let body;
+    try {
+      body = await readJsonBody(req, 8 * 1024);
+    } catch (err) {
+      return sendJson(res, 400, { error: err.message });
+    }
+
+    const ip = clientIp(req, { trustProxy: TRUST_PROXY });
+    const result = await verifyLogin(body.username, body.password, ip);
+
+    if (!result.ok) {
+      console.warn(`[auth] ล็อกอินไม่สำเร็จ user="${body.username}" ip=${ip}`);
+      return sendJson(res, 401, { error: result.error, code: 'BAD_CREDENTIALS' });
+    }
+
+    console.log(`[auth] ${result.user.username} ล็อกอินสำเร็จ ip=${ip}`);
+    res.setHeader(
+      'Set-Cookie',
+      buildSetCookie(createSession(result.user), { secure: isSecureRequest(req) })
+    );
+    return sendJson(res, 200, { user: result.user });
+  }
+
+  if (route === '/api/auth/logout' && req.method === 'POST') {
+    res.setHeader('Set-Cookie', buildSetCookie('', { secure: isSecureRequest(req) }));
+    return sendJson(res, 200, { ok: true });
+  }
+
+  return sendJson(res, 404, { error: 'ไม่พบ endpoint นี้' });
+}
+
+// ─────────────────────────────────────────────────────────────
 // เส้นทาง API
 // ─────────────────────────────────────────────────────────────
-async function handleApi(req, res, url) {
+async function handleApi(req, res, url, user) {
   const route = url.pathname;
 
   if (route === '/api/health') {
@@ -305,27 +440,51 @@ async function handleApi(req, res, url) {
   if (route === '/api/chat/models') {
     return sendJson(res, 200, {
       ready: hasApiKey(),
+      provider: 'Google AI Studio',
+      keyEnvName: KEY_ENV_NAME,
       defaultModel: DEFAULT_MODEL,
+      canChat: !user || user.role === 'exec',
       models: MODELS.map((m) => ({
         id: m.id,
         label: m.label,
         descTh: m.descTh,
         descEn: m.descEn,
-        pricing: m.pricing,
+        thinking: m.thinking,
       })),
     });
   }
 
   if (route === '/api/usage') {
-    return sendJson(res, 200, { ready: hasApiKey(), ...usageStats });
+    const quota = user
+      ? checkChatQuota(user.username, user.chatQuotaPerDay ?? DEFAULT_CHAT_QUOTA)
+      : null;
+    return sendJson(res, 200, { ready: hasApiKey(), ...usageStats, chatQuota: quota });
   }
 
   if (route === '/api/chat' && req.method === 'POST') {
     if (!hasApiKey()) {
       return sendJson(res, 503, {
-        error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY บนเครื่องที่รันเซิร์ฟเวอร์',
+        error: `ยังไม่ได้ตั้งค่า ${KEY_ENV_NAME} บนเครื่องที่รันเซิร์ฟเวอร์`,
         code: 'NO_API_KEY',
       });
+    }
+
+    // เมื่อเปิดระบบล็อกอิน chatbot สงวนไว้ให้ role exec — ทุกคำถามมีค่าใช้จ่ายจริง
+    if (user) {
+      if (user.role !== 'exec') {
+        return sendJson(res, 403, {
+          error: 'บัญชีนี้ดูรายงานได้อย่างเดียว ยังไม่ได้เปิดสิทธิ์ใช้ผู้ช่วย AI',
+          code: 'CHAT_FORBIDDEN',
+        });
+      }
+      const quota = checkChatQuota(user.username, user.chatQuotaPerDay ?? DEFAULT_CHAT_QUOTA);
+      if (!quota.allowed) {
+        return sendJson(res, 429, {
+          error: `ใช้ครบโควตาวันนี้แล้ว (${quota.used}/${quota.limit} คำถาม) พรุ่งนี้เริ่มนับใหม่`,
+          code: 'QUOTA_EXCEEDED',
+          chatQuota: quota,
+        });
+      }
     }
 
     let body;
@@ -350,44 +509,29 @@ async function handleApi(req, res, url) {
 
     const payload = await getReports();
 
-    /* ติด cache_control ที่บล็อกท้ายของ system
-     *
-     * คำสั่งระบบกับบริบทข้อมูลไม่เปลี่ยนตลอดการสนทนา (จนกว่าจะรีเฟรชข้อมูล)
-     * การแคชไว้ทำให้เทิร์นถัด ๆ ไปจ่ายแค่ประมาณ 10% ของราคา input ปกติ
-     */
-    const system = [
-      { type: 'text', text: SYSTEM_PROMPT },
-      {
-        type: 'text',
-        text: buildDataContext(payload),
-        cache_control: { type: 'ephemeral' },
-      },
-    ];
+    // Gemini รับคำสั่งระบบเป็นข้อความก้อนเดียว จึงต่อคำสั่งกับบริบทข้อมูลเข้าด้วยกัน
+    const system = `${SYSTEM_PROMPT}\n\n${buildDataContext(payload)}`;
 
     try {
-      const result = await ask({ model, system, messages: turns, maxTokens: 2048 });
-      const cost = recordUsage(result.model, result.usage);
+      const result = await ask({ model, system, messages: turns });
+      recordUsage(result.model, result.usage);
 
-      if (result.refused) {
-        return sendJson(res, 200, {
-          refused: true,
-          refusalCategory: result.refusalCategory,
-          text: '',
-          model: result.model,
-          usage: result.usage,
-          costUsd: cost,
-          totals: usageStats,
-        });
+      // นับโควตาหลังเรียกสำเร็จเท่านั้น — ถ้า API ล่มไม่ควรตัดสิทธิ์ผู้ใช้
+      let chatQuota = null;
+      if (user) {
+        noteChatUse(user.username);
+        chatQuota = checkChatQuota(user.username, user.chatQuotaPerDay ?? DEFAULT_CHAT_QUOTA);
       }
 
       return sendJson(res, 200, {
-        refused: false,
+        refused: result.refused,
+        refusalCategory: result.refusalCategory ?? null,
         text: result.text,
         model: result.model,
-        stopReason: result.stopReason,
+        finishReason: result.finishReason,
         usage: result.usage,
-        costUsd: cost,
         totals: usageStats,
+        chatQuota,
       });
     } catch (err) {
       const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 502;
@@ -399,18 +543,48 @@ async function handleApi(req, res, url) {
 }
 
 // ─────────────────────────────────────────────────────────────
+/** endpoint ที่รับ POST ได้ — ที่เหลืออ่านอย่างเดียว */
+const POST_ROUTES = new Set(['/api/chat', '/api/auth/login', '/api/auth/logout']);
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
-  // อนุญาต POST เฉพาะ endpoint ของ chatbot เท่านั้น ที่เหลืออ่านอย่างเดียว
-  const isChatPost = req.method === 'POST' && url.pathname === '/api/chat';
-  if (req.method !== 'GET' && req.method !== 'HEAD' && !isChatPost) {
+  const isAllowedPost = req.method === 'POST' && POST_ROUTES.has(url.pathname);
+  if (req.method !== 'GET' && req.method !== 'HEAD' && !isAllowedPost) {
     return sendJson(res, 405, { error: 'รองรับเฉพาะ GET' });
   }
 
   try {
+    // รับรายชื่อผู้ใช้ที่เพิ่งเพิ่ม/ลบ โดยไม่ต้องรีสตาร์ทเซิร์ฟเวอร์
+    await refreshAuthIfChanged();
+
+    const user = isAuthEnabled() ? verifySession(getSessionCookie(req)) : null;
+
+    /* ด่านตรวจ — ทุกอย่างต้องล็อกอินก่อน ยกเว้นหน้า login กับไฟล์ที่หน้านั้นต้องใช้
+     *
+     * วางไว้ก่อนทุก route โดยตั้งใจ ถ้าเพิ่ม endpoint ใหม่ในอนาคต
+     * มันจะถูกกั้นให้อัตโนมัติ ไม่ต้องไปไล่ใส่ทีละอัน */
+    if (isAuthEnabled() && !user && !isOpenPath(url.pathname)) {
+      if (url.pathname.startsWith('/api/')) {
+        return sendJson(res, 401, { error: 'กรุณาล็อกอินก่อน', code: 'AUTH_REQUIRED' });
+      }
+      const next = encodeURIComponent(url.pathname + url.search);
+      res.writeHead(302, { Location: `/login.html?next=${next}`, 'Cache-Control': 'no-store' });
+      return res.end();
+    }
+
+    // ล็อกอินอยู่แล้วแต่ยังเปิดหน้า login — ส่งกลับเข้า dashboard
+    if (user && url.pathname === '/login.html') {
+      res.writeHead(302, { Location: '/', 'Cache-Control': 'no-store' });
+      return res.end();
+    }
+
+    if (url.pathname.startsWith('/api/auth/')) {
+      await handleAuthRoute(req, res, url, user);
+      return;
+    }
     if (url.pathname.startsWith('/api/')) {
-      await handleApi(req, res, url);
+      await handleApi(req, res, url, user);
       return;
     }
     await serveStatic(req, res, url.pathname);
@@ -421,7 +595,15 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// เก็บกวาดสถิติล็อกอินผิดที่หมดอายุ ไม่ให้ Map โตไปเรื่อย ๆ
+setInterval(sweepAttempts, 10 * 60 * 1000).unref();
+
 // ─────────────────────────────────────────────────────────────
+/** เปิดให้เครื่องอื่นในเครือข่ายเข้าถึงได้หรือไม่ */
+function isPubliclyBound(host) {
+  return host !== '127.0.0.1' && host !== 'localhost' && host !== '::1';
+}
+
 async function start() {
   try {
     const config = await loadConfig();
@@ -433,14 +615,45 @@ async function start() {
     }
     const tabs = config.sources.reduce((n, s) => n + s.tabs.length, 0);
     console.log(`  Kambis Executive Report Dashboard`);
-    console.log(`  รายงาน ${config.sources.length} รายการ / ${tabs} tabs`);
+    console.log(`  รายงาน ${config.sources.length} รายการ / ${tabs} tabs (ค้นแท็บใหม่ทุกครั้งที่รีเฟรช)`);
   } catch (err) {
     console.error(`\n  ✗ ${err.message}\n`);
     process.exit(1);
   }
 
+  await loadAuth({ force: true });
+
+  if (envLoaded) console.log(`  โหลดค่าจาก .env ${envLoaded} รายการ`);
+
+  if (isAuthEnabled()) {
+    const users = listUsers();
+    const execs = users.filter((u) => u.role === 'exec').length;
+    console.log(`  ล็อกอิน: เปิดใช้งาน — ผู้ใช้ ${users.length} คน (ใช้ผู้ช่วย AI ได้ ${execs} คน)`);
+  } else {
+    console.log('  ล็อกอิน: ปิดอยู่ — ใครเข้าถึงพอร์ตนี้ได้ก็เห็นข้อมูลทั้งหมด');
+  }
+
+  /* กันพลาดครั้งใหญ่: เปิดให้ทั้งเครือข่ายเข้าได้ทั้งที่ยังไม่มีระบบล็อกอิน
+   *
+   * ข้อมูลในนี้คือยอดขาย ต้นทุน ลูกค้า และสต็อกจริงของบริษัท
+   * ถ้าเผลอรันด้วย HOST=0.0.0.0 โดยยังไม่ได้สร้างผู้ใช้ ทุกคนในออฟฟิศ
+   * (หรือทั้งอินเทอร์เน็ต ถ้า forward port ไว้) เปิดดูได้ทันทีโดยไม่ต้องล็อกอิน */
+  if (isPubliclyBound(HOST) && !isAuthEnabled()) {
+    console.error(`\n  ✗ ปฏิเสธการเปิดที่ ${HOST} เพราะยังไม่ได้ตั้งระบบล็อกอิน\n`);
+    console.error('    ข้อมูลชุดนี้มียอดขาย ต้นทุน และรายชื่อลูกค้าจริง');
+    console.error('    สร้างผู้ใช้อย่างน้อยหนึ่งคนก่อน:\n');
+    console.error('      node scripts/manage-users.js add <ชื่อผู้ใช้> --role exec\n');
+    console.error('    ถ้าต้องการเปิดแบบไม่มีล็อกอินจริง ๆ (ไม่แนะนำ) ตั้ง ALLOW_NO_AUTH=1\n');
+    if (process.env.ALLOW_NO_AUTH !== '1') process.exit(1);
+    console.error('    ALLOW_NO_AUTH=1 ถูกตั้งไว้ — เปิดต่อทั้งที่ไม่มีล็อกอิน\n');
+  }
+
+  if (!hasApiKey()) {
+    console.log(`  ผู้ช่วย AI: ปิดอยู่ — ยังไม่ได้ตั้ง ${KEY_ENV_NAME}`);
+  }
+
   server.listen(PORT, HOST, () => {
-    console.log(`  เปิดที่  http://${HOST}:${PORT}\n`);
+    console.log(`\n  เปิดที่  http://${HOST}:${PORT}\n`);
   });
 }
 

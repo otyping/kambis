@@ -1,0 +1,149 @@
+/* login.css — หน้าเข้าสู่ระบบ
+   ใช้โทเคนสีชุดเดียวกับ Dashboard จึงรองรับโหมดสว่าง/มืดอัตโนมัติ */
+
+.login-body {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--sp-4);
+}
+
+.login {
+  width: 100%;
+  max-width: 400px;
+}
+
+.login__panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-6) var(--sp-5) var(--sp-5);
+  border-radius: var(--r-lg);
+  text-align: center;
+}
+
+.login__logo {
+  width: 68px;
+  height: 68px;
+  object-fit: contain;
+  margin: 0 auto var(--sp-1);
+}
+
+.login__title {
+  font-size: 21px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.3;
+}
+
+.login__sub {
+  font-size: 13.5px;
+  color: var(--ink-mute);
+  margin-bottom: var(--sp-2);
+}
+
+/* ── ช่องกรอก ── */
+.login__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.login__field span {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.login__field input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 var(--sp-3);
+  font: inherit;
+  font-size: 15px;
+  color: var(--ink);
+  background: var(--bg-raise);
+  border: 1px solid var(--glass-border-soft);
+  border-radius: var(--r-md);
+}
+
+.login__field input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--tint-accent);
+}
+
+/* ── ข้อความผิดพลาด ── */
+.login__error {
+  padding: 10px var(--sp-3);
+  border-radius: var(--r-sm);
+  background: var(--tint-critical);
+  border: 1px solid var(--line-critical);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.login__error[hidden] {
+  display: none;
+}
+
+/* ── ปุ่ม ── */
+.login__submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-height: 48px;
+  margin-top: var(--sp-1);
+  border-radius: var(--r-md);
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 1px solid var(--accent);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.login__submit:hover:not(:disabled) {
+  background: var(--accent-strong);
+}
+
+.login__submit:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.login__spin {
+  display: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: login-spin 0.7s linear infinite;
+}
+
+.login__submit.is-busy .login__spin {
+  display: block;
+}
+
+@keyframes login-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login__spin {
+    animation-duration: 2s;
+  }
+}
+
+.login__note {
+  margin-top: var(--sp-2);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink-mute);
+}

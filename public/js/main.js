@@ -29,6 +29,8 @@ const el = {
   notice: document.getElementById('notice'),
   footerMeta: document.getElementById('footer-meta'),
   canvas: document.getElementById('three-canvas'),
+  logout: document.getElementById('btn-logout'),
+  userName: document.getElementById('user-name'),
 };
 
 let payload = null;
@@ -57,6 +59,23 @@ function renderHeader() {
   const messages = [];
   if (meta.degraded || meta.sources.some((s) => s.status === 'stale')) messages.push(t('notice.stale'));
   if (meta.configOutdated) messages.push(t('notice.configOutdated'));
+
+  /* แท็บที่เพิ่ม/หาย/เปลี่ยนชื่อในชีตตั้งแต่รีเฟรชครั้งก่อน
+   * สำคัญกับผู้ใช้เพราะแปลว่าตัวเลขรวมขยับด้วยเหตุผลที่ไม่ใช่การแก้ข้อมูล */
+  for (const change of meta.tabChanges ?? []) {
+    const title = pick(change, 'title');
+    if (change.added?.length) {
+      messages.push(`${t('tabs.newFound')} — ${title}: ${change.added.map((x) => x.name).join(', ')}`);
+    }
+    if (change.removed?.length) {
+      messages.push(`${t('tabs.removed')} — ${title}: ${change.removed.map((x) => x.name).join(', ')}`);
+    }
+    if (change.renamed?.length) {
+      messages.push(
+        `${t('tabs.renamed')} — ${title}: ${change.renamed.map((x) => `${x.from} → ${x.to}`).join(', ')}`
+      );
+    }
+  }
 
   if (messages.length) {
     el.notice.hidden = false;
@@ -137,12 +156,34 @@ function applyStaticText() {
   el.theme.title = dark ? t('action.themeLight') : t('action.themeDark');
 }
 
+/** ─── แสดงว่าใครล็อกอินอยู่ + ปุ่มออกจากระบบ ─── */
+async function initAuthChrome() {
+  let status;
+  try {
+    status = await fetch('/api/auth/status').then((r) => r.json());
+  } catch {
+    return; // ถามไม่ได้ก็ไม่ต้องแสดงอะไร ไม่ใช่ของจำเป็น
+  }
+  if (!status.enabled || !status.user) return;
+
+  el.userName.textContent = status.user.name;
+  el.logout.hidden = false;
+  el.logout.title = `${status.user.username} · ${t('auth.logout')}`;
+
+  el.logout.addEventListener('click', async () => {
+    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    location.replace('/login.html');
+  });
+}
+
 /** ─── เริ่มทำงาน ─── */
 function start() {
   initLang();
   initTheme();
   applyStaticText();
   initModal();
+
+  initAuthChrome().catch(() => {});
 
   // ฉากหลังไม่ใช่ของจำเป็น — ล้มเหลวก็ใช้ gradient จาก CSS ต่อได้
   initBackground(el.canvas).catch(() => {});

@@ -40,6 +40,15 @@ export function subscribeProgress(onEvent) {
 
 async function getJson(path) {
   const res = await fetch(`${BASE}${path}`, { headers: { Accept: 'application/json' } });
+
+  /* เซสชันหมดอายุระหว่างเปิดหน้าค้างไว้
+   * พากลับไปล็อกอินเลยดีกว่าปล่อยให้ขึ้น "HTTP 401" ซึ่งผู้ใช้ไม่รู้ว่าต้องทำอะไร */
+  if (res.status === 401) {
+    const next = encodeURIComponent(location.pathname + location.search);
+    location.replace(`/login.html?next=${next}`);
+    throw new Error('เซสชันหมดอายุ');
+  }
+
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
     try {

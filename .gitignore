@@ -2,8 +2,20 @@
 data/cache/
 data/
 
+# ผู้ใช้ + รหัสผ่าน (hash) + secret ที่ใช้เซ็น session — ห้าม commit เด็ดขาด
+config/users.json
+config/users.json.tmp
+config/sources.json.tmp
+
 node_modules/
 npm-debug.log*
 .DS_Store
 Thumbs.db
 *.log
+
+# API key และค่าตั้งเฉพาะเครื่อง — ห้าม commit
+.env
+.env.local
+
+# shortcut ที่สร้างไว้เปิดหน้าเว็บบนเครื่องตัวเอง
+*.url

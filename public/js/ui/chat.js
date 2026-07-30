@@ -1,10 +1,12 @@
 /**
  * ui/chat.js — ช่องแชท AI ถามตอบเกี่ยวกับข้อมูลใน Dashboard
  *
- * ทุกคำถามส่งไปที่ /api/chat ฝั่ง server แล้ว server เป็นคนเรียก Claude
- * API key อยู่ฝั่ง server เท่านั้น ไม่เคยถูกส่งมาที่เบราว์เซอร์
+ * ทุกคำถามส่งไปที่ /api/chat ฝั่ง server แล้ว server เป็นคนเรียก Gemini
+ * ผ่าน Google AI Studio — API key อยู่ฝั่ง server เท่านั้น
+ * ไม่เคยถูกส่งมาที่เบราว์เซอร์
  *
- * ทุกคำตอบแสดง token ที่ใช้และค่าใช้จ่ายโดยประมาณกำกับไว้
+ * ทุกคำตอบแสดงจำนวน token ที่ใช้กำกับไว้ ไม่แปลงเป็นเงินเพราะราคาขึ้นกับ
+ * ว่าบัญชี AI Studio ที่ใช้อยู่เป็นระดับฟรีหรือแบบเสียเงิน
  */
 import { t, getLang, pick } from '../i18n.js';
 import { esc, n } from '../format.js';
@@ -66,13 +68,6 @@ function renderMarkdown(text) {
   return html.join('') || `<p>${inline(text)}</p>`;
 }
 
-/** จัดรูปค่าใช้จ่ายเป็นดอลลาร์ — ตัวเลขน้อยมากจึงต้องทศนิยมเยอะ */
-function money(usd) {
-  if (!Number.isFinite(usd) || usd === 0) return '$0';
-  if (usd < 0.01) return `$${usd.toFixed(4)}`;
-  return `$${usd.toFixed(3)}`;
-}
-
 function scrollToEnd() {
   els.log.scrollTop = els.log.scrollHeight;
 }
@@ -106,17 +101,22 @@ function autoGrow() {
 }
 
 /** อัปเดตตัวเลข usage สะสมบนหัวแผง */
-function renderUsage(totals) {
+function renderUsage(totals, quota) {
   if (!totals) return;
-  const tokens = totals.inputTokens + totals.outputTokens + totals.cacheReadTokens + totals.cacheWriteTokens;
-  els.usage.innerHTML = `${t('chat.usage')} <b>${n(tokens)}</b> ${t('chat.tokens')} · <b>${money(totals.costUsd)}</b>`;
-  els.usage.title =
-    `${t('chat.usageDetail')}\n` +
-    `${t('chat.inputTokens')}: ${n(totals.inputTokens)}\n` +
-    `${t('chat.outputTokens')}: ${n(totals.outputTokens)}\n` +
-    `${t('chat.cacheRead')}: ${n(totals.cacheReadTokens)}\n` +
-    `${t('chat.cacheWrite')}: ${n(totals.cacheWriteTokens)}\n` +
-    `${t('chat.requests')}: ${n(totals.requests)}`;
+
+  const tokens = totals.totalTokens || totals.inputTokens + totals.outputTokens;
+  const quotaPart = quota ? ` · <b>${n(quota.used)}/${n(quota.limit)}</b>` : '';
+  els.usage.innerHTML = `${t('chat.usage')} <b>${n(tokens)}</b> ${t('chat.tokens')}${quotaPart}`;
+
+  const lines = [
+    t('chat.usageDetail'),
+    `${t('chat.inputTokens')}: ${n(totals.inputTokens)}`,
+    `${t('chat.outputTokens')}: ${n(totals.outputTokens)}`,
+    `${t('chat.thoughtTokens')}: ${n(totals.thoughtTokens ?? 0)}`,
+    `${t('chat.requests')}: ${n(totals.requests)}`,
+  ];
+  if (quota) lines.push(`${t('chat.quota')}: ${n(quota.used)}/${n(quota.limit)}`);
+  els.usage.title = lines.join('\n');
 }
 
 /** เติมคำถามตัวอย่างตอนเริ่มต้น */
@@ -143,6 +143,13 @@ function renderHints() {
   els.log.appendChild(box);
 }
 
+/** ปิดช่องพิมพ์พร้อมข้อความอธิบายเหตุผล */
+function disableInput() {
+  els.input.disabled = true;
+  els.send.disabled = true;
+  els.model.disabled = true;
+}
+
 /** แสดงวิธีตั้งค่า API key เมื่อ server ยังไม่มี key */
 function renderSetup() {
   els.log.innerHTML = '';
@@ -151,12 +158,21 @@ function renderSetup() {
   box.innerHTML = `
     <h4>${esc(t('chat.setupTitle'))}</h4>
     <p>${esc(t('chat.setupBody'))}</p>
-    <code>ANTHROPIC_API_KEY=sk-ant-... node server/server.js</code>
+    <code># ไฟล์ .env ที่โฟลเดอร์โปรเจกต์
+GOOGLE_API_KEY=...</code>
     <p>${esc(t('chat.setupNote'))}</p>`;
   els.log.appendChild(box);
-  els.input.disabled = true;
-  els.send.disabled = true;
-  els.model.disabled = true;
+  disableInput();
+}
+
+/** บัญชีนี้ล็อกอินอยู่แต่เป็น viewer จึงใช้ผู้ช่วย AI ไม่ได้ */
+function renderForbidden() {
+  els.log.innerHTML = '';
+  const box = document.createElement('div');
+  box.className = 'chat-setup';
+  box.innerHTML = `<h4>${esc(t('chat.forbidden'))}</h4>`;
+  els.log.appendChild(box);
+  disableInput();
 }
 
 /** ส่งคำถาม */
@@ -180,11 +196,20 @@ async function send() {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ model: els.model.value, messages: history }),
     });
+    // เซสชันหมดอายุระหว่างใช้งาน — พากลับไปล็อกอินแทนที่จะขึ้น error งง ๆ
+    if (res.status === 401) {
+      showTyping(false);
+      appendMessage('error', t('auth.expired'));
+      setTimeout(() => location.replace(`/login.html?next=${encodeURIComponent(location.pathname)}`), 1200);
+      return;
+    }
+
     const data = await res.json();
     showTyping(false);
 
     if (!res.ok) {
       appendMessage('error', `${t('chat.error')}: ${data.error ?? res.status}`);
+      if (data.chatQuota) renderUsage(data.totals, data.chatQuota);
       history.pop();
       return;
     }
@@ -192,19 +217,21 @@ async function send() {
     if (data.refused) {
       appendMessage('error', t('chat.refused'));
       history.pop();
+      renderUsage(data.totals, data.chatQuota);
       return;
     }
 
     const u = data.usage ?? {};
-    const used = (u.input_tokens ?? 0) + (u.output_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
-    const cached = u.cache_read_input_tokens ?? 0;
-    const meta =
-      `${data.model} · ${n(used)} ${t('chat.tokens')} · ${money(data.costUsd)}` +
-      (cached ? ` · ${t('chat.fromCache')} ${n(cached)}` : '');
+    const parts = [
+      data.model,
+      `${n(u.totalTokens ?? 0)} ${t('chat.tokens')}`,
+    ];
+    if (u.thoughtTokens) parts.push(`${t('chat.thinking')} ${n(u.thoughtTokens)}`);
+    if (data.chatQuota) parts.push(`${t('chat.quota')} ${n(data.chatQuota.used)}/${n(data.chatQuota.limit)}`);
 
-    appendMessage('bot', data.text || '—', meta);
+    appendMessage('bot', data.text || '—', parts.join(' · '));
     history.push({ role: 'assistant', content: data.text });
-    renderUsage(data.totals);
+    renderUsage(data.totals, data.chatQuota);
   } catch (err) {
     showTyping(false);
     appendMessage('error', `${t('chat.error')}: ${err.message}`);
@@ -261,24 +288,22 @@ export async function initChat() {
     ]);
 
     models = cfg.models ?? [];
-    ready = Boolean(cfg.ready);
+    ready = Boolean(cfg.ready) && cfg.canChat !== false;
 
     els.model.innerHTML = models
-      .map((m) => {
-        // ย่อให้พอดีความกว้าง dropdown — ราคาเต็มอยู่ใน title
-        return `<option value="${esc(m.id)}">${esc(m.label)} · $${m.pricing.input}/$${m.pricing.output}</option>`;
-      })
+      .map((m) => `<option value="${esc(m.id)}">${esc(m.label)}</option>`)
       .join('');
     els.model.value = cfg.defaultModel;
     els.model.title = models.map((m) => `${m.label}: ${pick(m, 'desc')}`).join('\n');
 
-    renderUsage(usage);
-    if (!ready) renderSetup();
+    renderUsage(usage, usage?.chatQuota);
+
+    if (cfg.canChat === false) renderForbidden();
+    else if (!cfg.ready) renderSetup();
     else renderHints();
   } catch {
     renderSetup();
   }
-
 }
 
 /** ล้างบทสนทนา — เรียกเมื่อรีเฟรชข้อมูลหรือสลับภาษา เพราะบริบทเปลี่ยนไปแล้ว */

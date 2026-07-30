@@ -37,6 +37,40 @@
   cursor: not-allowed;
 }
 
+.btn[hidden] {
+  display: none;
+}
+
+/* ── ปุ่มผู้ใช้ / ออกจากระบบ ── */
+.user-chip {
+  padding: 0 var(--sp-3);
+  font-size: 13px;
+  font-weight: 600;
+  max-width: 190px;
+}
+
+.user-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-chip__icon {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.user-chip:hover {
+  background: var(--tint-critical);
+  border-color: var(--line-critical);
+}
+
 .btn__spin {
   width: 14px;
   height: 14px;

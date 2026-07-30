@@ -4,7 +4,7 @@
  * เป็นทางเดียวที่ข้อมูลเข้าสู่ระบบ ทุกเส้นทางต้องผ่านที่นี่
  * และทุกครั้งที่โหลดเสร็จต้องรัน Data Analysis (บังคับตาม CLAUDE.md ข้อ 2)
  */
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, writeFile, rename, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fetchText, csvUrl, mapLimit } from './fetcher.js';
@@ -13,6 +13,7 @@ import { writeTabCache, readTabCache, writeSnapshot, readSnapshot } from './cach
 import { getParser } from './parsers/index.js';
 import { analyze } from './analysis.js';
 import { buildKpi } from './aggregate.js';
+import { discoverTabs, diffTabs } from './tabs.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CONFIG = path.join(ROOT, 'config', 'sources.json');
@@ -32,15 +33,68 @@ export async function loadConfig() {
   }
   const config = JSON.parse(raw);
 
+  /* เทียบกับ sourceMtime ที่ sync-sources.js บันทึกไว้ ไม่ใช่ mtime ของตัวไฟล์ config
+   *
+   * เพราะ refreshTabs() ด้านล่างเขียนทับ config เองเวลาเจอแท็บใหม่
+   * ถ้าเทียบด้วย mtime ของไฟล์ การเขียนนั้นจะกลบร่องรอยว่า .txt ถูกแก้ไปแล้ว */
   let outdated = false;
   try {
-    const [txtStat, cfgStat] = await Promise.all([stat(SOURCE_TXT), stat(CONFIG)]);
-    outdated = txtStat.mtimeMs > cfgStat.mtimeMs;
+    const txtStat = await stat(SOURCE_TXT);
+    outdated = config.sourceMtime
+      ? txtStat.mtimeMs > new Date(config.sourceMtime).getTime() + 1000
+      : txtStat.mtimeMs > (await stat(CONFIG)).mtimeMs;
   } catch {
     /* ไม่มีไฟล์ .txt ก็ปล่อยผ่าน — sync ครั้งหน้าจะฟ้องเอง */
   }
 
   return { ...config, outdated };
+}
+
+/**
+ * เขียนรายชื่อแท็บที่ค้นเจอใหม่กลับลง config/sources.json
+ *
+ * config ยังคงถูก "สร้าง" จากไฟล์ .txt เหมือนเดิม — ที่นี่แตะเฉพาะ tabs[]
+ * ซึ่งเป็นข้อมูลที่ค้นจาก Google ไม่ใช่ลิงก์ที่มนุษย์เป็นคนกำหนด
+ * เขียนกลับเพื่อให้ตอนออฟไลน์ (ค้นแท็บไม่ได้) ยังมีรายชื่อล่าสุดใช้
+ *
+ * @param {Record<string,{gid:string,name:string}[]>} tabsByKey
+ */
+async function persistTabs(tabsByKey) {
+  const keys = Object.keys(tabsByKey);
+  if (!keys.length) return;
+
+  try {
+    const config = JSON.parse(await readFile(CONFIG, 'utf8'));
+    for (const source of config.sources) {
+      if (tabsByKey[source.key]) {
+        source.tabs = tabsByKey[source.key];
+        source.tabDiscoveryError = null;
+      }
+    }
+    config.tabsRefreshedAt = new Date().toISOString();
+
+    // เขียนลงไฟล์ชั่วคราวก่อนแล้วค่อย rename — กัน config พังถ้าดับกลางคัน
+    const tmp = `${CONFIG}.tmp`;
+    await writeFile(tmp, JSON.stringify(config, null, 2) + '\n', 'utf8');
+    await rename(tmp, CONFIG);
+  } catch (err) {
+    // เขียนไม่ได้ก็ไม่เป็นไร ข้อมูลรอบนี้ใช้รายชื่อสดไปแล้ว
+    console.warn('[tabs] อัปเดต config/sources.json ไม่สำเร็จ:', err.message);
+  }
+}
+
+/**
+ * ขอรายชื่อแท็บสดจาก Google — ถ้าล้มเหลวใช้รายชื่อใน config แทน
+ * @returns {{tabs, discovery:'live'|'config', diff:object|null, error:string|null}}
+ */
+async function resolveTabs(source) {
+  try {
+    const live = await discoverTabs(source.sheetId, { timeoutMs: 20000, retries: 1 });
+    const diff = diffTabs(source.tabs ?? [], live);
+    return { tabs: live, discovery: 'live', diff, error: null };
+  } catch (err) {
+    return { tabs: source.tabs ?? [], discovery: 'config', diff: null, error: err.message };
+  }
 }
 
 /**
@@ -80,17 +134,30 @@ async function loadTab(source, tab) {
  */
 export async function loadSource(source, onProgress) {
   const started = Date.now();
-  onProgress?.({ type: 'source:start', key: source.key, tabCount: source.tabs.length });
+
+  /* ค้นรายชื่อแท็บสดก่อนเสมอ — ถ้าไม่ทำ แท็บของเดือนใหม่ที่เพิ่งเพิ่มในชีต
+   * จะถูกมองข้ามเงียบ ๆ จนกว่าจะมีคนรัน sync-sources.js ด้วยมือ */
+  onProgress?.({ type: 'source:tabs', key: source.key });
+  const resolved = await resolveTabs(source);
+  const tabList = resolved.tabs;
+
+  onProgress?.({
+    type: 'source:start',
+    key: source.key,
+    tabCount: tabList.length,
+    discovery: resolved.discovery,
+    tabsAdded: resolved.diff?.added.map((t) => t.name) ?? [],
+  });
 
   let done = 0;
-  const tabs = await mapLimit(source.tabs, TAB_CONCURRENCY, async (tab) => {
+  const tabs = await mapLimit(tabList, TAB_CONCURRENCY, async (tab) => {
     const result = await loadTab(source, tab);
     done++;
     onProgress?.({
       type: 'tab:done',
       key: source.key,
       done,
-      total: source.tabs.length,
+      total: tabList.length,
       tabName: tab.name,
       status: result.status,
     });
@@ -129,12 +196,18 @@ export async function loadSource(source, onProgress) {
     tabs: tabInfo,
     warnings: parsed.warnings,
     error: parseError || (errors.length ? `${errors.length} tab ดึงไม่สำเร็จ` : null),
-    tabCount: source.tabs.length,
+    tabCount: tabList.length,
     tabsOk: tabs.filter((t) => t.status === 'ok').length,
     tabsStale: stales.length,
     tabsError: errors.length,
     rowCount: parsed.rows.length,
     durationMs: Date.now() - started,
+
+    // ผลการค้นหาแท็บ — loadAll เอาไปสรุปรวมและบันทึกกลับลง config
+    discovery: resolved.discovery,
+    discoveryError: resolved.error,
+    tabDiff: resolved.diff,
+    resolvedTabs: tabList,
   };
 
   onProgress?.({
@@ -164,9 +237,34 @@ export async function loadAll(onProgress) {
   // โหลดทีละรายงานตามลำดับ เพื่อให้ progress บน loading screen เดินเป็นระเบียบ
   // และไม่ยิง Google พร้อมกันเกิน TAB_CONCURRENCY
   const sources = {};
+  const tabsToPersist = {};
+  const tabChanges = [];
+
   for (const source of config.sources) {
-    sources[source.key] = await loadSource(source, onProgress);
+    const result = await loadSource(source, onProgress);
+
+    // แยกผลการค้นแท็บออกจาก payload ที่ส่งให้ browser — ใช้เฉพาะฝั่ง server
+    const { resolvedTabs, tabDiff, ...rest } = result;
+
+    if (result.discovery === 'live' && tabDiff?.changed) {
+      tabsToPersist[source.key] = resolvedTabs;
+      tabChanges.push({
+        key: source.key,
+        titleTh: source.titleTh,
+        titleEn: source.titleEn,
+        sheetUrl: source.sheetUrl,
+        added: tabDiff.added,
+        removed: tabDiff.removed,
+        renamed: tabDiff.renamed,
+      });
+      const added = tabDiff.added.map((t) => t.name).join(', ');
+      if (added) console.log(`[tabs] ${source.key}: เจอแท็บใหม่ — ${added}`);
+    }
+
+    sources[source.key] = rest;
   }
+
+  await persistTabs(tabsToPersist);
 
   onProgress?.({ type: 'analysis:start' });
   const analysis = analyze(sources);
@@ -180,6 +278,9 @@ export async function loadAll(onProgress) {
       cacheHit: false,
       configGeneratedAt: config.generatedAt,
       configOutdated: config.outdated,
+
+      // แท็บที่เพิ่ม/ลบ/เปลี่ยนชื่อในรอบนี้ — หน้าเว็บเอาไปขึ้นแถบแจ้งเตือน
+      tabChanges,
       sources: Object.values(sources).map((s) => ({
         key: s.key,
         titleTh: s.titleTh,
@@ -194,6 +295,8 @@ export async function loadAll(onProgress) {
         rowCount: s.rowCount,
         durationMs: s.durationMs,
         error: s.error,
+        discovery: s.discovery,
+        discoveryError: s.discoveryError,
       })),
     },
     sources,

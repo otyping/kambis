@@ -10,7 +10,9 @@
 import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fetchText } from '../server/lib/fetcher.js';
+import { discoverTabs, extractTabs } from '../server/lib/tabs.js';
+
+export { extractTabs };
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE_TXT = 'แบบฟอร์มรายงาน Kambis.txt';
@@ -104,33 +106,6 @@ export function parseSourceList(text) {
     }
   }
   return entries;
-}
-
-/**
- * ดึงรายชื่อ tab ทั้งหมดของ spreadsheet จากหน้า htmlview
- * หน้านั้นฝัง JS ที่มี items.push({name: "...", pageUrl: "...gid=NNN"}) ไว้ครบทุก tab
- */
-export function extractTabs(html) {
-  const tabs = [];
-  const re = /items\.push\(\{name:\s*"((?:[^"\\]|\\.)*)"\s*,\s*pageUrl:\s*"((?:[^"\\]|\\.)*)"/g;
-  let m;
-  while ((m = re.exec(html)) !== null) {
-    const name = m[1].replace(/\\\//g, '/').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-    const gidMatch = m[2].match(/gid=(\d+)/);
-    if (!gidMatch) continue;
-    tabs.push({ gid: gidMatch[1], name: name.trim() });
-  }
-  // กัน tab ซ้ำ (บางไฟล์ฝัง list ซ้ำสองรอบ)
-  const seen = new Set();
-  return tabs.filter((t) => (seen.has(t.gid) ? false : seen.add(t.gid)));
-}
-
-async function discoverTabs(sheetId) {
-  const html = await fetchText(
-    `https://docs.google.com/spreadsheets/d/${sheetId}/htmlview`,
-    { timeoutMs: 30000, retries: 2 }
-  );
-  return extractTabs(html);
 }
 
 async function main() {
