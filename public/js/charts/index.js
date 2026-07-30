@@ -15,14 +15,20 @@ import {
   attachTooltip,
   legendHtml,
   onResize,
+  releaseChart,
   shortNum,
   FONT_SM,
 } from './core.js';
 import { t } from '../i18n.js';
 import { weight, n, pct, date as fmtDate, month as fmtMonth, truncate, esc } from '../format.js';
 
-/** สร้าง canvas ใหม่ในกล่อง (ล้างของเดิมก่อน) */
+/**
+ * สร้าง canvas ใหม่ในกล่อง
+ * ต้อง releaseChart ก่อนล้าง DOM เสมอ ไม่งั้น observer กับ bitmap ของ canvas เดิม
+ * จะค้างอยู่ในหน่วยความจำแม้ element หลุดจาก DOM ไปแล้ว
+ */
 function prepare(container, height) {
+  releaseChart(container);
   container.innerHTML = '';
   container.classList.add('chart');
   const canvas = document.createElement('canvas');

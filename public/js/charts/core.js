@@ -237,16 +237,77 @@ export function legendHtml(items) {
     .join('')}</div>`;
 }
 
-/** วาดกราฟใหม่เมื่อขนาดกล่องเปลี่ยน */
+/**
+ * วาดกราฟใหม่เมื่อ "ความกว้าง" ของกล่องเปลี่ยน
+ *
+ * มีสองกับดักที่ต้องระวัง และเคยทำให้หน้าเว็บค้างกับกิน RAM มาแล้ว:
+ *
+ * 1. หนึ่งกล่องต้องมี observer ตัวเดียวเสมอ
+ *    การวาดใหม่จะสร้าง canvas ใหม่แล้วเรียกฟังก์ชันนี้อีกรอบ ถ้าไม่ปิดตัวเก่าก่อน
+ *    observer จะสะสมทับกันไปเรื่อย ๆ พอ resize ทีเดียวจะวาดใหม่ N รอบ
+ *    แล้วได้ observer เพิ่มอีก N ตัว — บานปลายแบบทวีคูณจนเบราว์เซอร์ค้าง
+ *
+ * 2. ต้องเทียบเฉพาะความกว้าง
+ *    การวาดใหม่ไปตั้งความสูงของ canvas ซึ่งทำให้กล่องเปลี่ยนขนาด
+ *    ถ้าดูทั้งสองด้านจะกลายเป็นวงจรป้อนกลับที่วาดใหม่ไม่หยุด
+ */
 export function onResize(canvas, redraw) {
-  if (typeof ResizeObserver === 'undefined') return () => {};
+  const box = canvas.parentElement;
+  if (!box || typeof ResizeObserver === 'undefined') return () => {};
+
+  // ปิดตัวเดิมของกล่องนี้ก่อนเสมอ ไม่ให้มีสองตัวทำงานพร้อมกัน
+  releaseChart(box);
+
   let timer = null;
+  let lastWidth = Math.round(box.clientWidth);
+
   const ro = new ResizeObserver(() => {
+    const width = Math.round(box.clientWidth);
+    if (width === lastWidth || width === 0) return;
+    lastWidth = width;
     clearTimeout(timer);
     timer = setTimeout(redraw, 120);
   });
-  if (canvas.parentElement) ro.observe(canvas.parentElement);
-  return () => ro.disconnect();
+  ro.observe(box);
+
+  const stop = () => {
+    clearTimeout(timer);
+    ro.disconnect();
+  };
+  box.__chartCleanup = stop;
+  return stop;
+}
+
+/**
+ * คืนทรัพยากรของกราฟในกล่องหนึ่ง
+ * นอกจากปิด observer แล้วต้องล้างขนาด canvas ด้วย
+ * เพราะ bitmap ของ canvas กินหน่วยความจำจริง (กว้าง × สูง × dpr² × 4 ไบต์)
+ * ถ้าปล่อยทิ้งไว้แบบหลุดจาก DOM จะค้างอยู่ในเมมโมรีจนกว่าจะ GC
+ */
+export function releaseChart(box) {
+  if (!box) return;
+  if (typeof box.__chartCleanup === 'function') {
+    box.__chartCleanup();
+    box.__chartCleanup = null;
+  }
+  for (const canvas of box.querySelectorAll?.('canvas') ?? []) {
+    canvas.onpointermove = null;
+    canvas.onpointerleave = null;
+    canvas.onpointercancel = null;
+    canvas.onpointerdown = null;
+    canvas.onpointerup = null;
+    canvas.width = 0;
+    canvas.height = 0;
+  }
+}
+
+/**
+ * คืนทรัพยากรของกราฟทั้งหมดใต้ element หนึ่ง
+ * ต้องเรียกก่อนทิ้ง DOM ก้อนนั้น (ปิด modal, วาดการ์ดใหม่, สลับธีม)
+ */
+export function releaseCharts(root) {
+  if (!root) return;
+  for (const box of root.querySelectorAll?.('.chart') ?? []) releaseChart(box);
 }
 
 export { FONT, FONT_SM };

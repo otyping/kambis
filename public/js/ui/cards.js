@@ -8,6 +8,7 @@ import { t, pick } from '../i18n.js';
 import { weight, grams, n, pct, esc, DASH } from '../format.js';
 import { icon } from './icons.js';
 import * as charts from '../charts/index.js';
+import { releaseCharts } from '../charts/core.js';
 
 /** ระดับคุณภาพจากจำนวน finding */
 export function qualityLevel(counts) {
@@ -98,6 +99,8 @@ export function renderCards(el, payload, onOpen) {
   const metaOf = (key) => meta.sources.find((s) => s.key === key) ?? {};
   const titleOf = (key) => pick(metaOf(key), 'title') || key;
 
+  // สลับธีม/ภาษาจะวาดการ์ดใหม่ทั้งหมด — ปล่อยกราฟชุดเดิมก่อนเสมอ
+  releaseCharts(el);
   el.innerHTML = '';
   const cards = [];
 

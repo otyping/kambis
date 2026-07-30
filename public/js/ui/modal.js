@@ -7,6 +7,8 @@
 import { t, pick, pickMessage } from '../i18n.js';
 import { weight, n, pct, date as fmtDate, dateTime, esc, DASH } from '../format.js';
 import * as charts from '../charts/index.js';
+import { releaseCharts } from '../charts/core.js';
+import { pauseBackground } from '../bg/three-bg.js';
 import { sortableTable } from './table.js';
 
 const FOCUSABLE =
@@ -48,9 +50,12 @@ export function initModal() {
 }
 
 export function close() {
+  pauseBackground(false);
   backdrop.classList.remove('is-open');
   backdrop.setAttribute('aria-hidden', 'true');
   document.body.style.overflow = '';
+  // ต้องปล่อยกราฟก่อนทิ้ง DOM ไม่งั้น observer กับ bitmap ของ canvas จะค้างในหน่วยความจำ
+  releaseCharts(dialog);
   dialog.innerHTML = '';
   if (lastFocus) {
     lastFocus.focus();
@@ -60,6 +65,7 @@ export function close() {
 
 function open(title, sub, buildBody, trigger) {
   lastFocus = trigger ?? document.activeElement;
+  releaseCharts(dialog);
 
   dialog.innerHTML = `
     <div class="modal__head">
@@ -74,6 +80,7 @@ function open(title, sub, buildBody, trigger) {
   dialog.querySelector('.modal__close').addEventListener('click', close);
   buildBody(dialog.querySelector('#modal-body'));
 
+  pauseBackground(true); // modal บังฉากหลังจนมิด ไม่ต้องเปลือง CPU วาดต่อ
   backdrop.classList.add('is-open');
   backdrop.setAttribute('aria-hidden', 'false');
   document.body.style.overflow = 'hidden';

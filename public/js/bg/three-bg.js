@@ -26,6 +26,7 @@ function themeColors() {
 }
 
 let cleanup = null;
+let setPaused = null; // ตั้งค่าเมื่อฉากถูกสร้างสำเร็จ
 
 /** สร้าง texture จุดกลมนุ่มด้วย canvas — ไม่ต้องโหลดไฟล์ภาพจากภายนอก */
 function makeDotTexture(THREE) {
@@ -230,20 +231,38 @@ export async function initBackground(canvas) {
     renderer.render(scene, camera);
   };
 
+  /* หยุดวาดเมื่อไม่มีใครเห็น
+   *
+   * ฉากนี้วาดใหม่ทุกเฟรมตลอดเวลาที่หน้าเปิดอยู่ ถ้าปล่อยให้วิ่งตอนที่
+   * ถูกบังหมด (เปิด modal) หรือสลับแท็บออกไป ก็เผา CPU/GPU ทิ้งเปล่า ๆ
+   * ซึ่งเป็นสาเหตุหนึ่งที่ทำให้เครื่องหน่วงตอนกดดูข้อมูล
+   */
+  let pausedByUi = false;
+
+  const resume = () => {
+    if (running || document.hidden || pausedByUi) return;
+    running = true;
+    render();
+  };
+  const suspend = () => {
+    running = false;
+    cancelAnimationFrame(frame);
+  };
+
+  setPaused = (value) => {
+    pausedByUi = value;
+    value ? suspend() : resume();
+  };
+
   const onVisibility = () => {
-    if (document.hidden) {
-      running = false;
-      cancelAnimationFrame(frame);
-    } else if (!running) {
-      running = true;
-      render();
-    }
+    document.hidden ? suspend() : resume();
   };
   document.addEventListener('visibilitychange', onVisibility);
 
   render();
 
   cleanup = () => {
+    setPaused = null;
     running = false;
     cancelAnimationFrame(frame);
     window.removeEventListener('pointermove', onPointerMove);
@@ -261,6 +280,14 @@ export async function initBackground(canvas) {
   };
 
   return true;
+}
+
+/**
+ * หยุด/เล่นฉากหลังชั่วคราว — ใช้ตอนเปิด modal ที่บังฉากหลังจนมิด
+ * เรียกได้เสมอแม้ยังไม่มีฉาก (เช่น WebGL ใช้ไม่ได้) จะไม่ทำอะไร
+ */
+export function pauseBackground(paused) {
+  setPaused?.(paused);
 }
 
 export function disposeBackground() {
