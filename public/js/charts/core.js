@@ -320,3 +320,53 @@ export function releaseCharts(root) {
 }
 
 export { FONT, FONT_SM };
+
+/**
+ * วาดป้ายแกน X โดยไม่ให้ตัวหนังสือทับกัน
+ *
+ * วิธีเดิมคือเว้นระยะตามจำนวนข้อมูล (stride) แล้วบังคับวาดป้ายตัวสุดท้ายเสมอ
+ * ซึ่งพังเมื่อป้ายสุดท้ายไปตกใกล้ป้ายที่ stride เลือกไว้พอดี — สองคำเขียนทับกันจนอ่านไม่ออก
+ * ที่นี่จึงวัดความกว้างจริงด้วย measureText แล้วข้ามป้ายที่จะชนแทนการเดาระยะ
+ *
+ * ป้ายแรกกับป้ายสุดท้ายสำคัญที่สุด (บอกช่วงเวลาของกราฟ) จึงกันที่ไว้ให้ก่อน
+ * แล้วค่อยแทรกป้ายตรงกลางเท่าที่ยังมีที่ว่างพอ
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {{x:number,w:number}} box กรอบพื้นที่วาดกราฟ
+ * @param {{x:number,text:string}[]} items ตำแหน่งกึ่งกลางและข้อความของทุกจุด
+ * @param {number} y ตำแหน่งบนสุดของบรรทัดป้าย
+ * @param {number} [minGap] ช่องว่างขั้นต่ำระหว่างป้ายสองอัน
+ */
+export function drawXLabels(ctx, box, items, y, minGap = 10) {
+  if (!items.length) return;
+
+  const measured = items.map((it) => ({ ...it, w: ctx.measureText(it.text).width }));
+  const last = measured[measured.length - 1];
+  const first = measured[0];
+
+  /* ป้ายหัวท้ายชิดขอบกรอบ ไม่ให้ล้นออกนอก canvas
+   * เก็บเป็นช่วง [left, right] เพื่อเอาไปเช็คการชนได้ตรง ๆ */
+  const placed = [];
+  const draw = (item, align) => {
+    ctx.textAlign = align;
+    ctx.fillText(item.text, item.x, y);
+    const left = align === 'left' ? item.x : align === 'right' ? item.x - item.w : item.x - item.w / 2;
+    placed.push({ left, right: left + item.w });
+  };
+
+  const fits = (item) => {
+    const left = item.x - item.w / 2;
+    const right = item.x + item.w / 2;
+    return placed.every((s) => right + minGap < s.left || left - minGap > s.right);
+  };
+
+  draw(first, measured.length === 1 ? 'center' : 'left');
+  if (measured.length > 1) draw(last, 'right');
+
+  // แทรกป้ายกลางจากซ้ายไปขวา เอาเท่าที่ไม่ชนกับที่วางไว้แล้ว
+  for (let i = 1; i < measured.length - 1; i++) {
+    if (fits(measured[i])) draw(measured[i], 'center');
+  }
+
+  ctx.textAlign = 'center';
+}

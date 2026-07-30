@@ -334,3 +334,55 @@ export function canonicalCrop(code) {
   const unitPart = [...new Set(units)].join('&');
   return datePart ? `${unitPart}-${datePart}` : unitPart;
 }
+
+/**
+ * แปลงป้ายช่วงเวลาให้เป็นตัวเลขที่เรียงตามเวลาจริงได้
+ *
+ * มีไว้เพราะป้ายอย่าง "Q1'2026" เรียงตามตัวอักษรแล้วผิด —
+ * Q1'2026 จะมาก่อน Q2'2025 ทั้งที่เกิดทีหลังเป็นปี
+ * ต้องอ่านปีก่อนแล้วค่อยอ่านไตรมาส
+ *
+ * รองรับ: Q1'2026 / Q1 2026 / 2026-Q1 / 2026-03 / 2026-03-15
+ * @param {string} label
+ * @returns {number} ค่ามาก = ใหม่กว่า, Number.MAX_SAFE_INTEGER = อ่านไม่ออก (ไปท้ายแถว)
+ */
+export function periodOrder(label) {
+  const s = String(label ?? '').trim();
+  if (!s) return Number.MAX_SAFE_INTEGER;
+
+  // ไตรมาส — ยอมรับทั้ง Q1'2026, Q1 2026 และ 2026-Q1
+  const q =
+    s.match(/Q\s*([1-4])\s*['\u2019\s/-]*\s*(\d{4})/i) ||
+    s.match(/(\d{4})\s*[-\s]*Q\s*([1-4])/i);
+  if (q) {
+    // สองรูปแบบสลับตำแหน่งปีกับไตรมาส ดูจากอันไหนเป็นเลขสี่หลัก
+    const [a, b] = [q[1], q[2]];
+    const year = Number(a.length === 4 ? a : b);
+    const quarter = Number(a.length === 4 ? b : a);
+    // เทียบเป็นเดือนสุดท้ายของไตรมาส เพื่อให้อยู่มาตราเดียวกับแบบ ปี-เดือน
+    // ถ้าเผลอเอาไตรมาสกับเดือนมาปนในลิสต์เดียวกัน จะยังเรียงถูก
+    return year * 10000 + quarter * 3 * 100;
+  }
+
+  // ปี-เดือน หรือ ปี-เดือน-วัน
+  const ymd = s.match(/(\d{4})-(\d{2})(?:-(\d{2}))?/);
+  if (ymd) {
+    return Number(ymd[1]) * 10000 + Number(ymd[2]) * 100 + Number(ymd[3] ?? 0);
+  }
+
+  const year = s.match(/^(\d{4})$/);
+  if (year) return Number(year[1]) * 10000;
+
+  return Number.MAX_SAFE_INTEGER;
+}
+
+/**
+ * เทียบสองป้ายช่วงเวลาตามเวลาจริง
+ * ป้ายที่อ่านไม่ออกไปอยู่ท้ายเสมอ และเรียงกันเองตามตัวอักษรเพื่อให้ผลคงที่
+ */
+export function comparePeriod(a, b) {
+  const oa = periodOrder(a);
+  const ob = periodOrder(b);
+  if (oa !== ob) return oa - ob;
+  return String(a).localeCompare(String(b));
+}

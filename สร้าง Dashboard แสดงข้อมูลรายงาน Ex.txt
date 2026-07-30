@@ -10,6 +10,7 @@ Requirements:
 - แสดงโปรเจกต์เป็นการ์ดกระจกแบบ Glassmorphism
 - มีรายงานแยกตามส่วนของข้อมูลชัดเจน
 - สามารถกดเพื่อดูรายละเอียดเพิ่มเติมได้
+- มี Filter, Sorting, Searching ของแต่ละข้อมูล
 - รองรับ Responsive ทั้ง Desktop และ Mobile
 - มี Loading Screen เวลากำลังโหลดข้อมูลเพิ่อมาแสดงผล
 - ใช้ Vanilla JavaScript ไม่ใช้ Framework

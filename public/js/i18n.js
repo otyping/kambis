@@ -170,6 +170,27 @@ const STRINGS = {
   ],
   'auth.expired': ['เซสชันหมดอายุ กำลังพากลับไปหน้าล็อกอิน…', 'Session expired, returning to sign-in…'],
 
+  'label.topCrops': ['ครอปเด่น', 'Top crops'],
+  'quality.bySeverity': ['ตามความรุนแรง', 'By severity'],
+  'quality.bySource': ['ตามรายงาน', 'By report'],
+
+  'ctl.view': ['มุมมอง', 'View'],
+  'ctl.sort': ['จัดเรียง', 'Sort'],
+  'ctl.filter': ['กรอง', 'Filter'],
+  'ctl.showAll': ['แสดงทั้งหมด', 'Show all'],
+  'ctl.onlyWithData': ['เฉพาะที่มีข้อมูล', 'With data only'],
+  'ctl.top5': ['5 อันดับแรก', 'Top 5'],
+  'ctl.reset': ['ล้างตัวกรอง', 'Clear filters'],
+  'ctl.from': ['ตั้งแต่', 'From'],
+  'ctl.to': ['ถึง', 'To'],
+
+  'sort.valueDesc': ['มาก → น้อย', 'Highest first'],
+  'sort.valueAsc': ['น้อย → มาก', 'Lowest first'],
+  'sort.timeAsc': ['เก่า → ใหม่', 'Oldest first'],
+  'sort.timeDesc': ['ใหม่ → เก่า', 'Newest first'],
+  'sort.nameAsc': ['ชื่อ ก → ฮ', 'Name A → Z'],
+  'sort.nameDesc': ['ชื่อ ฮ → ก', 'Name Z → A'],
+
   'tabs.newFound': ['พบแท็บใหม่ในชีต', 'New sheet tabs found'],
   'tabs.removed': ['แท็บที่หายไป', 'Tabs removed'],
   'tabs.renamed': ['แท็บที่เปลี่ยนชื่อ', 'Tabs renamed'],

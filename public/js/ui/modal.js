@@ -10,6 +10,7 @@ import * as charts from '../charts/index.js';
 import { releaseCharts } from '../charts/core.js';
 import { pauseBackground } from '../bg/three-bg.js';
 import { sortableTable } from './table.js';
+import { breakdownControls } from './controls.js';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -108,6 +109,32 @@ function well(parent) {
   box.className = 'chart-well';
   parent.appendChild(box);
   return box;
+}
+
+/**
+ * แผงจัดอันดับที่เรียงและกรองได้
+ *
+ * ใช้แทนการเรียก charts.barH() ตรง ๆ ทุกจุด เพื่อให้ทุกกราฟในหน้ารายละเอียด
+ * มีตัวควบคุมเหมือนกันหมด ไม่ใช่บางอันมีบางอันไม่มี
+ *
+ * @param {HTMLElement} grid
+ * @param {string} title
+ * @param {{key:string,flower:number}[]} rows
+ * @param {object} [opts] ส่งต่อให้ charts.barH
+ */
+function rankPanel(grid, title, rows, opts = {}) {
+  const host = panel(grid, title);
+  const box = document.createElement('div');
+
+  const bar = breakdownControls({
+    views: [{ label: title, rows }],
+    compact: true,
+    onChange: ({ rows: next }) => charts.barH(box, next, opts),
+  });
+
+  host.append(bar, box);
+  bar.__emit();
+  return host;
 }
 
 /**
@@ -219,28 +246,62 @@ function baseColumns({ showDate = true, showCrop = true, showStrain = true, extr
   return cols;
 }
 
-/** ตัวกรอง + ตาราง (ใช้ร่วมกันทุก modal ที่มีรายการดิบ) */
+/**
+ * ตัวกรอง + ตาราง (ใช้ร่วมกันทุก modal ที่มีรายการดิบ)
+ *
+ * กรองได้ 4 ทาง: มิติหลัก (ครอป/ลูกค้า/คลัง) · สายพันธุ์ · ช่วงวันที่ · คำค้น
+ * ทุกอันทำงานร่วมกันแบบ AND และเรียงลำดับทำที่หัวตาราง
+ */
 function filteredTable(parent, rows, columns, { filterKey = 'crop', filterLabel } = {}) {
-  const values = [...new Set(rows.map((r) => r[filterKey]).filter(Boolean))].sort();
+  const uniq = (key) => [...new Set(rows.map((r) => r[key]).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), 'th'));
 
   const bar = document.createElement('div');
   bar.className = 'filter-row';
 
-  const select = document.createElement('select');
-  select.setAttribute('aria-label', filterLabel ?? t('label.allCrops'));
-  select.innerHTML =
-    `<option value="">${esc(filterLabel ?? t('label.allCrops'))}</option>` +
-    values.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+  const dropdown = (label, values) => {
+    const sel = document.createElement('select');
+    sel.setAttribute('aria-label', label);
+    sel.innerHTML =
+      `<option value="">${esc(label)}</option>` +
+      values.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+    return sel;
+  };
+
+  const primary = dropdown(filterLabel ?? t('label.allCrops'), uniq(filterKey));
+  const strain = filterKey === 'strain' ? null : dropdown(t('label.byStrain'), uniq('strain'));
 
   const search = document.createElement('input');
   search.type = 'search';
   search.placeholder = t('label.search');
   search.setAttribute('aria-label', t('label.search'));
 
-  const count = document.createElement('span');
-  count.className = 'card__sub';
+  // ช่วงวันที่ — เฉพาะรายงานที่มีคอลัมน์วันที่จริง
+  const dates = rows.map((r) => r.date).filter(Boolean).sort();
+  const hasDates = dates.length > 0;
+  const from = document.createElement('input');
+  const to = document.createElement('input');
+  for (const [el, val, label] of [
+    [from, dates[0], t('ctl.from')],
+    [to, dates[dates.length - 1], t('ctl.to')],
+  ]) {
+    el.type = 'date';
+    el.value = val ?? '';
+    el.title = label;
+    el.setAttribute('aria-label', label);
+  }
 
-  bar.append(select, search, count);
+  const reset = document.createElement('button');
+  reset.type = 'button';
+  reset.className = 'btn btn--sm';
+  reset.textContent = t('ctl.reset');
+
+  const count = document.createElement('span');
+  count.className = 'ctl-count';
+
+  bar.append(primary);
+  if (strain) bar.append(strain);
+  if (hasDates) bar.append(from, to);
+  bar.append(search, reset, count);
   parent.appendChild(bar);
 
   const table = sortableTable(columns, rows, { moreLabel: t('meta.rows') });
@@ -248,20 +309,41 @@ function filteredTable(parent, rows, columns, { filterKey = 'crop', filterLabel 
 
   const apply = () => {
     const needle = search.value.trim().toLowerCase();
-    const chosen = select.value;
+    const chosen = primary.value;
+    const strainPick = strain?.value ?? '';
+    const lo = hasDates ? from.value : '';
+    const hi = hasDates ? to.value : '';
+
     const next = rows.filter((r) => {
       if (chosen && r[filterKey] !== chosen) return false;
+      if (strainPick && r.strain !== strainPick) return false;
+      // วันที่เป็น ISO อยู่แล้ว เทียบเป็นสตริงได้ตรง ๆ
+      if (lo && r.date && r.date < lo) return false;
+      if (hi && r.date && r.date > hi) return false;
       if (!needle) return true;
       return [r.crop, r.strain, r.customer, r.tab, r.location]
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(needle));
     });
+
     table.setRows(next);
     count.textContent = `${n(next.length)} / ${n(rows.length)} ${t('meta.rows')}`;
   };
 
-  select.addEventListener('change', apply);
+  primary.addEventListener('change', apply);
+  strain?.addEventListener('change', apply);
   search.addEventListener('input', apply);
+  from.addEventListener('change', apply);
+  to.addEventListener('change', apply);
+  reset.addEventListener('click', () => {
+    primary.value = '';
+    if (strain) strain.value = '';
+    search.value = '';
+    from.value = dates[0] ?? '';
+    to.value = dates[dates.length - 1] ?? '';
+    apply();
+  });
+
   apply();
 }
 
@@ -311,8 +393,8 @@ export function openCard(key, payload, trigger) {
         ],
         {}
       );
-      charts.barH(panel(grid, t('label.byCrop')), k.byCrop, { max: 10 });
-      charts.barH(panel(grid, t('label.byStrain')), k.byStrain, { max: 8 });
+      rankPanel(grid, t('label.byCrop'), k.byCrop, { max: 10 });
+      rankPanel(grid, t('label.byStrain'), k.byStrain, { max: 8 });
     }
 
     if (key === 'perCrop') {
@@ -344,7 +426,7 @@ export function openCard(key, payload, trigger) {
         ],
         {}
       );
-      charts.barH(panel(grid, t('label.byStrain')), k.byStrain, { max: 8 });
+      rankPanel(grid, t('label.byStrain'), k.byStrain, { max: 8 });
     }
 
     if (key === 'inbound') {
@@ -370,13 +452,13 @@ export function openCard(key, payload, trigger) {
         ],
         { format: 'month' }
       );
-      charts.barH(panel(grid, t('label.byCustomer')), k.byCustomer, { max: 10 });
-      charts.barH(panel(grid, t('label.byStrain')), k.byStrain, { max: 8 });
+      rankPanel(grid, t('label.byCustomer'), k.byCustomer, { max: 10 });
+      rankPanel(grid, t('label.byStrain'), k.byStrain, { max: 8 });
     }
 
     if (key === 'inventory') {
-      charts.barH(panel(grid, t('label.byLocation')), k.byLocation, { max: 6 });
-      charts.barH(panel(grid, t('label.byStrain')), k.byStrain, { max: 10 });
+      rankPanel(grid, t('label.byLocation'), k.byLocation, { max: 6 });
+      rankPanel(grid, t('label.byStrain'), k.byStrain, { max: 10 });
     }
 
     // ── รายการดิบ ──
@@ -454,7 +536,7 @@ function openOverview(payload, trigger) {
       ],
       { format: 'month' }
     );
-    charts.barH(panel(grid, t('label.byLocation')), kpi.inventory.byLocation, { max: 6 });
+    rankPanel(grid, t('label.byLocation'), kpi.inventory.byLocation, { max: 6 });
     charts.cycleTimeline(
       well(panel(grid, `${t('label.upcoming')} · ${t('label.cycle')}`)),
       kpi.perCrop.upcoming,

@@ -4,7 +4,14 @@
  * ทุกตัวเลขในนี้คำนวณจาก record ที่ parser ทำความสะอาดแล้ว
  * ไม่ได้หยิบมาจากคอลัมน์ Total ในชีตโดยตรง
  */
-import { SIZE_KEYS, PREMIUM_SIZES, NON_FLOWER_KEYS, NON_FLOWER_LABELS, sum } from './normalize.js';
+import {
+  SIZE_KEYS,
+  PREMIUM_SIZES,
+  NON_FLOWER_KEYS,
+  NON_FLOWER_LABELS,
+  sum,
+  comparePeriod,
+} from './normalize.js';
 
 /** รวมน้ำหนักแยกตามขนาดจากชุด record */
 export function sizeMix(rows) {
@@ -196,7 +203,9 @@ export function buildKpi(sources, analysis) {
           const plants = sum(rows.map((r) => r.plants));
           return { ...q, plants, gPerPlant: plants > 0 ? q.flower / plants : null };
         })
-        .sort((a, b) => String(a.key).localeCompare(String(b.key))),
+        /* เรียงตามเวลาจริง ไม่ใช่ตามตัวอักษร
+         * localeCompare จะได้ Q1'2026 มาก่อน Q2'2025 เพราะเทียบ "Q1" กับ "Q2" ก่อนถึงปี */
+        .sort((a, b) => comparePeriod(a.key, b.key)),
       topCrops: harvested
         .filter((r) => r.gramsPerPlant !== null)
         .sort((a, b) => b.gramsPerPlant - a.gramsPerPlant)

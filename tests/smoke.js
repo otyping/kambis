@@ -11,7 +11,15 @@
 import { test, before, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadAll, loadFromSnapshot } from '../server/lib/loader.js';
-import { canonicalCrop, canonicalStrain, parseSheetDate, num } from '../server/lib/normalize.js';
+import {
+  canonicalCrop,
+  canonicalStrain,
+  parseSheetDate,
+  num,
+  periodOrder,
+  comparePeriod,
+} from '../server/lib/normalize.js';
+import { verifyPresentation } from '../server/lib/analysis.js';
 import { parseCsv } from '../server/lib/csv.js';
 
 let payload;
@@ -215,5 +223,64 @@ describe('KPI', () => {
     assert.equal(payload.kpi.sales.totalFlower, sumFlower(payload.sources.sales.rows));
     assert.equal(payload.kpi.inventory.totalFlower, sumFlower(payload.sources.inventory.rows));
     assert.equal(payload.kpi.outbound.totalFlower, sumFlower(payload.sources.outbound.rows));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+describe('การจัดลำดับช่วงเวลา', () => {
+  test('periodOrder อ่านไตรมาสโดยดูปีก่อนไตรมาส', () => {
+    // เคสที่เคยพัง: เรียงตามตัวอักษรแล้ว Q1'2026 มาก่อน Q2'2025 ทั้งที่เกิดทีหลังเป็นปี
+    assert.ok(periodOrder("Q2'2025") < periodOrder("Q1'2026"));
+    assert.ok(periodOrder("Q1'2026") < periodOrder("Q2'2026"));
+    assert.equal(periodOrder("Q1'2026"), periodOrder('2026-Q1'));
+    assert.equal(periodOrder('ไม่มีข้อมูล'), Number.MAX_SAFE_INTEGER);
+  });
+
+  test('comparePeriod เรียงไตรมาสข้ามปีได้ถูกต้อง', () => {
+    const input = ["Q1'2026", "Q2'2025", "Q2'2026", "Q3'2025", "Q4'2025"];
+    assert.deepEqual(
+      [...input].sort(comparePeriod),
+      ["Q2'2025", "Q3'2025", "Q4'2025", "Q1'2026", "Q2'2026"]
+    );
+  });
+
+  test('ไตรมาสที่ส่งให้ UI เรียงตามเวลาจริง', () => {
+    const keys = payload.kpi.perCrop.byQuarter.map((q) => q.key);
+    const sorted = [...keys].sort(comparePeriod);
+    assert.deepEqual(keys, sorted, `ลำดับไตรมาสผิด: ${keys.join(' → ')}`);
+  });
+
+  test('ยอดขายรายเดือนเรียงตามเวลาจริง', () => {
+    const months = payload.kpi.sales.byMonth.map((m) => m.month);
+    assert.deepEqual(months, [...months].sort(), `ลำดับเดือนผิด: ${months.join(' → ')}`);
+  });
+
+  test('verifyPresentation จับลำดับที่ผิดได้ และไม่ฟ้องเมื่อลำดับถูก', () => {
+    const base = {
+      findings: [],
+      counts: { critical: 0, warning: 0, info: 0 },
+      bySource: { perCrop: { critical: 0, warning: 0, info: 0, total: 0 } },
+      rowsChecked: 600,
+      score: 100,
+      total: 0,
+    };
+
+    const ok = verifyPresentation(base, {
+      perCrop: { byQuarter: [{ key: "Q2'2025" }, { key: "Q1'2026" }] },
+    });
+    assert.equal(ok.findings.length, 0, 'ลำดับถูกแต่ยังฟ้อง');
+
+    const bad = verifyPresentation(base, {
+      perCrop: { byQuarter: [{ key: "Q1'2026" }, { key: "Q2'2025" }] },
+    });
+    assert.equal(bad.findings.length, 1, 'ลำดับผิดแต่จับไม่ได้');
+    assert.equal(bad.findings[0].id, 'order.notChronological');
+    assert.equal(bad.findings[0].severity, 'critical');
+    assert.ok(bad.findings[0].messageTh && bad.findings[0].messageEn, 'ขาดข้อความสองภาษา');
+  });
+
+  test('ผลวิเคราะห์จริงต้องไม่มี finding เรื่องลำดับหลงเหลือ', () => {
+    const ordering = payload.analysis.findings.filter((f) => f.id === 'order.notChronological');
+    assert.equal(ordering.length, 0, ordering.map((f) => f.messageTh).join(' | '));
   });
 });

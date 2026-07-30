@@ -17,6 +17,7 @@ import {
   onResize,
   releaseChart,
   shortNum,
+  drawXLabels,
   FONT_SM,
 } from './core.js';
 import { t } from '../i18n.js';
@@ -209,20 +210,17 @@ export function line(container, series, opts = {}) {
   const xAt = (i) => (count === 1 ? box.x + box.w / 2 : box.x + (i / (count - 1)) * box.w);
   const yAt = (v) => box.y + box.h - (v / top) * box.h;
 
-  // ป้ายแกน X แบบเว้นระยะ ไม่ใส่ทุกจุดเพื่อไม่ให้ทับกัน
+  // ป้ายแกน X — วัดความกว้างจริงแล้วข้ามอันที่จะทับกัน
   const fmt = format === 'month' ? fmtMonth : fmtDate;
-  const stride = Math.max(1, Math.ceil(count / Math.max(2, Math.floor(box.w / 76))));
   ctx.font = FONT_SM;
   ctx.fillStyle = p.inkMute;
-  ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
-  labels.forEach((label, i) => {
-    if (i % stride !== 0 && i !== count - 1) return;
-    // ป้ายตัวสุดท้ายชิดขวาไม่ให้ล้นออกนอก canvas
-    ctx.textAlign = i === count - 1 && count > 1 ? 'right' : i === 0 ? 'left' : 'center';
-    ctx.fillText(fmt(label), xAt(i), box.y + box.h + 8);
-  });
-  ctx.textAlign = 'center';
+  drawXLabels(
+    ctx,
+    box,
+    labels.map((label, i) => ({ x: xAt(i), text: fmt(label) })),
+    box.y + box.h + 8
+  );
 
   active.forEach((s, si) => {
     const color = si === 0 ? p.series1 : p.series2;
@@ -431,16 +429,16 @@ export function groupedBars(container, rows, opts = {}) {
     hits.push({ x0: cx - slot / 2, x1: cx + slot / 2, row, cx });
   });
 
-  // ป้ายแกน X เว้นระยะ
+  // ป้ายแกน X — วัดความกว้างจริงแล้วข้ามอันที่จะทับกัน
   ctx.font = FONT_SM;
   ctx.fillStyle = p.inkMute;
-  ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
-  const stride = Math.max(1, Math.ceil(data.length / Math.max(2, Math.floor(box.w / 66))));
-  data.forEach((row, i) => {
-    if (i % stride !== 0 && i !== data.length - 1) return;
-    ctx.fillText(fmtDate(row.date), box.x + slot * (i + 0.5), box.y + box.h + 8);
-  });
+  drawXLabels(
+    ctx,
+    box,
+    data.map((row, i) => ({ x: box.x + slot * (i + 0.5), text: fmtDate(row.date) })),
+    box.y + box.h + 8
+  );
 
   attachTooltip(container, canvas, (mx) => {
     const hit = hits.find((s) => mx >= s.x0 && mx <= s.x1);

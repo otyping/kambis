@@ -9,6 +9,7 @@ import { weight, grams, n, pct, esc, DASH } from '../format.js';
 import { icon } from './icons.js';
 import * as charts from '../charts/index.js';
 import { releaseCharts } from '../charts/core.js';
+import { breakdownControls } from './controls.js';
 
 /** ระดับคุณภาพจากจำนวน finding */
 export function qualityLevel(counts) {
@@ -92,6 +93,36 @@ function cardShell({ key, iconName, title, sub, metric, unit, stats, chip, wide 
 
 const stat = (label, value) => `<span class="card__stat">${esc(label)} <b>${value}</b></span>`;
 
+/**
+ * ติดแถบ "มุมมอง / จัดเรียง / กรอง" ให้กราฟบนการ์ด
+ *
+ * แยกกล่องควบคุมออกจากกล่องกราฟ เพราะตัววาดกราฟล้าง innerHTML ของกล่องตัวเองทุกครั้ง
+ * ถ้าวางปนกันไว้ ตัวเลือกจะหายไปตั้งแต่วาดรอบแรก
+ *
+ * @param {HTMLElement} body ช่อง .card__body
+ * @param {{label:string, rows:Array, render:(box, rows)=>void, sortable?:boolean,
+ *          getValue?:(row)=>number, well?:boolean}[]} views
+ */
+function attachBreakdown(body, views) {
+  const box = document.createElement('div');
+
+  const bar = breakdownControls({
+    views,
+    compact: true,
+    onChange: ({ view, rows }) => {
+      box.className = view.well ? 'chart-well' : '';
+      view.render(box, rows);
+      // มุมมองที่ไม่ใช่การจัดอันดับ (เช่นเส้นแนวโน้ม) เรียงเองตามเวลาอยู่แล้ว
+      const selects = bar.querySelectorAll('.ctl-select');
+      selects[1].hidden = view.sortable === false;
+      selects[2].hidden = view.sortable === false;
+    },
+  });
+
+  body.append(bar, box);
+  bar.__emit();
+}
+
 /** ─── การ์ดทั้ง 8 ใบ ─── */
 export function renderCards(el, payload, onOpen) {
   const { kpi, analysis, meta } = payload;
@@ -123,11 +154,25 @@ export function renderCards(el, payload, onOpen) {
       ].join(''),
       chip: qualityChip(analysis.counts),
     });
-    const body = card.querySelector('.card__body');
-    const wrap = document.createElement('div');
-    wrap.className = 'chart-well';
-    body.appendChild(wrap);
-    charts.sizeMixBar(wrap, kpi.perCrop.sizeMix, { height: 96 });
+    attachBreakdown(card.querySelector('.card__body'), [
+      {
+        label: t('label.sizeMix'),
+        rows: [],
+        sortable: false,
+        well: true,
+        render: (box) => charts.sizeMixBar(box, kpi.perCrop.sizeMix, { height: 96 }),
+      },
+      {
+        label: t('label.byQuarter'),
+        rows: kpi.perCrop.byQuarter.map((q) => ({ key: q.key, flower: q.flower })),
+        render: (box, rows) => charts.barH(box, rows, { max: 6 }),
+      },
+      {
+        label: t('label.byLocation'),
+        rows: kpi.inventory.byLocation,
+        render: (box, rows) => charts.barH(box, rows, { max: 6 }),
+      },
+    ]);
     cards.push(card);
   }
 
@@ -148,12 +193,29 @@ export function renderCards(el, payload, onOpen) {
       ].join(''),
       chip: qualityChip(bySource.dailyTrim),
     });
-    const body = card.querySelector('.card__body');
-    charts.sparkline(
-      body,
-      kpi.dailyTrim.series.map((d) => ({ value: d.flower })),
-      { height: 46 }
-    );
+    attachBreakdown(card.querySelector('.card__body'), [
+      {
+        label: t('label.trend'),
+        rows: [],
+        sortable: false,
+        render: (box) =>
+          charts.sparkline(
+            box,
+            kpi.dailyTrim.series.map((d) => ({ value: d.flower })),
+            { height: 46 }
+          ),
+      },
+      {
+        label: t('label.byCrop'),
+        rows: kpi.dailyTrim.byCrop,
+        render: (box, rows) => charts.barH(box, rows, { max: 5 }),
+      },
+      {
+        label: t('label.byStrain'),
+        rows: kpi.dailyTrim.byStrain,
+        render: (box, rows) => charts.barH(box, rows, { max: 5 }),
+      },
+    ]);
     cards.push(card);
   }
 
@@ -173,12 +235,23 @@ export function renderCards(el, payload, onOpen) {
       ].join(''),
       chip: qualityChip(bySource.perCrop),
     });
-    const body = card.querySelector('.card__body');
-    charts.barH(
-      body,
-      kpi.perCrop.byQuarter.map((q) => ({ key: q.key, flower: q.gPerPlant })),
-      { max: 5, unit: 'g' }
-    );
+    attachBreakdown(card.querySelector('.card__body'), [
+      {
+        label: `${t('label.byQuarter')} · ${t('label.gPerPlant')}`,
+        rows: kpi.perCrop.byQuarter.map((q) => ({ key: q.key, flower: q.gPerPlant })),
+        render: (box, rows) => charts.barH(box, rows, { max: 6, unit: 'g' }),
+      },
+      {
+        label: `${t('label.byQuarter')} · ${t('label.flower')}`,
+        rows: kpi.perCrop.byQuarter.map((q) => ({ key: q.key, flower: q.flower })),
+        render: (box, rows) => charts.barH(box, rows, { max: 6 }),
+      },
+      {
+        label: `${t('label.topCrops')} · ${t('label.gPerPlant')}`,
+        rows: kpi.perCrop.topCrops.map((c) => ({ key: c.crop, flower: c.gPerPlant })),
+        render: (box, rows) => charts.barH(box, rows, { max: 6, unit: 'g' }),
+      },
+    ]);
     cards.push(card);
   }
 
@@ -198,8 +271,29 @@ export function renderCards(el, payload, onOpen) {
       ].join(''),
       chip: qualityChip(bySource.outbound),
     });
-    const body = card.querySelector('.card__body');
-    charts.barH(body, kpi.outbound.byStrain, { max: 5 });
+    attachBreakdown(card.querySelector('.card__body'), [
+      {
+        label: t('label.byStrain'),
+        rows: kpi.outbound.byStrain,
+        render: (box, rows) => charts.barH(box, rows, { max: 5 }),
+      },
+      {
+        label: t('label.byCrop'),
+        rows: kpi.outbound.byCrop,
+        render: (box, rows) => charts.barH(box, rows, { max: 5 }),
+      },
+      {
+        label: t('label.trend'),
+        rows: [],
+        sortable: false,
+        render: (box) =>
+          charts.sparkline(
+            box,
+            kpi.outbound.series.map((d) => ({ value: d.flower })),
+            { height: 46 }
+          ),
+      },
+    ]);
     cards.push(card);
   }
 
@@ -221,11 +315,32 @@ export function renderCards(el, payload, onOpen) {
       ].join(''),
       chip: qualityChip(bySource.inbound),
     });
-    const body = card.querySelector('.card__body');
-    const wrap = document.createElement('div');
-    wrap.className = 'chart-well';
-    body.appendChild(wrap);
-    charts.groupedBars(wrap, kpi.inbound.reconciliation, { height: 150, max: 10 });
+    attachBreakdown(card.querySelector('.card__body'), [
+      {
+        label: t('label.reconciliation'),
+        rows: [],
+        sortable: false,
+        well: true,
+        render: (box) =>
+          charts.groupedBars(box, kpi.inbound.reconciliation, { height: 150, max: 10 }),
+      },
+      {
+        label: t('label.byStrain'),
+        rows: kpi.inbound.byStrain,
+        render: (box, rows) => charts.barH(box, rows, { max: 5 }),
+      },
+      {
+        label: t('label.trend'),
+        rows: [],
+        sortable: false,
+        render: (box) =>
+          charts.sparkline(
+            box,
+            kpi.inbound.series.map((d) => ({ value: d.flower })),
+            { height: 46 }
+          ),
+      },
+    ]);
     cards.push(card);
   }
 
@@ -245,8 +360,23 @@ export function renderCards(el, payload, onOpen) {
       ].join(''),
       chip: qualityChip(bySource.sales),
     });
-    const body = card.querySelector('.card__body');
-    charts.barH(body, kpi.sales.byCustomer, { max: 5 });
+    attachBreakdown(card.querySelector('.card__body'), [
+      {
+        label: t('label.byCustomer'),
+        rows: kpi.sales.byCustomer,
+        render: (box, rows) => charts.barH(box, rows, { max: 5 }),
+      },
+      {
+        label: t('label.byStrain'),
+        rows: kpi.sales.byStrain,
+        render: (box, rows) => charts.barH(box, rows, { max: 5 }),
+      },
+      {
+        label: t('label.monthly'),
+        rows: kpi.sales.byMonth.map((m) => ({ key: m.month, flower: m.flower })),
+        render: (box, rows) => charts.barH(box, rows, { max: 8 }),
+      },
+    ]);
     cards.push(card);
   }
 
@@ -266,8 +396,25 @@ export function renderCards(el, payload, onOpen) {
       ].join(''),
       chip: qualityChip(bySource.inventory),
     });
-    const body = card.querySelector('.card__body');
-    charts.barH(body, kpi.inventory.byLocation, { max: 4 });
+    attachBreakdown(card.querySelector('.card__body'), [
+      {
+        label: t('label.byLocation'),
+        rows: kpi.inventory.byLocation,
+        render: (box, rows) => charts.barH(box, rows, { max: 4 }),
+      },
+      {
+        label: t('label.byStrain'),
+        rows: kpi.inventory.byStrain,
+        render: (box, rows) => charts.barH(box, rows, { max: 6 }),
+      },
+      {
+        label: t('label.sizeMix'),
+        rows: [],
+        sortable: false,
+        well: true,
+        render: (box) => charts.sizeMixBar(box, kpi.inventory.sizeMix, { height: 96 }),
+      },
+    ]);
     cards.push(card);
   }
 
@@ -289,25 +436,43 @@ export function renderCards(el, payload, onOpen) {
       ].join(''),
       chip: qualityChip(c),
     });
-    const body = card.querySelector('.card__body');
-    body.innerHTML = `<div class="mini-bars">${['critical', 'warning', 'info']
-      .map((sev) => {
-        const total = Math.max(1, c.critical + c.warning + c.info);
-        const color =
-          sev === 'critical'
-            ? 'var(--sev-critical)'
-            : sev === 'warning'
-              ? 'var(--sev-warning)'
-              : 'var(--sev-info)';
-        return `<div class="mini-bar">
-            <span class="mini-bar__label">${t(`quality.${sev}`)}</span>
-            <span class="mini-bar__track"><span class="mini-bar__fill" style="width:${
-              (c[sev] / total) * 100
-            }%;background:${color}"></span></span>
-            <span class="mini-bar__value num">${n(c[sev])}</span>
-          </div>`;
-      })
-      .join('')}</div>`;
+    // จำนวน finding แยกตามรายงาน — เอาไว้ให้เลือกดูว่าปัญหากระจุกอยู่ที่ชีตไหน
+    const bySourceRows = Object.entries(analysis.bySource ?? {})
+      .map(([key, counts]) => ({ key: titleOf(key), flower: counts.total }))
+      .filter((r) => r.flower > 0);
+
+    attachBreakdown(card.querySelector('.card__body'), [
+      {
+        label: t('quality.bySeverity'),
+        rows: [],
+        sortable: false,
+        render: (box) => {
+          const total = Math.max(1, c.critical + c.warning + c.info);
+          box.innerHTML = `<div class="mini-bars">${['critical', 'warning', 'info']
+            .map((sev) => {
+              const color =
+                sev === 'critical'
+                  ? 'var(--sev-critical)'
+                  : sev === 'warning'
+                    ? 'var(--sev-warning)'
+                    : 'var(--sev-info)';
+              return `<div class="mini-bar">
+                  <span class="mini-bar__label">${t(`quality.${sev}`)}</span>
+                  <span class="mini-bar__track"><span class="mini-bar__fill" style="width:${
+                    (c[sev] / total) * 100
+                  }%;background:${color}"></span></span>
+                  <span class="mini-bar__value num">${n(c[sev])}</span>
+                </div>`;
+            })
+            .join('')}</div>`;
+        },
+      },
+      {
+        label: t('quality.bySource'),
+        rows: bySourceRows,
+        render: (box, rows) => charts.barH(box, rows, { max: 6, unit: '' }),
+      },
+    ]);
     cards.push(card);
   }
 

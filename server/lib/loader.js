@@ -11,7 +11,7 @@ import { fetchText, csvUrl, mapLimit } from './fetcher.js';
 import { parseCsv, trimTrailingEmptyRows } from './csv.js';
 import { writeTabCache, readTabCache, writeSnapshot, readSnapshot } from './cache.js';
 import { getParser } from './parsers/index.js';
-import { analyze } from './analysis.js';
+import { analyze, verifyPresentation } from './analysis.js';
 import { buildKpi } from './aggregate.js';
 import { discoverTabs, diffTabs } from './tabs.js';
 
@@ -267,8 +267,17 @@ export async function loadAll(onProgress) {
   await persistTabs(tabsToPersist);
 
   onProgress?.({ type: 'analysis:start' });
-  const analysis = analyze(sources);
+
+  /* ตรวจสองชั้น
+   * 1. analyze()            — ข้อมูลที่อ่านเข้ามาถูกต้องไหม
+   * 2. verifyPresentation() — ตัวเลขที่จัดกลุ่มและเรียงแล้ว "นำเสนอ" ถูกไหม
+   *
+   * ชั้นที่สองมีเพราะความผิดพลาดที่เกิดตอนจัดลำดับ (เช่นเรียงไตรมาสตามตัวอักษร
+   * จนได้ Q1'2026 มาก่อน Q2'2025) ไม่มีอะไรจับได้เลย ทั้งที่ทำให้อ่านแนวโน้มผิดทันที */
+  let analysis = analyze(sources);
   const kpi = buildKpi(sources, analysis);
+  analysis = verifyPresentation(analysis, kpi);
+
   onProgress?.({ type: 'analysis:done', score: analysis.score, counts: analysis.counts });
 
   const payload = {

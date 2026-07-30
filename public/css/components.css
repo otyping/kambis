@@ -734,6 +734,71 @@ a.finding__sheet:hover {
   color: var(--ink);
 }
 
+/* ── แถบ กรอง/จัดเรียง บนการ์ดและในแผง ── */
+.ctl-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: var(--sp-2);
+}
+
+.ctl-select {
+  min-height: 30px;
+  padding: 0 22px 0 8px;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: var(--well-inset);
+  border: 1px solid var(--glass-border-soft);
+  border-radius: var(--r-sm);
+  max-width: 100%;
+  cursor: pointer;
+
+  /* ลูกศรวาดเอง เพราะ select ของแต่ละ OS หน้าตาไม่เหมือนกันเลย */
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 12px) center, calc(100% - 8px) center;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+}
+
+.ctl-select:hover {
+  border-color: var(--accent-line);
+  color: var(--ink);
+}
+
+.ctl-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.ctl-select option {
+  background: var(--bg-raise);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.ctl-select[hidden] {
+  display: none;
+}
+
+/* บนการ์ดพื้นที่แคบ — ย่อลงอีกขั้น */
+.ctl-row--compact .ctl-select {
+  min-height: 27px;
+  font-size: 11px;
+}
+
+/* จำนวนแถวที่เหลือหลังกรอง */
+.ctl-count {
+  font-size: 11.5px;
+  color: var(--ink-mute);
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+
 .seg {
   display: inline-flex;
   padding: 3px;
@@ -840,4 +905,17 @@ a.finding__sheet:hover {
 
 .notice[hidden] {
   display: none;
+}
+
+/* ปุ่มเล็กในแถบตัวกรอง */
+.btn--sm {
+  min-height: 38px;
+  padding: 0 var(--sp-3);
+  font-size: 12.5px;
+}
+
+/* ช่องวันที่ในแถบตัวกรอง */
+.filter-row input[type='date'] {
+  font-size: 12.5px;
+  min-width: 132px;
 }

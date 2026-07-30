@@ -124,6 +124,8 @@ async function load({ refresh = false } = {}) {
     if (refresh) resetChat();
     screen.hide();
   } catch (err) {
+    // หน้าจอโหลดโชว์ได้แค่ข้อความ — ทิ้ง stack ไว้ใน console ให้ตามหาต้นตอได้
+    console.error('[load] วาดหน้าไม่สำเร็จ:', err);
     screen.fail(err.message, () => load({ refresh: true }));
   } finally {
     loading = false;
