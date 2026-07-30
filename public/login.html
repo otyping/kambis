@@ -59,6 +59,12 @@
           />
         </label>
 
+        <!-- โผล่เฉพาะตอน DEV_LOGIN=1 — login.js เป็นคนเอา hidden ออก -->
+        <p class="login__dev" id="login-dev" hidden>
+          <strong>โหมดทดสอบ</strong> — พิมพ์ชื่อผู้ใช้และรหัสอะไรก็เข้าได้
+          ยังไม่มีการตรวจสอบจริง
+        </p>
+
         <p class="login__error" id="login-error" role="alert" hidden></p>
 
         <button type="submit" class="login__submit" id="login-submit">

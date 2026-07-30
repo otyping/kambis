@@ -164,6 +164,10 @@ const STRINGS = {
   ],
 
   'auth.logout': ['ออกจากระบบ', 'Sign out'],
+  'auth.devMode': [
+    'โหมดทดสอบ — ยังไม่มีการตรวจรหัสผ่านจริง',
+    'Test mode — passwords are not actually checked',
+  ],
   'auth.expired': ['เซสชันหมดอายุ กำลังพากลับไปหน้าล็อกอิน…', 'Session expired, returning to sign-in…'],
 
   'tabs.newFound': ['พบแท็บใหม่ในชีต', 'New sheet tabs found'],

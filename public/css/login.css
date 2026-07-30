@@ -74,6 +74,22 @@
   box-shadow: 0 0 0 3px var(--tint-accent);
 }
 
+/* ── แถบบอกว่าอยู่ในโหมดทดสอบ ── */
+.login__dev {
+  padding: 10px var(--sp-3);
+  border-radius: var(--r-sm);
+  background: var(--tint-warning);
+  border: 1px solid var(--line-warning);
+  color: var(--ink);
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.login__dev[hidden] {
+  display: none;
+}
+
 /* ── ข้อความผิดพลาด ── */
 .login__error {
   padding: 10px var(--sp-3);

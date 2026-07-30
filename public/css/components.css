@@ -71,6 +71,12 @@
   border-color: var(--line-critical);
 }
 
+/* โหมดทดสอบ — ย้อมให้สะดุดตา จะได้ไม่ลืมว่ายังไม่มีการตรวจรหัสจริง */
+.user-chip--dev {
+  background: var(--tint-warning);
+  border-color: var(--line-warning);
+}
+
 .btn__spin {
   width: 14px;
   height: 14px;

@@ -106,6 +106,59 @@ export function isAuthEnabled() {
   return store !== null;
 }
 
+// ─────────────────────────────────────────────────────────────
+// โหมดทดสอบ — พิมพ์อะไรก็เข้าได้
+// ─────────────────────────────────────────────────────────────
+let devMode = false;
+
+/** โฮสต์นี้เข้าถึงได้จากเครื่องตัวเองเท่านั้นหรือไม่ */
+export function isLoopbackHost(host) {
+  return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+}
+
+/**
+ * เปิดโหมดทดสอบ (DEV_LOGIN=1) — ใช้ตอนอยากเข้าไปดูระบบโดยยังไม่ตั้งบัญชีจริง
+ *
+ * รับรหัสอะไรก็ได้ จึงเท่ากับไม่มีระบบล็อกอินเลย
+ * ด้วยเหตุนี้จึงยอมให้เปิดเฉพาะตอนผูกกับ localhost เท่านั้น
+ * ถ้าเผลอเปิดค้างไว้ตอน deploy จริง ต้องให้เซิร์ฟเวอร์ไม่ยอมสตาร์ท ไม่ใช่แค่เตือน
+ *
+ * @throws เมื่อ host เปิดสู่เครือข่าย — ผู้เรียกต้องหยุดการทำงาน
+ */
+export function initDevLogin(host) {
+  if (process.env.DEV_LOGIN !== '1') return false;
+
+  if (!isLoopbackHost(host)) {
+    throw new Error(
+      `DEV_LOGIN=1 ใช้ได้เฉพาะกับ localhost แต่ HOST ถูกตั้งเป็น "${host}"\n` +
+        '    โหมดนี้รับรหัสผ่านอะไรก็ได้ ถ้าเปิดสู่เครือข่ายเท่ากับไม่มีระบบล็อกอินเลย\n' +
+        '    เอา DEV_LOGIN ออกจาก .env แล้วสร้างผู้ใช้จริงด้วย scripts/manage-users.js'
+    );
+  }
+
+  devMode = true;
+  // ยังต้องมี secret ไว้เซ็นคุกกี้ ถึงจะไม่มีไฟล์ผู้ใช้ก็ตาม
+  if (!store) store = { secret: randomBytes(32).toString('hex'), users: [] };
+  return true;
+}
+
+export function isDevLogin() {
+  return devMode;
+}
+
+/** ผู้ใช้สมมติของโหมดทดสอบ — ให้ role exec เพื่อให้ลองผู้ช่วย AI ได้ด้วย */
+function devUser(username) {
+  const name = String(username || 'dev').trim() || 'dev';
+  return {
+    username: name,
+    name: `${name} (โหมดทดสอบ)`,
+    role: 'exec',
+    chatQuotaPerDay: DEFAULT_CHAT_QUOTA,
+    createdAt: null,
+    dev: true,
+  };
+}
+
 /** ผู้ใช้ทั้งหมด (ไม่มี hash ติดไปด้วย) */
 export function listUsers() {
   return (store?.users ?? []).map(publicUser);
@@ -225,6 +278,14 @@ export function sweepAttempts() {
 export async function verifyLogin(username, password, ip = 'unknown') {
   if (!store) return { ok: false, error: 'ยังไม่ได้ตั้งค่าผู้ใช้บนเซิร์ฟเวอร์' };
 
+  /* โหมดทดสอบ: ผ่านหมด
+   * ถ้าชื่อที่พิมพ์ตรงกับผู้ใช้จริงที่มีอยู่ ให้ใช้ role/โควตาของคนนั้น
+   * เพื่อให้ทดสอบความต่างระหว่าง exec กับ viewer ได้ */
+  if (devMode) {
+    const real = store.users.find((u) => u.username === String(username ?? '').trim());
+    return { ok: true, user: real ? publicUser(real) : devUser(username) };
+  }
+
   const lockedMs = lockRemaining(ip, username);
   if (lockedMs > 0) {
     return {
@@ -308,7 +369,9 @@ export function verifySession(value) {
 
   // ผู้ใช้ที่ถูกลบไปแล้วต้องเข้าไม่ได้ทันที แม้คุกกี้จะยังไม่หมดอายุ
   const user = store.users.find((u) => u.username === data.u);
-  return user ? publicUser(user) : null;
+  if (user) return publicUser(user);
+
+  return devMode ? devUser(data.u) : null;
 }
 
 // ─────────────────────────────────────────────────────────────

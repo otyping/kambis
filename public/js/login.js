@@ -12,9 +12,20 @@
 
   var form = document.getElementById('login-form');
   var errorBox = document.getElementById('login-error');
+  var devBox = document.getElementById('login-dev');
   var submit = document.getElementById('login-submit');
   var label = document.getElementById('login-submit-label');
   var busy = false;
+
+  // บอกให้ชัดว่าตอนนี้ยังไม่ได้ตรวจรหัสจริง จะได้ไม่เข้าใจผิดว่ามีระบบกั้นอยู่แล้ว
+  fetch('/api/auth/status')
+    .then(function (r) {
+      return r.json();
+    })
+    .then(function (s) {
+      if (s.devLogin) devBox.hidden = false;
+    })
+    .catch(function () {});
 
   /** หน้าที่ผู้ใช้ตั้งใจจะเข้าก่อนโดนเด้งมาล็อกอิน */
   function nextUrl() {

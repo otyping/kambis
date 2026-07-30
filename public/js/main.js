@@ -170,6 +170,12 @@ async function initAuthChrome() {
   el.logout.hidden = false;
   el.logout.title = `${status.user.username} · ${t('auth.logout')}`;
 
+  // อยู่ในโหมดทดสอบ — ต้องเห็นชัดว่ายังไม่มีการตรวจรหัสจริง
+  if (status.devLogin) {
+    el.logout.classList.add('user-chip--dev');
+    el.logout.title = `${t('auth.devMode')} · ${t('auth.logout')}`;
+  }
+
   el.logout.addEventListener('click', async () => {
     await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
     location.replace('/login.html');

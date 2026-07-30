@@ -36,6 +36,9 @@ import {
   clientIp,
   sweepAttempts,
   listUsers,
+  initDevLogin,
+  isDevLogin,
+  isLoopbackHost,
   SESSION_HOURS,
   DEFAULT_CHAT_QUOTA,
 } from './lib/auth.js';
@@ -315,6 +318,7 @@ async function handleAuthRoute(req, res, url, user) {
   if (route === '/api/auth/status') {
     return sendJson(res, 200, {
       enabled: isAuthEnabled(),
+      devLogin: isDevLogin(),
       user: user ?? null,
       sessionHours: SESSION_HOURS,
     });
@@ -599,11 +603,6 @@ const server = http.createServer(async (req, res) => {
 setInterval(sweepAttempts, 10 * 60 * 1000).unref();
 
 // ─────────────────────────────────────────────────────────────
-/** เปิดให้เครื่องอื่นในเครือข่ายเข้าถึงได้หรือไม่ */
-function isPubliclyBound(host) {
-  return host !== '127.0.0.1' && host !== 'localhost' && host !== '::1';
-}
-
 async function start() {
   try {
     const config = await loadConfig();
@@ -625,7 +624,23 @@ async function start() {
 
   if (envLoaded) console.log(`  โหลดค่าจาก .env ${envLoaded} รายการ`);
 
-  if (isAuthEnabled()) {
+  // เปิดโหมดทดสอบถ้าขอมา — จะโยน error ถ้า HOST ไม่ใช่ localhost
+  try {
+    initDevLogin(HOST);
+  } catch (err) {
+    console.error(`\n  ✗ ${err.message}\n`);
+    process.exit(1);
+  }
+
+  if (isDevLogin()) {
+    console.log('');
+    console.log('  ╔════════════════════════════════════════════════════════════╗');
+    console.log('  ║  DEV_LOGIN=1 — โหมดทดสอบ พิมพ์ชื่อผู้ใช้/รหัสอะไรก็เข้าได้        ║');
+    console.log('  ║  เท่ากับ "ไม่มีระบบล็อกอิน" — ใช้ดูระบบบนเครื่องตัวเองเท่านั้น      ║');
+    console.log('  ║  ก่อนขึ้นเซิร์ฟเวอร์จริง ต้องเอา DEV_LOGIN ออกจาก .env           ║');
+    console.log('  ╚════════════════════════════════════════════════════════════╝');
+    console.log('');
+  } else if (isAuthEnabled()) {
     const users = listUsers();
     const execs = users.filter((u) => u.role === 'exec').length;
     console.log(`  ล็อกอิน: เปิดใช้งาน — ผู้ใช้ ${users.length} คน (ใช้ผู้ช่วย AI ได้ ${execs} คน)`);
@@ -638,7 +653,7 @@ async function start() {
    * ข้อมูลในนี้คือยอดขาย ต้นทุน ลูกค้า และสต็อกจริงของบริษัท
    * ถ้าเผลอรันด้วย HOST=0.0.0.0 โดยยังไม่ได้สร้างผู้ใช้ ทุกคนในออฟฟิศ
    * (หรือทั้งอินเทอร์เน็ต ถ้า forward port ไว้) เปิดดูได้ทันทีโดยไม่ต้องล็อกอิน */
-  if (isPubliclyBound(HOST) && !isAuthEnabled()) {
+  if (!isLoopbackHost(HOST) && !isAuthEnabled()) {
     console.error(`\n  ✗ ปฏิเสธการเปิดที่ ${HOST} เพราะยังไม่ได้ตั้งระบบล็อกอิน\n`);
     console.error('    ข้อมูลชุดนี้มียอดขาย ต้นทุน และรายชื่อลูกค้าจริง');
     console.error('    สร้างผู้ใช้อย่างน้อยหนึ่งคนก่อน:\n');
