@@ -48,8 +48,29 @@ const FONT_SM = "11px 'Noto Sans Thai', system-ui, sans-serif";
  * @returns {{ctx:CanvasRenderingContext2D, w:number, h:number}|null}
  */
 export function setupCanvas(canvas, height) {
-  const width = canvas.parentElement?.clientWidth || canvas.clientWidth || 300;
-  if (width <= 0) return null;
+  /* ต้องวัดความกว้างของ "ช่องที่ canvas จะไปนั่งจริง" ให้ได้ ไม่งั้นภาพเพี้ยน
+   *
+   * canvas ตั้ง width:100% ไว้ใน CSS จึงกว้างเท่า content box ของกล่องแม่
+   * แต่ clientWidth นับ padding รวมเข้าไปด้วย (.chart-well มี padding 12px สองข้าง)
+   * ถ้าใช้ clientWidth ตรง ๆ backing store จะกว้างเกินจริง 24px แล้วเบราว์เซอร์
+   * ย่อภาพลงมาใส่ช่องที่แคบกว่า — วงกลมกลายเป็นวงรี ป้ายชื่อเลื่อนไปทับแท่ง
+   *
+   * และถ้า canvas ยังไม่ได้อยู่ใน DOM จะวัดอะไรไม่ได้เลย ต้องคืน null
+   * ให้ผู้เรียกไปวาดใหม่หลังใส่ลงหน้าแล้ว — ห้ามเดาเป็นค่าคงที่ 300
+   * เพราะจะได้ภาพที่ถูกยืดหรือบีบตามอัตราส่วนที่ต่างกันไปในแต่ละการ์ด
+   */
+  const parent = canvas.parentElement;
+  let width = 0;
+
+  if (parent) {
+    const cs = getComputedStyle(parent);
+    width = Math.round(
+      parent.clientWidth - parseFloat(cs.paddingLeft || 0) - parseFloat(cs.paddingRight || 0)
+    );
+  }
+  if (width <= 0) width = Math.round(canvas.getBoundingClientRect().width);
+
+  if (!(width > 0)) return null;
 
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   canvas.width = Math.round(width * dpr);

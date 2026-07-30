@@ -103,7 +103,7 @@ const stat = (label, value) => `<span class="card__stat">${esc(label)} <b>${valu
  * @param {{label:string, rows:Array, render:(box, rows)=>void, sortable?:boolean,
  *          getValue?:(row)=>number, well?:boolean}[]} views
  */
-function attachBreakdown(body, views) {
+function attachBreakdown(body, views, deferred) {
   const box = document.createElement('div');
 
   const bar = breakdownControls({
@@ -120,7 +120,11 @@ function attachBreakdown(body, views) {
   });
 
   body.append(bar, box);
-  bar.__emit();
+
+  /* ห้ามวาดตอนนี้ — การ์ดยังไม่ได้ถูกใส่ลงหน้า จึงวัดความกว้างไม่ได้
+   * ถ้าวาดเลย canvas จะได้ขนาด default แล้วโดน CSS ยืด/บีบทีหลังจนภาพเพี้ยน
+   * ผู้เรียกจะสั่งวาดให้หลัง appendChild แล้ว */
+  deferred.push(() => bar.__emit());
 }
 
 /** ─── การ์ดทั้ง 8 ใบ ─── */
@@ -134,6 +138,9 @@ export function renderCards(el, payload, onOpen) {
   releaseCharts(el);
   el.innerHTML = '';
   const cards = [];
+
+  // กราฟทุกอันวาดหลังการ์ดเข้า DOM แล้วเท่านั้น ไม่งั้นวัดความกว้างไม่ได้
+  const drawLater = [];
 
   // 1) ภาพรวมผู้บริหาร
   {
@@ -172,7 +179,7 @@ export function renderCards(el, payload, onOpen) {
         rows: kpi.inventory.byLocation,
         render: (box, rows) => charts.barH(box, rows, { max: 6 }),
       },
-    ]);
+    ], drawLater);
     cards.push(card);
   }
 
@@ -215,7 +222,7 @@ export function renderCards(el, payload, onOpen) {
         rows: kpi.dailyTrim.byStrain,
         render: (box, rows) => charts.barH(box, rows, { max: 5 }),
       },
-    ]);
+    ], drawLater);
     cards.push(card);
   }
 
@@ -251,7 +258,7 @@ export function renderCards(el, payload, onOpen) {
         rows: kpi.perCrop.topCrops.map((c) => ({ key: c.crop, flower: c.gPerPlant })),
         render: (box, rows) => charts.barH(box, rows, { max: 6, unit: 'g' }),
       },
-    ]);
+    ], drawLater);
     cards.push(card);
   }
 
@@ -293,7 +300,7 @@ export function renderCards(el, payload, onOpen) {
             { height: 46 }
           ),
       },
-    ]);
+    ], drawLater);
     cards.push(card);
   }
 
@@ -340,7 +347,7 @@ export function renderCards(el, payload, onOpen) {
             { height: 46 }
           ),
       },
-    ]);
+    ], drawLater);
     cards.push(card);
   }
 
@@ -376,7 +383,7 @@ export function renderCards(el, payload, onOpen) {
         rows: kpi.sales.byMonth.map((m) => ({ key: m.month, flower: m.flower })),
         render: (box, rows) => charts.barH(box, rows, { max: 8 }),
       },
-    ]);
+    ], drawLater);
     cards.push(card);
   }
 
@@ -414,7 +421,7 @@ export function renderCards(el, payload, onOpen) {
         well: true,
         render: (box) => charts.sizeMixBar(box, kpi.inventory.sizeMix, { height: 96 }),
       },
-    ]);
+    ], drawLater);
     cards.push(card);
   }
 
@@ -472,7 +479,7 @@ export function renderCards(el, payload, onOpen) {
         rows: bySourceRows,
         render: (box, rows) => charts.barH(box, rows, { max: 6, unit: '' }),
       },
-    ]);
+    ], drawLater);
     cards.push(card);
   }
 
@@ -480,4 +487,7 @@ export function renderCards(el, payload, onOpen) {
     card.addEventListener('click', () => onOpen(card.dataset.card, card));
     el.appendChild(card);
   }
+
+  // ตอนนี้การ์ดอยู่ในหน้าแล้ว วัดความกว้างได้จริง จึงค่อยวาดกราฟ
+  for (const draw of drawLater) draw();
 }

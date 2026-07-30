@@ -79,12 +79,18 @@ function open(title, sub, buildBody, trigger) {
     <div class="modal__body" id="modal-body"></div>`;
 
   dialog.querySelector('.modal__close').addEventListener('click', close);
-  buildBody(dialog.querySelector('#modal-body'));
 
   pauseBackground(true); // modal บังฉากหลังจนมิด ไม่ต้องเปลือง CPU วาดต่อ
+
+  /* เปิด modal ให้เห็นก่อน แล้วค่อยสร้างเนื้อหา
+   * ตอนที่ยังไม่เปิด กล่องถูกซ่อนอยู่ กว้าง 0 กราฟจึงวัดขนาดตัวเองไม่ได้
+   * ถ้าสร้างก่อนเปิด canvas จะได้ขนาดผิดแล้วภาพถูกบีบ */
   backdrop.classList.add('is-open');
   backdrop.setAttribute('aria-hidden', 'false');
   document.body.style.overflow = 'hidden';
+
+  buildBody(dialog.querySelector('#modal-body'));
+
   backdrop.scrollTop = 0;
   dialog.querySelector('.modal__close').focus();
 }
