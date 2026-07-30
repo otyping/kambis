@@ -255,8 +255,12 @@ export function onResize(canvas, redraw) {
   const box = canvas.parentElement;
   if (!box || typeof ResizeObserver === 'undefined') return () => {};
 
-  // ปิดตัวเดิมของกล่องนี้ก่อนเสมอ ไม่ให้มีสองตัวทำงานพร้อมกัน
-  releaseChart(box);
+  /* ปิดเฉพาะ observer ตัวเดิม ห้ามเรียก releaseChart() ตรงนี้
+   *
+   * ฟังก์ชันนี้ถูกเรียกหลังวาดกราฟเสร็จแล้ว ถ้าไป releaseChart จะไปล้างขนาด
+   * canvas ที่เพิ่งวาดเสร็จจนกลายเป็นกราฟเปล่า
+   */
+  disconnectObserver(box);
 
   let timer = null;
   let lastWidth = Math.round(box.clientWidth);
@@ -278,6 +282,14 @@ export function onResize(canvas, redraw) {
   return stop;
 }
 
+/** ปิด ResizeObserver ของกล่องนี้ โดยไม่แตะ canvas */
+function disconnectObserver(box) {
+  if (typeof box?.__chartCleanup === 'function') {
+    box.__chartCleanup();
+    box.__chartCleanup = null;
+  }
+}
+
 /**
  * คืนทรัพยากรของกราฟในกล่องหนึ่ง
  * นอกจากปิด observer แล้วต้องล้างขนาด canvas ด้วย
@@ -286,10 +298,7 @@ export function onResize(canvas, redraw) {
  */
 export function releaseChart(box) {
   if (!box) return;
-  if (typeof box.__chartCleanup === 'function') {
-    box.__chartCleanup();
-    box.__chartCleanup = null;
-  }
+  disconnectObserver(box);
   for (const canvas of box.querySelectorAll?.('canvas') ?? []) {
     canvas.onpointermove = null;
     canvas.onpointerleave = null;
