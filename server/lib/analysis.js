@@ -139,7 +139,73 @@ function checkStructural(source, out) {
         })
       );
     }
+
+    checkTabProducedData(source, tab, out);
   }
+}
+
+/**
+ * ชื่อแท็บที่เห็นแล้วรู้ว่าเป็นของเหลือ ไม่ใช่ข้อมูลที่หายไป
+ * เช่นแท็บเปล่าที่ Google ตั้งชื่อให้เอง หรือแท็บที่ก๊อปมาแล้วยังไม่ได้ใช้
+ */
+const LEFTOVER_TAB_RE = /^(ชีต\s*\d+|Sheet\s*\d+|สำเนา|Copy of|ต้นฉบับ)/i;
+
+/** เหตุผลที่ระบบ "ตั้งใจ" ข้ามแท็บ — ไม่ใช่ความผิดพลาด */
+const EXPECTED_SKIPS = new Set(['template', 'summary']);
+
+/**
+ * แท็บนี้โหลดมาแล้วได้ข้อมูลจริงหรือเปล่า
+ *
+ * ทำไมต้องมี: การตรวจเดิมดูแค่ "ดึงสำเร็จไหม" กับ "โครงคอลัมน์ชัดไหม"
+ * แท็บที่ดึงได้ปกติแต่ระบบอ่านข้อมูลไม่ได้เลยจึงเงียบสนิท จำนวนแท็บเพิ่มขึ้น
+ * แต่ยอดรวมไม่ขยับ ผู้บริหารเห็นตัวเลขที่ขาดไปโดยไม่มีอะไรเตือน
+ *
+ * สำคัญ: ต้องไม่ฟ้องแท็บที่ parser ตั้งใจไม่อ่าน ไม่งั้นจะได้เสียงรบกวนเป็นสิบ ๆ อัน
+ * (perCrop มีแท็บรายครอป 37 อันที่ข้อมูลจริงอยู่ใน SUMMARY SHEET — มาร์ก detailOnly ไว้)
+ */
+function checkTabProducedData(source, tab, out) {
+  if (tab.fetchStatus === 'error') return; // มี structural.tabFailed รายงานไปแล้ว
+  if (tab.detailOnly) return; // parser ตั้งใจไม่อ่านแท็บนี้ ข้อมูลจริงอยู่ที่อื่น
+
+  if (tab.skipped) {
+    const expected = EXPECTED_SKIPS.has(tab.skipped);
+    out.push(
+      finding('structural.tabIgnored', expected ? 'info' : 'warning', {
+        source: source.key,
+        tab: tab.name,
+        messageTh: expected
+          ? `ข้าม tab "${tab.name}" ตามที่ตั้งใจไว้ (${tab.skipped}) — ไม่ได้นับรวมในยอด`
+          : `tab "${tab.name}" ถูกข้ามทั้งแท็บเพราะชื่อไม่ตรงรูปแบบที่ระบบรู้จัก (${tab.skipped}) ` +
+            'ถ้าเป็นแท็บข้อมูลจริง ตัวเลขในแท็บนี้จะหายไปจากรายงานทั้งหมด',
+        messageEn: expected
+          ? `Tab "${tab.name}" skipped as intended (${tab.skipped}) — excluded from totals`
+          : `Tab "${tab.name}" was skipped entirely because its name does not match a known pattern (${tab.skipped}). ` +
+            'If it holds real data, none of it reaches the dashboard.',
+        field: tab.skipped,
+      })
+    );
+    return;
+  }
+
+  if ((tab.rowCount ?? 0) > 0) return;
+
+  const leftover = LEFTOVER_TAB_RE.test(String(tab.name ?? '').trim());
+  out.push(
+    finding('structural.tabEmpty', leftover ? 'info' : 'warning', {
+      source: source.key,
+      tab: tab.name,
+      messageTh: leftover
+        ? `tab "${tab.name}" ไม่มีข้อมูลที่อ่านได้ — ดูเหมือนแท็บเปล่าที่เหลือค้างไว้ในชีต`
+        : `tab "${tab.name}" โหลดได้แต่อ่านข้อมูลไม่ได้เลยสักแถว ` +
+          'อาจเป็นแท็บว่าง หรือโครงสร้างไม่ตรงกับที่ระบบรู้จัก ถ้าเป็นแท็บข้อมูลจริงต้องแจ้ง dev ให้ปรับ parser',
+      messageEn: leftover
+        ? `Tab "${tab.name}" yielded no readable rows — looks like an empty leftover tab`
+        : `Tab "${tab.name}" loaded but produced no readable rows. ` +
+          'It may be empty, or its layout may differ from what the parser expects — if it holds real data, the parser needs updating.',
+      expected: '> 0 แถว',
+      actual: '0 แถว',
+    })
+  );
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -19,7 +19,7 @@ import {
   periodOrder,
   comparePeriod,
 } from '../server/lib/normalize.js';
-import { verifyPresentation } from '../server/lib/analysis.js';
+import { analyze, verifyPresentation } from '../server/lib/analysis.js';
 import { parseCsv } from '../server/lib/csv.js';
 
 let payload;
@@ -282,5 +282,55 @@ describe('การจัดลำดับช่วงเวลา', () => {
   test('ผลวิเคราะห์จริงต้องไม่มี finding เรื่องลำดับหลงเหลือ', () => {
     const ordering = payload.analysis.findings.filter((f) => f.id === 'order.notChronological');
     assert.equal(ordering.length, 0, ordering.map((f) => f.messageTh).join(' | '));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+describe('การตรวจรายแท็บ', () => {
+  /* คำนวณผลวิเคราะห์ใหม่จากข้อมูลดิบ ไม่ใช้ค่าที่ติดมากับ snapshot
+   * เพราะ snapshot ถูกเขียนตอนรันครั้งก่อน จึงยังเป็นผลของโค้ดเวอร์ชันเก่า
+   * เทสต์ต้องตรวจโค้ดปัจจุบัน ไม่ใช่ผลที่บันทึกไว้ */
+  let fresh;
+  before(() => {
+    fresh = analyze(payload.sources);
+  });
+
+  const tabFindings = (id) => fresh.findings.filter((f) => f.id === id);
+
+  test('ไม่ฟ้องแท็บรายครอปของ perCrop ที่ตั้งใจไม่อ่าน', () => {
+    // perCrop อ่านข้อมูลจริงจาก SUMMARY SHEET ส่วนแท็บรายครอปอีก ~37 อันมาร์ก detailOnly ไว้
+    // ถ้ากรองพลาดจะได้ false alarm ทีเดียว 37 อัน คะแนนพังทั้งที่ข้อมูลถูกต้อง
+    const wrong = tabFindings('structural.tabEmpty').filter((f) => f.source === 'perCrop');
+    assert.equal(wrong.length, 0, `perCrop ไม่ควรมี tabEmpty แต่เจอ ${wrong.length} อัน`);
+  });
+
+  test('แท็บที่ถูกข้ามเพราะชื่อไม่ตรงแพตเทิร์นต้องได้ระดับ warning', () => {
+    // เคสที่ผู้ใช้ถาม: เพิ่มแท็บใหม่แล้วตั้งชื่อไม่เข้าแบบ ข้อมูลหายทั้งแท็บ
+    const ignored = tabFindings('structural.tabIgnored');
+    const unexpected = ignored.filter((f) => f.field !== 'template' && f.field !== 'summary');
+    assert.ok(unexpected.length > 0, 'ควรจับแท็บที่ชื่อไม่ตรงแพตเทิร์นได้อย่างน้อยหนึ่งอัน');
+    for (const f of unexpected) {
+      assert.equal(f.severity, 'warning', `"${f.tab}" ควรเป็น warning ไม่ใช่ ${f.severity}`);
+    }
+  });
+
+  test('แท็บที่ข้ามตามที่ตั้งใจไว้เป็นแค่ info ไม่ทำให้คะแนนตกโดยไม่จำเป็น', () => {
+    const expected = tabFindings('structural.tabIgnored').filter(
+      (f) => f.field === 'template' || f.field === 'summary'
+    );
+    for (const f of expected) {
+      assert.equal(f.severity, 'info', `"${f.tab}" ควรเป็น info ไม่ใช่ ${f.severity}`);
+    }
+  });
+
+  test('finding รายแท็บมีข้อความสองภาษาและลิงก์ไปแท็บได้', () => {
+    const all = [...tabFindings('structural.tabEmpty'), ...tabFindings('structural.tabIgnored')];
+    assert.ok(all.length > 0, 'ควรมี finding รายแท็บอย่างน้อยหนึ่งอัน');
+    for (const f of all) {
+      assert.ok(f.messageTh && f.messageEn, `finding ของ "${f.tab}" ขาดข้อความสองภาษา`);
+      assert.ok(f.tab, 'finding รายแท็บต้องระบุชื่อแท็บ');
+      // gid ถูกเติมตอนท้าย analyze() — ถ้าเป็น null แปลว่าลิงก์เปิดไปแท็บนั้นไม่ได้
+      assert.notEqual(f.gid, null, `finding ของ "${f.tab}" ไม่มี gid จึงทำลิงก์ไม่ได้`);
+    }
   });
 });
