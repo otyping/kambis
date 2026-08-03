@@ -20,9 +20,11 @@ import { loadDotEnv } from './lib/env.js';
  * ไม่ใช่ตอนโหลดโมดูล ถ้าจะเพิ่มโมดูลที่อ่าน key ตอนโหลด ต้องย้ายมาทำที่นี่ก่อน */
 const envLoaded = loadDotEnv();
 
-import { loadAll, loadFromSnapshot, loadConfig } from './lib/loader.js';
+import { loadAll, loadFromSnapshot, loadConfig, loadLazySource } from './lib/loader.js';
 import { ask, MODELS, DEFAULT_MODEL, findModel, hasApiKey, KEY_ENV_NAME } from './lib/gemini.js';
 import { buildDataContext, SYSTEM_PROMPT } from './lib/chat-context.js';
+import { createPurchaseRequest, validateItems } from './lib/purchase-request.js';
+import { createRefreshGate } from './lib/refresh-gate.js';
 import {
   loadAuth,
   refreshAuthIfChanged,
@@ -60,9 +62,14 @@ const STARTED_AT = Date.now();
 // ─────────────────────────────────────────────────────────────
 // สถานะในหน่วยความจำ
 // ─────────────────────────────────────────────────────────────
-let cached = null; // payload ล่าสุด
+let cached = null; // payload ล่าสุด (อาจเป็นชุดที่ไม่สมบูรณ์ก็ได้)
 let cachedAt = 0;
 let inFlight = null; // Promise ของการโหลดที่กำลังทำอยู่ (กันโหลดซ้อน)
+
+/* payload ชุดล่าสุดที่ "ดีจริง" — เอาไว้เสิร์ฟแทนเมื่อดึงสดแล้วได้ของว่าง
+ * แยกจาก `cached` โดยตั้งใจ เพราะ `cached` ต้องสะท้อนสิ่งที่เพิ่งส่งออกไปจริง ๆ
+ * ส่วนตัวนี้ต้องไม่ถูกแตะจนกว่าจะมีชุดใหม่ที่ผ่านเกณฑ์ payloadHealth() */
+let lastGood = null;
 
 /** ผู้ฟัง SSE ที่รอความคืบหน้าการโหลดอยู่ */
 const progressClients = new Set();
@@ -135,6 +142,46 @@ function noteChatUse(username) {
   else rec.count += 1;
 }
 
+/* ── คูลดาวน์ปุ่มรีเฟรช ──
+ *
+ * ใช้ร่วมกันทุกคนทุก role เพราะสิ่งที่ปกป้องคือโควตาฝั่ง Google ที่ใช้ร่วมกัน
+ * (เหตุผลเต็มอยู่ใน lib/refresh-gate.js)
+ *
+ * **ต้อง ≤ MEMORY_TTL_MS** ไม่งั้นคำขอที่โดนบล็อกจะไปเจอแคชที่หมดอายุพอดี
+ * แล้วโหลดเต็มรอบอยู่ดี — คูลดาวน์จะไม่มีความหมายเลย
+ */
+const REFRESH_COOLDOWN_MS = Math.min(
+  Number(process.env.REFRESH_COOLDOWN_SEC ?? 120) * 1000,
+  MEMORY_TTL_MS
+);
+const refreshGate = createRefreshGate({ cooldownMs: REFRESH_COOLDOWN_MS });
+
+/**
+ * ตัดสินว่าคำขอนี้ได้ดึงสดจริงไหม แล้วคืนสถานะไปให้หน้าเว็บบอกผู้ใช้
+ *
+ * **กดก่อนครบเวลายังได้ 200 พร้อมข้อมูลล่าสุด ไม่ใช่ 429** เพราะ getJson() ฝั่งเบราว์เซอร์
+ * โยน error ทุกสถานะที่ไม่ใช่ 2xx แล้วเด้งไปหน้าจอ "โหลดไม่สำเร็จ" เต็มจอ
+ * ซึ่งผู้บริหารจะอ่านว่าระบบพัง ทั้งที่แค่ยังไม่ถึงเวลาดึงรอบใหม่
+ */
+function gateRefresh(url, scope) {
+  const requested = url.searchParams.get('refresh') === '1';
+  if (!requested) {
+    return { force: false, refresh: { requested: false, applied: false, waitMs: 0, cooldownMs: REFRESH_COOLDOWN_MS } };
+  }
+  const gate = refreshGate.check(scope);
+  // จดก่อนโหลด ไม่ใช่หลังโหลดสำเร็จ — ดูเหตุผลใน refresh-gate.js
+  if (gate.allowed) refreshGate.note(scope);
+  return {
+    force: gate.allowed,
+    refresh: {
+      requested: true,
+      applied: gate.allowed,
+      waitMs: gate.waitMs,
+      cooldownMs: REFRESH_COOLDOWN_MS,
+    },
+  };
+}
+
 /** อ่าน body ของ POST พร้อมจำกัดขนาด กัน request ใหญ่เกินจนกินหน่วยความจำ */
 function readJsonBody(req, limitBytes = 256 * 1024) {
   return new Promise((resolve, reject) => {
@@ -186,8 +233,41 @@ async function getReports({ force = false } = {}) {
   inFlight = (async () => {
     try {
       const payload = await loadAll(broadcast);
+
+      /* ดึงมาได้แต่ไม่มีข้อมูลเลยสักรายงาน = แย่กว่าไม่ดึง
+       *
+       * เกิดได้จริงเมื่อ Google ตอบ 200 พร้อมหน้า login หรือ CSV ว่าง — payload
+       * จะมี status 'ok' ครบทุกรายงานแต่ 0 แถว ถ้าปล่อยผ่าน ผู้บริหารจะเห็นเลข 0
+       * ทั้งจอโดยไม่มีอะไรบอกว่ามันไม่จริง จึงเสิร์ฟชุดที่ดีล่าสุดแทนพร้อมติดธง */
+      if (payload.meta.health?.level === 'bad') {
+        const fallback = lastGood ?? (await loadFromSnapshot());
+        if (fallback) {
+          const served = {
+            ...fallback,
+            meta: {
+              ...fallback.meta,
+              cacheHit: true,
+              degraded: true,
+              loadError: 'ดึงข้อมูลสดไม่สำเร็จทั้งหมด',
+              failedSources: payload.meta.health.failed,
+              /* เอา health ของ "รอบที่เพิ่งพยายาม" มาใช้ ไม่ใช่ของชุดสำรอง
+               * ไม่งั้น /api/health จะรายงาน good ทั้งที่ระบบกำลังดึงข้อมูลไม่ได้
+               * ตัวเฝ้าระวังภายนอกต้องเห็นว่าตอนนี้ดึงไม่ได้ ไม่ใช่ว่าข้อมูลที่โชว์อยู่ดี */
+              health: payload.meta.health,
+            },
+          };
+          /* ต้องตั้ง cachedAt ด้วย ไม่งั้นตอน Google ล่มจะไม่มี TTL คุมเลย
+           * ทุกคนที่เปิดหน้าจะยิงเต็มรอบใหม่ทันทีตอนที่ปลายทางกำลังแย่ที่สุด */
+          cached = served;
+          cachedAt = Date.now();
+          return served;
+        }
+        // ไม่เคยมีชุดที่ดีเลย — ส่งของที่ได้ไปดีกว่าจอขาว
+      }
+
       cached = payload;
       cachedAt = Date.now();
+      if (payload.meta.health?.level === 'good') lastGood = payload;
       return payload;
     } catch (err) {
       broadcast({ type: 'error', message: err.message });
@@ -208,6 +288,82 @@ async function getReports({ force = false } = {}) {
   })();
 
   return inFlight;
+}
+
+/* cache แยกสำหรับรายงานที่โหลดแบบ lazy
+ *
+ * TTL ยาวกว่า payload หลักเพราะชีตวัสดุถูกแก้วันละครั้ง ไม่ใช่ตลอดเวลา
+ * และการโหลดแต่ละครั้งกิน 139 คำขอ จึงไม่ควรให้หมดอายุบ่อย */
+const LAZY_TTL_MS = 15 * 60 * 1000;
+const lazyCache = new Map(); // key → { payload, at }
+const lazyInFlight = new Map(); // key → Promise
+const lazyLastGood = new Map(); // key → payload ชุดล่าสุดที่ผ่านเกณฑ์ (ดู lastGood ด้านบน)
+
+async function getLazySource(key, { force = false } = {}) {
+  const hit = lazyCache.get(key);
+  if (hit && !force && Date.now() - hit.at < LAZY_TTL_MS) {
+    return { ...hit.payload, meta: { ...hit.payload.meta, cacheHit: true } };
+  }
+  if (lazyInFlight.has(key)) return lazyInFlight.get(key);
+
+  const job = (async () => {
+    try {
+      const payload = await loadLazySource(key, broadcast);
+
+      // เหตุผลเดียวกับ getReports() — ของว่างต้องไม่ไปแทนของดีที่ยังมีอยู่
+      if (payload.meta.health?.level === 'bad') {
+        const fallback = lazyLastGood.get(key) ?? (await loadFromSnapshot(`snapshot.${key}`));
+        if (fallback) {
+          const served = {
+            ...fallback,
+            meta: {
+              ...fallback.meta,
+              cacheHit: true,
+              degraded: true,
+              loadError: 'ดึงข้อมูลสดไม่สำเร็จทั้งหมด',
+              failedSources: payload.meta.health.failed,
+              /* เอา health ของ "รอบที่เพิ่งพยายาม" มาใช้ ไม่ใช่ของชุดสำรอง
+               * ไม่งั้น /api/health จะรายงาน good ทั้งที่ระบบกำลังดึงข้อมูลไม่ได้
+               * ตัวเฝ้าระวังภายนอกต้องเห็นว่าตอนนี้ดึงไม่ได้ ไม่ใช่ว่าข้อมูลที่โชว์อยู่ดี */
+              health: payload.meta.health,
+            },
+          };
+          lazyCache.set(key, { payload: served, at: Date.now() });
+          return served;
+        }
+      }
+
+      lazyCache.set(key, { payload, at: Date.now() });
+      if (payload.meta.health?.level === 'good') lazyLastGood.set(key, payload);
+      return payload;
+    } catch (err) {
+      broadcast({ type: 'error', message: err.message });
+      const snapshot = await loadFromSnapshot(`snapshot.${key}`);
+      if (snapshot) {
+        lazyCache.set(key, { payload: snapshot, at: Date.now() });
+        return {
+          ...snapshot,
+          meta: { ...snapshot.meta, cacheHit: true, degraded: true, loadError: err.message },
+        };
+      }
+      throw err;
+    } finally {
+      lazyInFlight.delete(key);
+    }
+  })();
+
+  lazyInFlight.set(key, job);
+  return job;
+}
+
+/** คีย์ของรายงานที่ตั้ง lazy ไว้ใน config — อ่านครั้งเดียวแล้วจำไว้ */
+let lazyKeysCache = null;
+async function lazyKeys() {
+  if (!lazyKeysCache) {
+    const config = await loadConfig();
+    lazyKeysCache = new Set(config.sources.filter((s) => s.lazy).map((s) => s.key));
+  }
+  return lazyKeysCache;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -386,6 +542,11 @@ async function handleApi(req, res, url, user) {
       analysisCounts: cached?.analysis?.counts ?? null,
       sourceCount: config?.sources?.length ?? null,
       configOutdated: config?.outdated ?? null,
+      /* good / partial / bad — บอกว่าชุดที่เสิร์ฟอยู่ตอนนี้ครบแค่ไหน
+       * ใช้เป็นตัวเฝ้าระวังจากภายนอกได้ (uptime monitor เรียกดูค่านี้) */
+      dataHealth: cached?.meta?.health?.level ?? null,
+      degraded: cached?.meta?.degraded ?? false,
+      refreshCooldownMs: REFRESH_COOLDOWN_MS,
     });
   }
 
@@ -417,13 +578,20 @@ async function handleApi(req, res, url, user) {
   }
 
   if (route === '/api/reports') {
-    const force = url.searchParams.get('refresh') === '1';
+    const { force, refresh } = gateRefresh(url, 'reports');
     const payload = await getReports({ force });
-    return sendJson(res, 200, payload);
+    return sendJson(res, 200, { ...payload, meta: { ...payload.meta, refresh } });
   }
 
   const single = route.match(/^\/api\/reports\/([A-Za-z0-9_-]+)$/);
   if (single) {
+    // รายงาน lazy ไม่ได้อยู่ใน payload หลัก — โหลดแยกพร้อม cache/TTL ของตัวเอง
+    if ((await lazyKeys()).has(single[1])) {
+      // คูลดาวน์แยก scope เพราะเป็นคนละชุดคำขอกัน (140 vs 125)
+      const { force, refresh } = gateRefresh(url, single[1]);
+      const lazy = await getLazySource(single[1], { force });
+      return sendJson(res, 200, { ...lazy, meta: { ...lazy.meta, refresh } });
+    }
     const payload = await getReports();
     const source = payload.sources[single[1]];
     if (!source) return sendJson(res, 404, { error: `ไม่พบรายงาน "${single[1]}"` });
@@ -438,6 +606,48 @@ async function handleApi(req, res, url, user) {
   if (route === '/api/analysis') {
     const payload = await getReports();
     return sendJson(res, 200, payload.analysis);
+  }
+
+  // ── ใบขอซื้อวัสดุ ──
+  if (route === '/api/supply/purchase-request' && req.method === 'POST') {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      return sendJson(res, 400, { error: err.message });
+    }
+
+    // เทียบรายการที่ขอกับข้อมูลจริงจากชีตเสมอ — ราคาก็เอาจากชีต ไม่เอาจากเบราว์เซอร์
+    const supply = await getLazySource('supplyLog');
+    const { items, errors } = validateItems(body?.items, supply?.kpi?.items);
+    if (!items.length) {
+      return sendJson(res, 400, { error: errors[0] ?? 'ไม่มีรายการที่ขอซื้อ', errors });
+    }
+
+    const pr = await createPurchaseRequest({
+      items,
+      requestedBy: user?.username ?? null,
+      note: body?.note ?? '',
+    });
+
+    console.log(
+      `[pr] ${pr.docNo} · ${items.length} รายการ · ${pr.totalAmount.toLocaleString()} บาท` +
+        `${pr.savedTo ? '' : ' (เก็บสำเนาไม่สำเร็จ)'}`
+    );
+
+    res.writeHead(200, {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Length': pr.buffer.length,
+      // ชื่อไฟล์เป็น ASCII อยู่แล้ว (PR-YYYYMMDD-NNN) จึงไม่ต้องเข้ารหัสเพิ่ม
+      'Content-Disposition': `attachment; filename="${pr.fileName}"`,
+      'Cache-Control': 'no-store',
+      // ให้หน้าเว็บอ่านเลขที่เอกสารและรายการที่ตกหล่นได้จาก header
+      'X-Document-No': pr.docNo,
+      'X-Missing-Price': String(pr.missingPrice),
+      'X-Skipped': String(errors.length),
+      'Access-Control-Expose-Headers': 'X-Document-No, X-Missing-Price, X-Skipped',
+    });
+    return res.end(pr.buffer);
   }
 
   // ── Chatbot ──
@@ -513,8 +723,18 @@ async function handleApi(req, res, url, user) {
 
     const payload = await getReports();
 
+    /* ข้อมูลวัสดุสิ้นเปลืองแนบไปด้วยถ้ามีอยู่ใน cache แล้ว
+     *
+     * ไม่บังคับโหลดสด เพราะจะทำให้คำถามแรกของทุกวันช้าไปอีก 8 วินาที
+     * ทั้งที่ส่วนใหญ่ถามเรื่องดอก — ถ้ายังไม่มี ผู้ช่วยจะบอกเองว่ายังไม่มีข้อมูลส่วนนี้ */
+    let supplyPayload = null;
+    for (const key of await lazyKeys()) {
+      const hit = lazyCache.get(key);
+      if (hit) supplyPayload = hit.payload;
+    }
+
     // Gemini รับคำสั่งระบบเป็นข้อความก้อนเดียว จึงต่อคำสั่งกับบริบทข้อมูลเข้าด้วยกัน
-    const system = `${SYSTEM_PROMPT}\n\n${buildDataContext(payload)}`;
+    const system = `${SYSTEM_PROMPT}\n\n${buildDataContext(payload, supplyPayload)}`;
 
     try {
       const result = await ask({ model, system, messages: turns });
@@ -548,7 +768,12 @@ async function handleApi(req, res, url, user) {
 
 // ─────────────────────────────────────────────────────────────
 /** endpoint ที่รับ POST ได้ — ที่เหลืออ่านอย่างเดียว */
-const POST_ROUTES = new Set(['/api/chat', '/api/auth/login', '/api/auth/logout']);
+const POST_ROUTES = new Set([
+  '/api/chat',
+  '/api/auth/login',
+  '/api/auth/logout',
+  '/api/supply/purchase-request',
+]);
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);

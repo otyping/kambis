@@ -51,6 +51,56 @@ export async function loadConfig() {
 }
 
 /**
+ * payload ก้อนนี้ "ดีพอจะเก็บเป็นชุดสำรอง" ไหม
+ *
+ * **ตัดสินจาก `rowCount` เป็นหลัก ห้ามใช้ `status` เพียงอย่างเดียว**
+ * `status` (บรรทัด ~189) คำนวณจากผลการดึง HTTP กับ parser throw เท่านั้น ไม่เคยดูจำนวนแถว
+ * ถ้า Google ตอบ 200 พร้อมหน้า login หรือ CSV ว่าง จะได้ `status: 'ok'` ที่ 0 แถว
+ * แล้วของว่างก้อนนั้นจะไปทับชุดสำรองที่ดีอยู่ — กู้ไม่ได้แม้รีสตาร์ทเซิร์ฟเวอร์
+ *
+ * ที่ไม่ใช้ `analysis.score` เป็นเกณฑ์: คะแนนต่ำแปลว่า "ตัวเลขในชีตขัดกันเอง"
+ * ไม่ใช่ "ดึงข้อมูลไม่ได้" — ข้อมูลจริงตอนนี้ได้ 31/100 จากปัญหาในชีตเอง
+ * ถ้าเอาคะแนนมาเป็นเกณฑ์ ชุดสำรองจะไม่ถูกเขียนเลยสักครั้ง
+ *
+ * @param {object} payload
+ * @returns {{level:'good'|'partial'|'bad', reason:string, failed:string[]}}
+ */
+export function payloadHealth(payload) {
+  const list = payload?.meta?.sources ?? [];
+  if (!list.length) return { level: 'bad', reason: 'no-sources', failed: [] };
+
+  const failed = list.filter((s) => s.status === 'error' || !(s.rowCount > 0)).map((s) => s.key);
+  const tabs = list.reduce((n, s) => n + (s.tabCount || 0), 0);
+  const usable = list.reduce((n, s) => n + (s.tabsOk || 0) + (s.tabsStale || 0), 0);
+
+  if (failed.length === list.length) return { level: 'bad', reason: 'all-sources-failed', failed };
+  if (failed.length) return { level: 'partial', reason: 'source-failed', failed };
+  /* แท็บหายเกิน 10% ก็ยังไม่ควรเป็นชุดสำรอง แต่ยังส่งให้ผู้ใช้ดูได้
+   * ใช้สัดส่วนแทน "ต้องครบทุกแท็บ" เพราะถ้าแท็บหนึ่งพังถาวร (คนลบทิ้ง)
+   * ชุดสำรองจะไม่ถูกอัปเดตอีกเลยตลอดกาล ซึ่งอันตรายกว่าที่ตั้งใจกัน */
+  if (tabs && usable / tabs < 0.9) return { level: 'partial', reason: 'tabs-missing', failed };
+  return { level: 'good', reason: 'ok', failed: [] };
+}
+
+/**
+ * เก็บ payload เป็นชุดสำรอง — เฉพาะก้อนที่ผ่านเกณฑ์เท่านั้น
+ *
+ * ไม่มีประตูนี้ = Google ล่มหนึ่งครั้งตอนผู้บริหารกดรีเฟรช แล้วชุดสำรองที่ดีหายถาวร
+ */
+async function keepSnapshot(payload, name) {
+  payload.meta.health = payloadHealth(payload);
+  if (payload.meta.health.level === 'good') {
+    await writeSnapshot(payload, name);
+    return true;
+  }
+  console.warn(
+    `[snapshot] ไม่บันทึกรอบนี้ (${payload.meta.health.reason})` +
+      (payload.meta.health.failed.length ? ` — ${payload.meta.health.failed.join(', ')}` : '')
+  );
+  return false;
+}
+
+/**
  * เขียนรายชื่อแท็บที่ค้นเจอใหม่กลับลง config/sources.json
  *
  * config ยังคงถูก "สร้าง" จากไฟล์ .txt เหมือนเดิม — ที่นี่แตะเฉพาะ tabs[]
@@ -150,7 +200,11 @@ export async function loadSource(source, onProgress) {
   });
 
   let done = 0;
-  const tabs = await mapLimit(tabList, TAB_CONCURRENCY, async (tab) => {
+  /* ความเร็วในการดึงตั้งได้ต่อรายงาน — ชีตดอกไม้แท็บใหญ่จึงอยู่ที่ 4
+   * ส่วนชีตวัสดุมี 139 แท็บที่เล็กมาก ดึงพร้อมกันได้เยอะกว่าโดยไม่โดน 429
+   * (ห้ามขึ้นค่า default เพราะ 4 จูนมาสำหรับชีตก้อนใหญ่) */
+  const concurrency = source.tabConcurrency ?? TAB_CONCURRENCY;
+  const tabs = await mapLimit(tabList, concurrency, async (tab) => {
     const result = await loadTab(source, tab);
     done++;
     onProgress?.({
@@ -191,6 +245,9 @@ export async function loadSource(source, onProgress) {
     titleTh: source.titleTh,
     titleEn: source.titleEn,
     sheetUrl: source.sheetUrl,
+    // kind บอกว่ารายงานนี้เป็นข้อมูลชนิดไหน — analysis.js ใช้เลือกชุดกฎ
+    kind: source.kind ?? 'flower',
+    lazy: source.lazy ?? false,
     status,
     rows: parsed.rows,
     tabs: tabInfo,
@@ -223,24 +280,31 @@ export async function loadSource(source, onProgress) {
 
 /**
  * โหลดข้อมูลทั้งหมด แปลง รวม KPI และ **วิเคราะห์ความถูกต้องเสมอ**
+ *
+ * รายงานที่ตั้ง `lazy: true` ไว้ใน config จะถูกข้าม เพราะมีแท็บเยอะมาก
+ * และไม่ได้ใช้บนหน้า Dryflower เลย — โหลดแยกผ่าน loadLazySource() แทน
+ *
  * @param {(event:object)=>void} [onProgress]
+ * @param {{include?: string[]}} [opts] คีย์ของรายงาน lazy ที่ต้องการให้โหลดด้วย
  */
-export async function loadAll(onProgress) {
+export async function loadAll(onProgress, opts = {}) {
   const started = Date.now();
   const config = await loadConfig();
+  const include = new Set(opts.include ?? []);
+  const active = config.sources.filter((s) => !s.lazy || include.has(s.key));
 
   onProgress?.({
     type: 'start',
-    sources: config.sources.map((s) => ({ key: s.key, titleTh: s.titleTh, titleEn: s.titleEn })),
+    sources: active.map((s) => ({ key: s.key, titleTh: s.titleTh, titleEn: s.titleEn })),
   });
 
   // โหลดทีละรายงานตามลำดับ เพื่อให้ progress บน loading screen เดินเป็นระเบียบ
-  // และไม่ยิง Google พร้อมกันเกิน TAB_CONCURRENCY
+  // และไม่ยิง Google พร้อมกันเกิน concurrency ของแต่ละรายงาน
   const sources = {};
   const tabsToPersist = {};
   const tabChanges = [];
 
-  for (const source of config.sources) {
+  for (const source of active) {
     const result = await loadSource(source, onProgress);
 
     // แยกผลการค้นแท็บออกจาก payload ที่ส่งให้ browser — ใช้เฉพาะฝั่ง server
@@ -290,12 +354,16 @@ export async function loadAll(onProgress) {
 
       // แท็บที่เพิ่ม/ลบ/เปลี่ยนชื่อในรอบนี้ — หน้าเว็บเอาไปขึ้นแถบแจ้งเตือน
       tabChanges,
+      // ลิงก์ในไฟล์ .txt ที่ระบบยังไม่รู้จัก — ถ้าไม่ส่งขึ้นไป รายงานใหม่ที่คนเพิ่ม
+      // เข้ามาจะหายเงียบโดยไม่มีอะไรบอก (sync-sources.js เขียนไว้แล้วแต่ไม่เคยมีใครอ่าน)
+      unmatchedLabels: config.unmatchedLabels ?? [],
       sources: Object.values(sources).map((s) => ({
         key: s.key,
         titleTh: s.titleTh,
         titleEn: s.titleEn,
         icon: s.icon,
         sheetUrl: s.sheetUrl,
+        kind: s.kind,
         status: s.status,
         tabCount: s.tabCount,
         tabsOk: s.tabsOk,
@@ -313,14 +381,110 @@ export async function loadAll(onProgress) {
     analysis,
   };
 
-  await writeSnapshot(payload);
+  await keepSnapshot(payload);
+  onProgress?.({ type: 'done', durationMs: payload.meta.durationMs });
+  return payload;
+}
+
+/**
+ * โหลดรายงานที่ตั้ง lazy ไว้ แบบเดี่ยว ๆ ไม่แตะ payload หลัก
+ *
+ * ใช้กับชีตวัสดุสิ้นเปลืองที่มี 139 แท็บ — ถ้าโหลดพร้อมรายงานอื่น
+ * หน้า Dryflower จะช้าขึ้นเกือบเท่าตัวทั้งที่ไม่ได้ใช้ข้อมูลนี้เลย
+ *
+ * **ยังต้องรัน analyze() เหมือนกัน** ตามกฎข้อ 2 ของ CLAUDE.md
+ * ที่ว่าไม่มี code path ไหนข้ามการตรวจความถูกต้องได้
+ *
+ * @param {string} key
+ * @param {(event:object)=>void} [onProgress]
+ */
+export async function loadLazySource(key, onProgress) {
+  const started = Date.now();
+  const config = await loadConfig();
+  const source = config.sources.find((s) => s.key === key);
+  if (!source) throw new Error(`ไม่รู้จักรายงาน "${key}"`);
+
+  onProgress?.({
+    type: 'start',
+    sources: [{ key: source.key, titleTh: source.titleTh, titleEn: source.titleEn }],
+  });
+
+  const result = await loadSource(source, onProgress);
+  const { resolvedTabs, tabDiff, ...rest } = result;
+
+  const tabChanges = [];
+  if (result.discovery === 'live' && tabDiff?.changed) {
+    await persistTabs({ [source.key]: resolvedTabs });
+    tabChanges.push({
+      key: source.key,
+      titleTh: source.titleTh,
+      titleEn: source.titleEn,
+      sheetUrl: source.sheetUrl,
+      added: tabDiff.added,
+      removed: tabDiff.removed,
+      renamed: tabDiff.renamed,
+    });
+  }
+
+  const sources = { [source.key]: rest };
+  onProgress?.({ type: 'analysis:start' });
+
+  // ตรวจสองชั้นเหมือน loadAll — ชั้นที่สองจับปัญหาที่เกิดตอนจัดกลุ่ม/เรียง
+  // เช่นเดือนเรียงผิด หรือของที่ต้องสั่งซื้อแต่หาราคาไม่เจอ
+  let analysis = analyze(sources);
+  const kpi = buildKpi(sources, analysis);
+  analysis = verifyPresentation(analysis, kpi);
+  onProgress?.({ type: 'analysis:done', score: analysis.score, counts: analysis.counts });
+
+  const payload = {
+    meta: {
+      fetchedAt: new Date().toISOString(),
+      durationMs: Date.now() - started,
+      cacheHit: false,
+      tabChanges,
+      sources: [
+        {
+          key: rest.key,
+          titleTh: rest.titleTh,
+          titleEn: rest.titleEn,
+          icon: rest.icon,
+          sheetUrl: rest.sheetUrl,
+          kind: rest.kind,
+          status: rest.status,
+          tabCount: rest.tabCount,
+          tabsOk: rest.tabsOk,
+          tabsStale: rest.tabsStale,
+          tabsError: rest.tabsError,
+          rowCount: rest.rowCount,
+          durationMs: rest.durationMs,
+          error: rest.error,
+          discovery: rest.discovery,
+          discoveryError: rest.discoveryError,
+        },
+      ],
+    },
+    /* ตัด rows ดิบออกจาก response
+     *
+     * record มาตรฐานของระบบออกแบบมาสำหรับข้อมูลดอกไม้ พอเอามาใส่ข้อมูลวัสดุ
+     * แต่ละแถวจะมีช่อง sizes/nonFlower/ผลรวมที่เป็น null 16 ช่อง — 5,000 แถว
+     * รวมกันเป็น 2.8 MB ของค่าว่างล้วน ๆ
+     *
+     * ฝั่ง server ยังใช้ rows เต็มในการ analyze() ตามปกติ ที่ตัดคือเฉพาะขามาเบราว์เซอร์
+     * ซึ่งได้ข้อมูลเดียวกันในรูปแบบย่อผ่าน kpi.items[].log อยู่แล้ว */
+    source: { ...rest, rows: [], rowsOmitted: rest.rows.length },
+    kpi: kpi.supply,
+    analysis,
+  };
+
+  // รายงาน lazy มีบั๊กเดียวกันเป๊ะ — ต้องมีประตูเหมือนกัน
+  await keepSnapshot(payload, `snapshot.${key}`);
   onProgress?.({ type: 'done', durationMs: payload.meta.durationMs });
   return payload;
 }
 
 /** อ่าน payload ล่าสุดจากดิสก์ (ใช้ตอนออฟไลน์) */
-export async function loadFromSnapshot() {
-  const snap = await readSnapshot();
+export async function loadFromSnapshot(name = 'snapshot') {
+  const snap = await readSnapshot(name);
   if (!snap) return null;
   return {
     ...snap.data,

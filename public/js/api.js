@@ -67,9 +67,14 @@ export function fetchReports({ refresh = false } = {}) {
   return getJson(`/api/reports${refresh ? '?refresh=1' : ''}`);
 }
 
-/** ดึงรายงานเดียวแบบละเอียด */
-export function fetchReport(key) {
-  return getJson(`/api/reports/${encodeURIComponent(key)}`);
+/**
+ * ดึงรายงานเดียวแบบละเอียด
+ *
+ * `refresh` ต้องส่งต่อไปถึงเซิร์ฟเวอร์จริง ๆ ไม่งั้นรายงานที่โหลดแบบ lazy (ชีตวัสดุ)
+ * จะคืนแคช 15 นาทีเดิมกลับมาเงียบ ๆ ทั้งที่ผู้ใช้เพิ่งกดปุ่มรีเฟรช
+ */
+export function fetchReport(key, { refresh = false } = {}) {
+  return getJson(`/api/reports/${encodeURIComponent(key)}${refresh ? '?refresh=1' : ''}`);
 }
 
 /** ดึงผลวิเคราะห์อย่างเดียว */

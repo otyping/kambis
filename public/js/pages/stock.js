@@ -1,0 +1,222 @@
+/**
+ * pages/stock.js — 3. สต็อก
+ *
+ * ตามเอกสาร:
+ *   (a) ภาพสต็อกปัจจุบัน หัวหิน vs กรุงเทพ — โดนัทคู่          ✔ มีข้อมูล
+ *   (b) ยอดคงเหลือตามเวลา — กราฟเส้นสามเส้น                  ✖ ชีตเป็นภาพนิ่งวันเดียว
+ *   (c) ตารางอายุสต็อกและสัดส่วนขนาด                          ◐ ได้ทุกคอลัมน์ยกเว้นอายุ
+ *
+ * สำหรับ (b) เลือกทำเส้นประ "ประมาณการ" จากการไหลของของ
+ * (ผลผลิตสะสม − ขนออกสะสม สำหรับหัวหิน · รับเข้าสะสม − ขายสะสม สำหรับกรุงเทพ)
+ * แล้วปรับให้ปลายเส้นตรงกับยอดจริงที่นับได้ล่าสุด
+ *
+ * ค่าประมาณต้องติดป้ายเสมอ — ค่าประมาณที่ไม่ติดป้ายคือการ "ซ่อมข้อมูลเงียบ ๆ"
+ * ซึ่ง CLAUDE.md ข้อ 2 ห้ามไว้
+ */
+import { t, pick } from '../i18n.js';
+import { n, esc, DASH } from '../format.js';
+import * as charts from '../charts/index.js';
+import { renderCards } from '../ui/cards.js';
+import { sortableTable } from '../ui/table.js';
+import { awaitingCard, estimateChip } from '../ui/placeholder.js';
+import { pageHeader, panel, well, grid, emptyNote } from './shared.js';
+import { sum, dailySeries, SIZE_KEYS } from '../shared/agg-core.js';
+
+export const meta = { report: 'dryflower', page: 'stock' };
+
+const isHuaHin = (rec) => /หัวหิน|hua\s*hin/i.test(rec.location ?? '');
+
+export function render(ctx) {
+  const { host, payload, sources, onOpen, drawLater } = ctx;
+
+  pageHeader(host, { title: t('page.stock.title'), sub: t('page.stock.sub') });
+
+  const inventory = sources.inventory?.rows ?? [];
+  const huaHin = inventory.filter(isHuaHin);
+  const bangkok = inventory.filter((r) => !isHuaHin(r));
+
+  const g1 = grid(host, { cols: 2 });
+
+  // ── (a) ภาพสต็อกปัจจุบัน ──
+  {
+    const totalHH = sum(huaHin.map((r) => r.flowerTotal));
+    const totalBK = sum(bangkok.map((r) => r.flowerTotal));
+
+    const body = panel(g1, t('stock.snapshot'), t('stock.snapshotNote'));
+    if (!inventory.length) {
+      emptyNote(body);
+    } else {
+      const box = well(body);
+      drawLater.push({
+        node: box,
+        run: () =>
+          charts.donut(
+            box,
+            { [t('filter.huahin')]: totalHH, [t('filter.bangkok')]: totalBK },
+            { order: [t('filter.huahin'), t('filter.bangkok')], ramp: 'cat', height: 220 }
+          ),
+      });
+    }
+
+    for (const [label, rows] of [
+      [t('filter.huahin'), huaHin],
+      [t('filter.bangkok'), bangkok],
+    ]) {
+      const p = panel(g1, `${t('stock.sizeMix')} · ${label}`);
+      if (!rows.length) {
+        emptyNote(p);
+        continue;
+      }
+      const mix = {};
+      for (const key of SIZE_KEYS) mix[key] = sum(rows.map((r) => r.sizes?.[key]));
+      const box = well(p);
+      drawLater.push({ node: box, run: () => charts.donut(box, mix, { height: 210 }) });
+    }
+  }
+
+  // ── (b) ยอดคงเหลือตามเวลา — ประมาณการจากการไหลของของ ──
+  {
+    const body = panel(host, t('stock.overTime'), null, { wide: true });
+
+    const chip = estimateChip(t('stock.estimateNote'));
+    body.appendChild(chip);
+
+    const farmIn = dailySeries(sources.dailyTrim?.rows ?? []);
+    const farmOut = dailySeries(sources.outbound?.rows ?? []);
+    const bkkIn = dailySeries(sources.inbound?.rows ?? []);
+    const bkkOut = dailySeries(sources.sales?.rows ?? []);
+
+    const dates = [...new Set([...farmIn, ...farmOut, ...bkkIn, ...bkkOut].map((d) => d.date))].sort();
+
+    if (dates.length < 2) {
+      emptyNote(body, t('stock.notEnoughFlow'));
+    } else {
+      const at = (series) => {
+        const m = new Map(series.map((d) => [d.date, d.flower]));
+        return (date) => m.get(date) ?? 0;
+      };
+      const fi = at(farmIn);
+      const fo = at(farmOut);
+      const bi = at(bkkIn);
+      const bo = at(bkkOut);
+
+      let farm = 0;
+      let bkk = 0;
+      const farmPts = [];
+      const bkkPts = [];
+      const totalPts = [];
+      for (const date of dates) {
+        farm += fi(date) - fo(date);
+        bkk += bi(date) - bo(date);
+        farmPts.push({ date, value: farm });
+        bkkPts.push({ date, value: bkk });
+        totalPts.push({ date, value: farm + bkk });
+      }
+
+      /* เลื่อนทั้งเส้นให้ปลายตรงกับยอดที่นับได้จริงล่าสุด
+       * เพราะการไหลสะสมเริ่มนับจากวันแรกที่มีบันทึก ไม่ได้เริ่มจากศูนย์จริง ๆ */
+      const actualFarm = sum(huaHin.map((r) => r.flowerTotal));
+      const actualBkk = sum(bangkok.map((r) => r.flowerTotal));
+      const shift = (pts, actual) => {
+        const delta = actual - (pts[pts.length - 1]?.value ?? 0);
+        return pts.map((p) => ({ ...p, value: p.value + delta }));
+      };
+      const fp = shift(farmPts, actualFarm);
+      const bp = shift(bkkPts, actualBkk);
+      const tp = fp.map((p, i) => ({ date: p.date, value: p.value + bp[i].value }));
+
+      const box = well(body);
+      drawLater.push({
+        node: box,
+        run: () =>
+          charts.line(
+            box,
+            [
+              { label: t('filter.huahin'), points: fp },
+              { label: t('filter.bangkok'), points: bp },
+              { label: t('label.total'), points: tp },
+            ],
+            // ทั้งสามเส้นเป็นค่าประมาณ จึงเป็นเส้นประหมด
+            { height: 240, dashed: [0, 1, 2] }
+          ),
+      });
+    }
+
+    const invSheet = payload.meta.sources.find((s) => s.key === 'inventory') ?? {};
+    body.appendChild(
+      awaitingCard({
+        title: t('awaiting.stockHistory.title'),
+        why: t('awaiting.stockHistory.why'),
+        needs: [
+          {
+            sheet: pick(invSheet, 'title') || 'แบบฟอร์มสินค้าคงเหลือ',
+            sheetUrl: invSheet.sheetUrl,
+            columns: [t('awaiting.col.snapshotDaily')],
+          },
+        ],
+      })
+    );
+  }
+
+  // ── (c) ตารางสัดส่วนขนาดและอายุสต็อก ──
+  {
+    const body = panel(host, t('stock.agingTable'), t('stock.agingNote'), { wide: true });
+
+    const rows = [];
+    const strains = [...new Set(inventory.map((r) => r.strain).filter(Boolean))];
+    for (const strain of strains) {
+      for (const size of SIZE_KEYS) {
+        const hh = sum(huaHin.filter((r) => r.strain === strain).map((r) => r.sizes?.[size]));
+        const bk = sum(bangkok.filter((r) => r.strain === strain).map((r) => r.sizes?.[size]));
+        if (hh === 0 && bk === 0) continue;
+        rows.push({ strain, size, huaHin: hh, bangkok: bk, total: hh + bk });
+      }
+    }
+
+    if (!rows.length) {
+      emptyNote(body);
+    } else {
+      body.appendChild(
+        sortableTable(
+          [
+            { label: t('label.strain'), get: (r) => r.strain },
+            { label: t('label.size'), get: (r) => r.size },
+            { label: t('filter.huahin'), align: 'n', get: (r) => r.huaHin, render: (r) => n(r.huaHin) },
+            { label: t('filter.bangkok'), align: 'n', get: (r) => r.bangkok, render: (r) => n(r.bangkok) },
+            { label: t('label.total'), align: 'n', get: (r) => r.total, render: (r) => `<b>${n(r.total)}</b>` },
+            {
+              // ไม่มีวันที่รับเข้าราย lot ในชีต จึงคำนวณอายุไม่ได้จริง ๆ
+              label: t('stock.daysInInventory'),
+              align: 'n',
+              get: () => null,
+              render: () => `<span class="muted" title="${esc(t('awaiting.aging.why'))}">${DASH}</span>`,
+            },
+          ],
+          rows,
+          { sortIndex: 4, sortDir: 'desc' }
+        )
+      );
+
+      const invSheet = payload.meta.sources.find((s) => s.key === 'inventory') ?? {};
+      body.appendChild(
+        awaitingCard({
+          title: t('awaiting.aging.title'),
+          why: t('awaiting.aging.why'),
+          needs: [
+            {
+              sheet: pick(invSheet, 'title') || 'แบบฟอร์มสินค้าคงเหลือ',
+              sheetUrl: invSheet.sheetUrl,
+              columns: [t('awaiting.col.receivedDate'), t('awaiting.col.lot')],
+            },
+          ],
+        })
+      );
+    }
+  }
+
+  const cardHost = document.createElement('div');
+  cardHost.className = 'card-grid';
+  host.appendChild(cardHost);
+  renderCards(cardHost, { ...payload, sources }, onOpen, {
+    only: ['inventory', 'outbound', 'inbound'], defer: drawLater });
+}

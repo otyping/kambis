@@ -707,6 +707,101 @@ a.finding__sheet:hover {
   color: var(--accent-ink);
 }
 
+/* ── รายการ "ข้อมูลที่ยังขาด" ──
+ *
+ * หน้าตาใกล้กับ finding โดยตั้งใจ (เป็นข้อสังเกตที่ต้องตามไปแก้ที่ชีตเหมือนกัน)
+ * แต่ไม่มีแถบสีความรุนแรง เพราะไม่ใช่ความผิดพลาด — เป็นสิ่งที่ยังไม่มี
+ * ใช้เส้นประเหมือนการ์ด "รอข้อมูล" เพื่อให้คนโยงสองอย่างนี้เข้าหากันได้เอง
+ */
+.gaps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.gaps--compact {
+  max-height: 190px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.gap {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border-radius: var(--r-sm);
+  background: var(--well-inset);
+  border: 1px dashed var(--glass-border-soft);
+  font-size: 13px;
+  text-align: left;
+}
+
+.gaps--compact .gap {
+  padding: var(--sp-2);
+  font-size: 12px;
+}
+
+.gap__icon {
+  opacity: 0.7;
+  line-height: 1.5;
+}
+
+.gap__title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* ป้ายบอกว่าข้อนี้มีผลกับหน้าไหน — ผู้ใช้จะได้รู้ว่าไปดูผลกระทบได้ที่ไหน */
+.gap__page {
+  padding: 1px 7px;
+  border-radius: var(--r-full);
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-border-soft);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-mute);
+}
+
+.gap__detail {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.gap__why {
+  margin-top: 4px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.gap__need {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.gap__cols {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.gap__cols code {
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  background: var(--glass-fill);
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+
 /* ── ตัวกรอง ── */
 .filter-row {
   display: flex;

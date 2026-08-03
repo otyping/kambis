@@ -71,6 +71,36 @@ const PROFILES = [
     titleEn: 'Inventory',
     icon: 'stock',
   },
+  {
+    /* วัสดุสิ้นเปลือง — คนละเรื่องกับสต็อกดอกทั้งหมด จึงติด kind:'supply' ไว้ให้
+     * analysis.js ข้ามกฎที่เป็นเรื่องดอกไม้ (ดูหัวข้อ "การตรวจข้อมูล" ใน CLAUDE.md)
+     *
+     * ชีตนี้มี ~139 แท็บ (แท็บละรายการ) จึงต้องมีเลนของตัวเอง:
+     *   lazy           = ไม่โหลดตอนเปิดเว็บ รอจนผู้ใช้เข้าหน้า Supply
+     *   tabConcurrency = แท็บเล็กมาก ดึงพร้อมกันได้เยอะกว่าชีตดอกไม้
+     */
+    key: 'supplyLog',
+    parser: 'supplyLog',
+    match: (t) => t.includes('Log Stock') || (t.includes('ประจำวัน') && t.includes('Stock')),
+    titleTh: 'Log Stock บันทึกประจำวัน',
+    titleEn: 'Daily Supply Stock Log',
+    icon: 'supply',
+    kind: 'supply',
+    lazy: true,
+    tabConcurrency: 10,
+  },
+  {
+    /* งบรายรับ-รายจ่าย — ชีตเดียวในระบบที่มีตัวเลขเงินจริง (รวมถึง "รายได้")
+     * เป็นข้อมูลการเงิน ไม่ใช่ข้อมูลดอกไม้ จึงติด kind:'finance' ให้ analysis.js
+     * ข้ามกฎเรื่องน้ำหนัก/ขนาด/สายพันธุ์ทั้งหมด แล้วใช้ชุดกฎของตัวเองแทน */
+    key: 'cost',
+    parser: 'cost',
+    match: (t) => t.includes('ต้นทุน'),
+    titleTh: 'ต้นทุนและรายได้',
+    titleEn: 'Cost & Revenue',
+    icon: 'cost',
+    kind: 'finance',
+  },
 ];
 
 const SHEET_URL_RE = /https:\/\/docs\.google\.com\/spreadsheets\/d\/([A-Za-z0-9_-]{20,})/;
@@ -157,6 +187,11 @@ async function main() {
       sheetId: entry.sheetId,
       linkedGid: entry.linkedGid,
       sheetUrl: `https://docs.google.com/spreadsheets/d/${entry.sheetId}/edit`,
+      // ฟิลด์ทางเลือก — ใส่เฉพาะเมื่อ profile กำหนดไว้ เพื่อไม่ให้ sources.json
+      // ของรายงานเดิมมี key ว่างเปล่าเพิ่มขึ้นมาโดยไม่จำเป็น
+      ...(profile.kind ? { kind: profile.kind } : {}),
+      ...(profile.lazy ? { lazy: true } : {}),
+      ...(profile.tabConcurrency ? { tabConcurrency: profile.tabConcurrency } : {}),
       tabs,
       tabDiscoveryError: error,
     });

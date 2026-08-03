@@ -1,0 +1,1054 @@
+/**
+ * pages.css — เมนูสองชั้น แถบตัวกรองกลาง และโครงของหน้าย่อย
+ *
+ * ทุกค่าสีอ้างผ่าน custom property จาก tokens.css เท่านั้น
+ * ห้ามฮาร์ดโค้ดสี ไม่งั้นโหมดใดโหมดหนึ่งจะพัง
+ */
+
+/* ── ปุ่ม ☰ และแผงเมนูของจอเล็ก ───────────────────────────
+ *
+ * ปุ่มนี้ซ่อนอยู่บนจอใหญ่ (เห็นเมนูครบอยู่แล้ว การพับเก็บมีแต่เพิ่มจำนวนคลิก)
+ * และโผล่บนจอ < 768px ซึ่งเมนู 5 หน้าใส่ในแถวเดียวไม่ได้
+ */
+.nav-toggle {
+  display: none;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-md);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink);
+}
+
+.nav-toggle:hover {
+  background: var(--glass-fill);
+}
+
+.nav-toggle__bars {
+  display: grid;
+  gap: 4px;
+  width: 19px;
+}
+
+.nav-toggle__bars span {
+  height: 1.8px;
+  border-radius: 2px;
+  background: currentColor;
+  transition: transform var(--dur) var(--ease), opacity var(--dur) var(--ease);
+}
+
+/* เปิดอยู่ = ขีดสามขีดกลายเป็นกากบาท บอกว่ากดซ้ำเพื่อปิดได้ */
+[aria-expanded='true'].nav-toggle .nav-toggle__bars span:nth-child(1) {
+  transform: translateY(5.8px) rotate(45deg);
+}
+[aria-expanded='true'].nav-toggle .nav-toggle__bars span:nth-child(2) {
+  opacity: 0;
+}
+[aria-expanded='true'].nav-toggle .nav-toggle__bars span:nth-child(3) {
+  transform: translateY(-5.8px) rotate(-45deg);
+}
+
+.nav-panel[hidden] {
+  display: none;
+}
+
+.nav-panel {
+  position: fixed;
+  inset: 0;
+  /* ใต้ header (40) โดยตั้งใจ — header ต้องยังเห็นและกดได้ตอนแผงเปิด
+   * เพราะปุ่ม ☰ ที่กลายเป็น ✕ อยู่บนนั้น ถ้าแผงทับ header จะปิดด้วยปุ่มเดิมไม่ได้ */
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  background: var(--modal-scrim);
+}
+
+/* แผ่นเมนูไหลลงมาจากใต้ header เหมือน apple.com — ไม่ใช่สไลด์จากข้าง
+ * เพราะทิศทางเดียวกับที่นิ้วเพิ่งกดปุ่มมา สายตาจึงตามทัน */
+.nav-panel__sheet {
+  background: var(--header-bg);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+  border-bottom: 1px solid var(--header-border);
+  padding: var(--sp-3) var(--sp-4) var(--sp-5);
+  padding-top: calc(var(--header-h) + var(--sp-3));
+  max-height: 100%;
+  overflow-y: auto;
+  transform: translateY(-12px);
+  opacity: 0;
+  transition: transform 0.22s var(--ease), opacity 0.22s var(--ease);
+}
+
+.nav-panel.is-open .nav-panel__sheet {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.nav-panel__nav {
+  display: flex;
+  flex-direction: column;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  min-height: 52px;
+  padding: 0 var(--sp-2);
+  border-bottom: 1px solid var(--glass-border-soft);
+  color: var(--ink-soft);
+  text-decoration: none;
+}
+
+.nav-item--report {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+
+/* หน้าย่อยเยื้องเข้ามา บอกว่าเป็นของรายงานด้านบน โดยไม่ต้องมีหัวข้อกำกับ */
+.nav-panel__pages {
+  display: flex;
+  flex-direction: column;
+  padding-left: var(--sp-4);
+}
+
+.nav-panel__pages[hidden] {
+  display: none;
+}
+
+.nav-item--page {
+  min-height: 48px;
+  font-size: 0.95rem;
+}
+
+.nav-item.is-active {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+/* ขีดบอกตำแหน่งปัจจุบัน — เห็นได้โดยไม่ต้องอ่าน ตามกฎข้อ 6 ของ skill responsive-ui
+ * ใช้ inset shadow แทน border เพื่อไม่ให้ความกว้างของแถวขยับตอนสลับหน้า */
+.nav-item--page.is-active {
+  box-shadow: inset 2px 0 0 var(--accent);
+  padding-left: calc(var(--sp-2) + 8px);
+}
+
+.nav-item__tick {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--glass-border);
+  flex: none;
+}
+
+.nav-item--report.is-active .nav-item__tick {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* กล่องเครื่องมือที่ถูกย้ายเข้ามาตอนจอเล็ก */
+.nav-panel__tools:not(:empty) {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--glass-border-soft);
+}
+
+.nav-panel__tools .header-tools__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+/* แผงเปิดอยู่ห้ามให้หน้าข้างหลังเลื่อนตาม */
+body.has-nav-open {
+  overflow: hidden;
+}
+
+/* ── เมนูชั้นบน: เลือกรายงาน ─────────────────────────────── */
+.report-nav {
+  display: flex;
+  gap: var(--sp-1);
+  flex-wrap: wrap;
+  /* ดันเครื่องมือฝั่งขวาให้ไปสุดขอบ (เดิม .brand ถือหน้าที่นี้) */
+  margin-right: auto;
+  margin-left: var(--sp-4);
+}
+
+.report-nav a {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.85rem;
+  border-radius: var(--r-full);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+  text-decoration: none;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.report-nav a:hover {
+  color: var(--ink);
+  background: var(--glass-fill);
+}
+
+.report-nav a.is-active {
+  color: var(--ink);
+  background: var(--glass-fill-strong);
+  border-color: var(--glass-border);
+}
+
+/* ── เมนูชั้นล่าง: หน้าย่อยของ Dryflower ──────────────────── */
+
+/* ต้องมาก่อน .subnav — `display:flex` ของคลาสมี specificity เท่ากับ [hidden]
+ * ของ UA stylesheet แต่มาทีหลัง จึงชนะและทำให้ hidden ไม่มีผล
+ * (เมนู Dryflower เคยโผล่ค้างอยู่บนหน้า Supply เพราะเหตุนี้) */
+.subnav[hidden] {
+  display: none;
+}
+
+.subnav {
+  display: flex;
+  gap: var(--sp-1);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-4);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--glass-border-soft);
+}
+
+.subnav a {
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--r-sm);
+  font-size: 0.82rem;
+  color: var(--ink-mute);
+  text-decoration: none;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+}
+
+.subnav a:hover {
+  color: var(--ink);
+}
+
+.subnav a.is-active {
+  color: var(--ink);
+  font-weight: 600;
+  border-bottom-color: var(--series-1);
+}
+
+/* ── แถบตัวกรองกลาง ───────────────────────────────────────────
+ *
+ * สิ่งที่เห็นตลอดเวลาคือแถวเดียวเตี้ย ๆ: ปุ่มเปิด popup + ชิปสรุป + ปุ่มล้าง
+ * ตัวเลือกทั้งหมดอยู่ใน popup เพื่อไม่ให้กินพื้นที่จอ
+ */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+  min-width: 0;
+}
+
+.filter-open {
+  flex: none;
+}
+
+/* ── ช่องเลือกปี ──
+ *
+ * อยู่บนแถบตลอดเวลา ไม่ได้ซ่อนใน popup เหมือนตัวกรองอื่น
+ * เพราะปีมีค่าอยู่เสมอ (ค่าเริ่มต้น = ปีล่าสุด) ถ้ามองไม่เห็น ผู้ใช้จะเข้าใจว่า
+ * ยอดที่เห็นคือทั้งหมดตั้งแต่เปิดฟาร์ม — หน้า Supply ใช้คลาสเดียวกันนี้
+ */
+.filter-year {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: none;
+  padding: 0 var(--sp-2) 0 var(--sp-3);
+  height: 32px;
+  border-radius: var(--r-full);
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-border-soft);
+  cursor: pointer;
+}
+
+.filter-year__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-mute);
+  white-space: nowrap;
+}
+
+.filter-year__select {
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
+.filter-year__select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* มีตัวกรองอยู่ = ปุ่มต้องดูต่างจากตอนไม่มี โดยไม่ต้องอ่านตัวเลข */
+.filter-open.is-on {
+  background: var(--tint-accent);
+  border-color: var(--accent-line);
+}
+
+.filter-open__icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.filter-open__count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  border-radius: var(--r-full);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 11.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.filter-open__count[hidden] {
+  display: none;
+}
+
+/* ── ชิปสรุปว่ากรองอะไรอยู่ (กดเพื่อลบตัวกรองนั้น) ── */
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 0 var(--sp-2) 0 var(--sp-3);
+  border-radius: var(--r-full);
+  border: 1px solid var(--glass-border-soft);
+  background: var(--well-inset);
+  font-size: 12px;
+  color: var(--ink-soft);
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+
+.filter-chip:hover {
+  background: var(--tint-critical);
+  border-color: var(--line-critical);
+}
+
+/* ป้ายบนชิปตัวเล็กและหนา — ใช้ --ink-soft ไม่ใช่ --ink-mute
+ * เพราะที่ 12px บนพื้นครีมของโหมดสว่าง --ink-mute ได้ contrast แค่ ~4.2:1 (ไม่ผ่าน AA) */
+.filter-chip__label {
+  font-weight: 700;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.filter-chip__text {
+  max-width: 15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.filter-chip__x {
+  font-size: 15px;
+  line-height: 1;
+  color: var(--ink-mute);
+}
+
+.filter-chip:hover .filter-chip__x {
+  color: var(--sev-critical);
+}
+
+.filter-reset {
+  margin-left: auto;
+}
+
+/* ── popup ตัวกรอง ────────────────────────────────────────────
+ * แขวนที่ document.body จึงไม่ถูกล้างตอนหน้าถูกวาดใหม่
+ * z-index อยู่ใต้ modal (90) แต่เหนือ header (40) และช่องแชท (70)
+ */
+.filter-pop-root {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+}
+
+/* จอเล็กเป็น bottom sheet — มีฉากหลังหรี่เพื่อบอกว่าตอนนี้โฟกัสอยู่ที่ sheet */
+.filter-pop-root.is-sheet {
+  background: var(--modal-scrim);
+}
+
+.filter-pop {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--glass-border);
+  background: var(--modal-bg);
+  box-shadow: var(--shadow-modal);
+  color: var(--ink);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+  animation: filter-pop-in var(--dur) var(--ease);
+}
+
+@keyframes filter-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+.filter-pop-root.is-sheet .filter-pop {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: auto;
+  width: auto;
+  max-height: 84vh;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  animation-name: filter-sheet-in;
+}
+
+@keyframes filter-sheet-in {
+  from {
+    transform: translateY(24px);
+  }
+}
+
+.filter-pop__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--glass-border-soft);
+}
+
+.filter-pop__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.filter-pop__close {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  font-size: 20px;
+  line-height: 1;
+  border-radius: var(--r-full);
+  border: 1px solid var(--glass-border-soft);
+  color: var(--ink-soft);
+}
+
+.filter-pop__close:hover {
+  background: var(--tint-critical);
+  border-color: var(--line-critical);
+  color: var(--sev-critical);
+}
+
+.filter-pop__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+}
+
+.filter-pop__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--glass-border-soft);
+}
+
+.filter-pop__done {
+  margin-left: auto;
+}
+
+/* ── ช่องในตัว popup ── */
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+/* ป้ายกำกับช่อง — เล็กและหนา จึงต้องใช้ --ink-soft ให้ผ่าน AA ทั้งสองโหมด */
+.filter-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.filter-dates {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--ink-mute);
+}
+
+.filter-date,
+.filter-pick {
+  min-height: 40px;
+  padding: 0 var(--sp-3);
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--bg-raise);
+  border: 1px solid var(--glass-border-soft);
+  border-radius: var(--r-sm);
+}
+
+.filter-date {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.filter-pick {
+  width: 100%;
+  font-weight: 600;
+  cursor: pointer;
+  padding-right: var(--sp-6);
+
+  /* ลูกศรวาดเอง เพราะ select ของแต่ละ OS หน้าตาไม่เหมือนกันเลย */
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 17px) center, calc(100% - 12px) center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+.filter-pick option {
+  background: var(--bg-raise);
+  color: var(--ink);
+}
+
+/* ── dropdown เลือกได้หลายค่า ── */
+.fdrop {
+  border: 1px solid var(--glass-border-soft);
+  border-radius: var(--r-md);
+  background: var(--well-inset);
+  transition: border-color var(--dur) var(--ease);
+}
+
+.fdrop.is-open {
+  border-color: var(--accent-line);
+}
+
+.fdrop__btn {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-md);
+  text-align: left;
+}
+
+.fdrop__name {
+  flex: none;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.fdrop__value {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.fdrop__caret {
+  flex: none;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 5px solid var(--ink-mute);
+  transition: transform var(--dur) var(--ease);
+}
+
+.fdrop.is-open .fdrop__caret {
+  transform: rotate(180deg);
+}
+
+.fdrop__panel {
+  padding: 0 var(--sp-3) var(--sp-3);
+}
+
+.fdrop__panel[hidden] {
+  display: none;
+}
+
+.fdrop__search {
+  width: 100%;
+  min-height: 36px;
+  margin-bottom: var(--sp-2);
+  padding: 0 var(--sp-3);
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--bg-raise);
+  border: 1px solid var(--glass-border-soft);
+  border-radius: var(--r-sm);
+}
+
+.fdrop__acts {
+  display: flex;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+
+.fdrop__act {
+  min-height: 30px;
+  padding: 0 var(--sp-3);
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--r-full);
+  border: 1px solid var(--glass-border-soft);
+  background: var(--glass-fill);
+  color: var(--ink-soft);
+  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.fdrop__act:hover {
+  border-color: var(--accent-line);
+  color: var(--ink);
+}
+
+.fdrop__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.fdrop__opt {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 34px;
+  padding: 0 var(--sp-2);
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.fdrop__opt:hover {
+  background: var(--tint-accent);
+}
+
+.fdrop__opt[hidden] {
+  display: none;
+}
+
+.fdrop__opt input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+.fdrop__empty,
+.fdrop__hint {
+  margin-top: var(--sp-2);
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+
+.fdrop__empty[hidden] {
+  display: none;
+}
+
+/* ── โครงของหน้า ──────────────────────────────────────────── */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.page-head__title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.page-head__sub {
+  margin: 0.2rem 0 0;
+  font-size: 0.85rem;
+  color: var(--ink-mute);
+}
+
+.page-grid {
+  display: grid;
+  gap: var(--sp-4);
+}
+
+.page-grid--1 {
+  grid-template-columns: 1fr;
+}
+
+.page-grid--2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.panel {
+  padding: var(--sp-4);
+  min-width: 0;
+}
+
+.panel--wide {
+  grid-column: 1 / -1;
+}
+
+.empty-note {
+  margin: var(--sp-3) 0;
+  font-size: 0.85rem;
+  color: var(--ink-mute);
+}
+
+/* แถบตัวเลขสำคัญ — จำนวนช่องมาจาก JS ผ่าน --tile-count
+ *
+ * ใช้ auto-fit แทนการบังคับจำนวนคอลัมน์ เพราะหน้าภาพรวมมี 9 ช่องตามเอกสาร
+ * ถ้าอัดเป็นแถวเดียวป้ายจะถูกตัดจนอ่านไม่รู้เรื่อง — ปล่อยให้ขึ้นบรรทัดใหม่เองดีกว่า */
+.kpi-strip {
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+}
+
+.kpi__label {
+  /* ป้ายยาวให้ตัดสองบรรทัด ไม่ใช่ตัดกลางคำด้วย ellipsis บรรทัดเดียว */
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.kpi--awaiting .kpi__value {
+  color: var(--ink-mute);
+}
+
+/* ── การ์ด "รอข้อมูล" ─────────────────────────────────────── */
+.card--awaiting {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  /* เส้นประบอกว่า "ยังไม่เสร็จ" ต่างจากการ์ดที่มีข้อมูลจริง โดยไม่ต้องอ่านข้อความ */
+  border-style: dashed;
+}
+
+.card__icon--muted {
+  opacity: 0.6;
+}
+
+.card__metric-value--muted {
+  color: var(--ink-mute);
+}
+
+.awaiting__why {
+  margin: 0 0 var(--sp-2);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.awaiting__need-label {
+  margin: 0 0 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+
+.awaiting__needs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.awaiting__needs li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.82rem;
+}
+
+.awaiting__sheet a {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.awaiting__cols code {
+  display: inline-block;
+  margin: 0.1rem 0.25rem 0.1rem 0;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--r-sm);
+  background: var(--glass-fill);
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+
+/* ── หน้าต้นทุน: กำไร/ขาดทุน ──
+ *
+ * ขาดทุนต้องเห็นได้โดยไม่ต้องอ่านเครื่องหมายลบ เพราะในตารางที่มีตัวเลขหลักล้าน
+ * เครื่องหมายลบตัวเดียวหลุดสายตาได้ง่ายมาก ใช้สีเดียวกับ severity ที่มีอยู่แล้ว
+ * ไม่เพิ่มสีใหม่เข้าระบบ (กฎสีของ CLAUDE.md ข้อ 9)
+ */
+.money-neg {
+  color: var(--sev-critical);
+}
+
+.money-pos {
+  color: var(--sev-ok);
+}
+
+/* ── หน้า Supply: แถบตัวกรอง ──
+ *
+ * กางทุกช่องไว้เลย ไม่ซ่อนใน popup แบบรายงาน Dryflower เพราะมีแค่ 4 ช่อง
+ * และเป็นช่องเดี่ยวทั้งหมด (ไม่มีตัวเลือกหลายค่า) กางไว้อ่านง่ายกว่าและกดน้อยกว่า
+ */
+.supply-filter-bar {
+  margin-bottom: var(--sp-4);
+}
+
+.supply-search {
+  flex: 1 1 12rem;
+  min-width: 8rem;
+  max-width: 20rem;
+  height: 32px;
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-full);
+  border: 1px solid var(--glass-border-soft);
+  background: var(--glass-fill);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.supply-search:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ── หน้า Supply: ตารางของที่ต้องสั่งซื้อ ────────────────── */
+.supply-warn {
+  margin: 0 0 var(--sp-3);
+  font-size: 0.83rem;
+  color: var(--ink-soft);
+}
+
+.col-check {
+  width: 2.5rem;
+  text-align: center;
+}
+
+.qty-input {
+  width: 5.5rem;
+  padding: 0.2rem 0.4rem;
+  text-align: right;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-fill);
+  color: var(--ink);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.pr-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  margin-top: var(--sp-3);
+  font-size: 0.86rem;
+  color: var(--ink-soft);
+}
+
+.pr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+}
+
+.pr-status {
+  font-size: 0.84rem;
+  color: var(--ink-mute);
+}
+
+/* ── จอเล็ก ──────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .page-grid--2 {
+    grid-template-columns: 1fr;
+  }
+
+  .report-nav {
+    order: 3;
+    width: 100%;
+    margin-left: 0;
+    margin-top: var(--sp-2);
+  }
+}
+
+/* ── < 768px: เมนูย้ายเข้าแผง ──
+ *
+ * เมนูสองชั้นถูกซ่อนทั้งคู่ ไม่ได้ทำให้เลื่อนแนวนอนแทน — แถบที่เลื่อนได้
+ * คือการซ่อนเมนูข้อท้าย ๆ ไว้นอกจอโดยไม่มีอะไรบอกว่ามันมีอยู่
+ */
+@media (max-width: 767px) {
+  .nav-toggle {
+    display: inline-flex;
+  }
+
+  .report-nav,
+  .subnav {
+    display: none;
+  }
+
+  /* ปุ่มรีเฟรชเหลือแต่ไอคอน — เป็นปุ่มที่กดบ่อยที่สุด จึงไม่ย้ายเข้าแผง */
+  .btn--refresh .btn__label {
+    display: none;
+  }
+
+  .btn--refresh {
+    width: 44px;
+    min-height: 44px;
+    padding: 0;
+  }
+
+  /* กำลังโหลดอยู่ให้เห็นแต่ตัวหมุน ไม่ต้องมีไอคอนซ้อน */
+  .btn--refresh.is-busy .btn__icon {
+    display: none;
+  }
+}
+
+/* ไอคอนในปุ่มโผล่เฉพาะปุ่มที่ประกาศไว้ ไม่ใช่ทุกปุ่ม */
+.btn__icon {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.btn.is-busy .btn__icon {
+  opacity: 0.35;
+}
+
+/* บนจอใหญ่กล่องนี้ไม่ควรมีตัวตนในการจัดวาง ลูกของมันเป็น flex item ของ .header-tools ตรง ๆ
+ * (display:contents) หน้าตาจึงเหมือนก่อนแยกกล่องทุกประการ */
+.header-tools__meta {
+  display: contents;
+}
+
+/* ปุ่มออกจากระบบอยู่ขวาสุดเสมอ ไม่ว่าจะอยู่ใน header หรือในแผงเมนู */
+.user-chip {
+  order: 1;
+}
+
+@media (max-width: 640px) {
+  .filter-chip__text {
+    max-width: 9rem;
+  }
+
+  /* ปุ่มล้างอยู่ท้ายแถว — บนจอแคบให้ชิดชิปไปเลย ไม่ต้องดันไปสุดขอบ */
+  .filter-reset {
+    margin-left: 0;
+  }
+}
+
+/* ── จอเล็ก / อุปกรณ์สัมผัส: touch target ต้องกดถูกจริง (≥ 44px) ──
+ *
+ * ต้องผูกกับความกว้างด้วย ไม่ใช่ (hover: none) อย่างเดียว
+ * เพราะจอเล็กบนเครื่องที่มีเมาส์ก็ยังต้องกดถูก และ (hover) ของอีมูเลเตอร์ไม่ตรงกับของจริง
+ * 767px คือ breakpoint เดียวกับที่ JS ใช้สลับ popup เป็น bottom sheet
+ */
+@media (max-width: 767px), (hover: none) {
+  .filter-open,
+  .filter-reset,
+  .filter-chip,
+  .fdrop__act,
+  .fdrop__opt,
+  .filter-pop__close,
+  .filter-pop__reset,
+  .filter-pop__done {
+    min-height: 44px;
+  }
+
+  .filter-pop__close {
+    width: 44px;
+  }
+
+  .fdrop__list {
+    max-height: 44vh;
+  }
+}

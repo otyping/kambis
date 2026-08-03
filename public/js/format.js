@@ -92,6 +92,19 @@ export function ago(iso) {
   return en ? `${days} d ago` : `${days} วันที่แล้ว`;
 }
 
+/**
+ * เวลาที่เหลือแบบสั้น ใช้กับคูลดาวน์ของปุ่มรีเฟรช
+ *
+ * ปัดขึ้นเสมอ — บอก "อีก 1 นาที" แล้วกดได้จริงตอน 1 นาที 10 วิ ดีกว่าบอก "อีก 0 นาที"
+ * แล้วกดไม่ได้ ซึ่งผู้ใช้จะอ่านว่าปุ่มเสีย
+ */
+export function countdown(ms) {
+  const secs = Math.max(0, Math.ceil((Number(ms) || 0) / 1000));
+  const en = getLang() === 'en';
+  if (secs >= 60) return en ? `${Math.ceil(secs / 60)} min` : `${Math.ceil(secs / 60)} นาที`;
+  return en ? `${secs} sec` : `${secs} วินาที`;
+}
+
 /** ตัดข้อความยาวให้พอดีป้ายกำกับ */
 export function truncate(text, max = 22) {
   const s = String(text ?? '');

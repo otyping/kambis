@@ -15,6 +15,7 @@ const PCT_TOLERANCE = 0.6; // % ที่ชีตคำนวณมักปั
 const FUTURE_MONTHS = 12;
 const OUTLIER_FACTOR = 3;
 const CROSS_SOURCE_TOLERANCE_PCT = 2; // ขนออก vs รับเข้า ต่างกันได้ไม่เกิน 2%
+const SUPPLY_STALE_DAYS = 30; // วัสดุที่ไม่มีใครบันทึกนานกว่านี้ = น่าสงสัยว่าลืมอัปเดต
 
 const SEVERITY_WEIGHT = { critical: 12, warning: 4, info: 1 };
 
@@ -93,6 +94,28 @@ function checkStructural(source, out) {
         source: source.key,
         messageTh: `"${source.titleTh}" ใช้ข้อมูลจากแคช (${source.tabsStale} tab ดึงสดไม่ได้)`,
         messageEn: `"${source.titleEn}" served from cache (${source.tabsStale} tab(s) unreachable)`,
+      })
+    );
+  }
+
+  /* ค้นรายชื่อแท็บสดไม่สำเร็จ กำลังใช้รายชื่อที่บันทึกไว้ครั้งก่อน
+   *
+   * severity เป็น info ไม่ใช่ warning เพราะเน็ตกระตุกครั้งเดียวไม่ควรฉุดคะแนน
+   * คุณภาพข้อมูล ซึ่งควรสะท้อนว่า "ตัวเลขในชีตขัดกันเองไหม" ไม่ใช่ "เน็ตดีไหม"
+   * ส่วนความมองเห็นแก้ด้วยแถบเตือนบนหัวเว็บ (ui/notices.js) ซึ่งตรงกว่า
+   *
+   * แต่ต้องมีร่องรอยไว้ที่นี่ด้วย เพราะมันแปลว่า **แท็บที่เพิ่งเพิ่มในชีตรอบนี้
+   * ยังไม่ถูกอ่าน** — ยอดรวมจึงไม่ขยับด้วยเหตุผลที่ไม่ใช่ข้อมูล */
+  if (source.discovery === 'config') {
+    out.push(
+      finding('structural.tabDiscoveryFallback', 'info', {
+        source: source.key,
+        messageTh:
+          `ค้นรายชื่อแท็บสดของ "${source.titleTh}" ไม่สำเร็จ (${source.discoveryError || 'ไม่ทราบสาเหตุ'}) ` +
+          'กำลังใช้รายชื่อที่บันทึกไว้ครั้งก่อน — แท็บที่เพิ่งเพิ่มในชีตรอบนี้จะยังไม่ถูกอ่าน',
+        messageEn:
+          `Could not list tabs of "${source.titleEn}" live (${source.discoveryError || 'unknown'}). ` +
+          'Falling back to the saved tab list — tabs added since then are not read.',
       })
     );
   }
@@ -569,7 +592,9 @@ function checkCompleteness(source, out) {
       );
     }
 
-    if (!rec.strain && source.key !== 'perCrop') {
+    // รายงานวัสดุสิ้นเปลืองไม่มีสายพันธุ์โดยธรรมชาติ — ถ้าไม่กันไว้จะได้ finding
+    // หลักพันจากแถว log ทุกแถว จนการ์ดคุณภาพข้อมูลใช้งานไม่ได้
+    if (!rec.strain && source.key !== 'perCrop' && source.kind !== 'supply') {
       out.push(
         finding('complete.missingStrain', 'info', {
           source: source.key,
@@ -648,6 +673,282 @@ function checkCompleteness(source, out) {
       );
     } else {
       seen.set(key, rec.rowIndex);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Finance — งบรายรับ-รายจ่าย (แบบฟอร์มต้นทุน)
+//
+// เป็นจำนวนเงินรายเดือน ไม่มีน้ำหนัก/ขนาด/สายพันธุ์ จึงใช้กฎคนละชุดกับดอกไม้
+// สิ่งที่ตรวจได้คือ **ความสอดคล้องกันเองของงบ** ซึ่งเป็นหัวใจของชีตนี้:
+//   งบสรุปต้องเท่ากับผลรวมของแท็บรายละเอียด · EBITDA/EBIT ต้องคำนวณกลับได้
+// ─────────────────────────────────────────────────────────────
+
+/** ต่างกันไม่เกินเท่านี้ถือว่าปัดเศษ ไม่ต้องเตือน */
+const MONEY_TOL = 1;
+
+function checkFinance(source, out) {
+  const summary = source.rows.filter((r) => r.kind === 'summary');
+  const detail = source.rows.filter((r) => r.kind === 'expense');
+
+  /** ยอดรวมทั้งปีของบรรทัดหนึ่งในงบสรุป */
+  const lineTotal = (line) =>
+    summary.filter((r) => r.line === line).reduce((a, r) => a + (r.amount ?? 0), 0);
+  const groupTotal = (group) =>
+    detail.filter((r) => r.group === group).reduce((a, r) => a + (r.amount ?? 0), 0);
+
+  if (!summary.length) {
+    out.push(
+      finding('finance.noSummary', 'critical', {
+        source: source.key,
+        messageTh: 'อ่านแท็บ "สรุป" ไม่ได้ — ตัวเลขรายได้และต้นทุนทั้งหมดมาจากแท็บนี้',
+        messageEn: 'Could not read the "สรุป" tab — every revenue and cost figure comes from it',
+      })
+    );
+    return;
+  }
+
+  /* งบสรุป vs ผลรวมรายการจริง
+   *
+   * เป็นการตรวจที่มีค่าที่สุดของชีตนี้ เพราะงบสรุปคือสิ่งที่ผู้บริหารเห็น
+   * แต่รายละเอียดคือสิ่งที่เกิดขึ้นจริง ถ้าสองอันไม่ตรงกันแปลว่ามีรายการตกหล่น
+   * หรือสูตรผลรวมในชีตครอบไม่ครบ */
+  for (const [line, group, labelTh, labelEn] of [
+    ['materialCost', 'growing', 'ต้นทุนวัตถุดิบ', 'Material cost'],
+    ['farmExpense', 'farm', 'ค่าใช้จ่าย Farm', 'Farm expense'],
+    ['officeExpense', 'office', 'ค่าใช้จ่าย Office', 'Office expense'],
+  ]) {
+    const stated = lineTotal(line);
+    const actual = groupTotal(group);
+    if (!stated && !actual) continue;
+    const delta = Number((actual - stated).toFixed(2));
+    if (Math.abs(delta) <= MONEY_TOL) continue;
+    out.push(
+      finding('finance.summaryMismatch', 'critical', {
+        source: source.key,
+        tab: 'สรุป',
+        field: line,
+        expected: stated,
+        actual,
+        delta,
+        messageTh:
+          `${labelTh}: งบสรุปบอก ${money(stated)} บาท แต่รวมรายการจริงในแท็บรายละเอียดได้ ` +
+          `${money(actual)} บาท (ต่างกัน ${money(Math.abs(delta))} บาท)`,
+        messageEn:
+          `${labelEn}: the summary says ${money(stated)} THB but the detail rows add up to ` +
+          `${money(actual)} THB (off by ${money(Math.abs(delta))} THB)`,
+      })
+    );
+  }
+
+  /* แถวที่ผลรวม 12 เดือนไม่เท่าช่อง Total ของแถวนั้นเอง
+   * เจอจริงแล้วหนึ่งแถว: ค่าไฟฟ้า — สูตรผลรวมไม่ครอบเดือนกรกฎาคม */
+  for (const tab of source.tabs ?? []) {
+    if (!tab.rowMismatches) continue;
+    out.push(
+      finding('finance.rowTotalMismatch', 'warning', {
+        source: source.key,
+        tab: tab.name,
+        messageTh:
+          `แท็บ "${tab.name}" มี ${tab.rowMismatches} แถวที่ผลรวม 12 เดือนไม่เท่ากับช่อง Total ` +
+          'ของแถวนั้น — มักเกิดจากสูตรผลรวมครอบไม่ครบเดือนที่เพิ่งกรอกเพิ่ม',
+        messageEn:
+          `Tab "${tab.name}" has ${tab.rowMismatches} row(s) where the 12 monthly values do not ` +
+          'match that row’s own Total — usually a SUM range that misses a newly filled month',
+      })
+    );
+  }
+
+  /* EBITDA ต้องเท่ากับ รายได้ − รวมต้นทุนการปลูก และ EBIT ต้องเท่ากับ EBITDA − ค่าเสื่อมราคา
+   * ตรวจรายเดือน เพราะผิดเดือนเดียวก็ทำให้กราฟแนวโน้มเพี้ยนแล้ว */
+  const months = [...new Set(summary.map((r) => r.month))].sort();
+  const at = (line, month) =>
+    summary.find((r) => r.line === line && r.month === month)?.amount ?? null;
+
+  for (const month of months) {
+    const ebitda = at('ebitda', month);
+    const ebit = at('ebit', month);
+    const dep = at('depreciation', month);
+    if (ebitda === null || ebit === null || dep === null) continue;
+    const delta = Number((ebitda - dep - ebit).toFixed(2));
+    if (Math.abs(delta) <= MONEY_TOL) continue;
+    out.push(
+      finding('finance.ebitMismatch', 'warning', {
+        source: source.key,
+        tab: 'สรุป',
+        field: month,
+        expected: Number((ebitda - dep).toFixed(2)),
+        actual: ebit,
+        delta,
+        messageTh:
+          `${month}: EBIT ที่ชีตบอก (${money(ebit)}) ไม่เท่ากับ EBITDA − ค่าเสื่อมราคา ` +
+          `(${money(ebitda)} − ${money(dep)} = ${money(ebitda - dep)})`,
+        messageEn:
+          `${month}: the stated EBIT (${money(ebit)}) does not equal EBITDA − depreciation ` +
+          `(${money(ebitda)} − ${money(dep)} = ${money(ebitda - dep)})`,
+      })
+    );
+  }
+
+  /* แท็บที่เนื้อหาซ้ำกับแท็บอื่นทั้งแท็บ — parser ข้ามให้แล้วเพื่อไม่ให้นับซ้ำ
+   * แต่ต้องบอกผู้ใช้ ไม่งั้นจะสงสัยว่าทำไมแท็บนั้นไม่มีผลอะไรเลย */
+  for (const tab of source.tabs ?? []) {
+    if (tab.skipped !== 'duplicate-content') continue;
+    out.push(
+      finding('finance.duplicateTab', 'warning', {
+        source: source.key,
+        tab: tab.name,
+        messageTh:
+          `แท็บ "${tab.name}" มีเนื้อหาเหมือนแท็บ "${tab.duplicateOf}" ทั้งแท็บ ` +
+          'ระบบจึงข้ามไปเพื่อไม่ให้ยอดถูกนับสองเท่า — ถ้าตั้งใจให้เป็นรายงานคนละอัน ต้องแก้เนื้อในก่อน',
+        messageEn:
+          `Tab "${tab.name}" is byte-for-byte the same as "${tab.duplicateOf}", so it is skipped ` +
+          'to avoid double counting — if it is meant to be a different report, its contents must be changed',
+      })
+    );
+  }
+}
+
+/** จำนวนเงินแบบอ่านง่ายในข้อความ finding */
+function money(v) {
+  return Number(v ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+
+// ─────────────────────────────────────────────────────────────
+// Supply — วัสดุสิ้นเปลือง (ชีต Log Stock บันทึกประจำวัน)
+//
+// กฎชุดนี้แยกจากกฎของดอกไม้ทั้งหมด เพราะไม่มีน้ำหนัก ขนาด หรือสายพันธุ์ให้ตรวจ
+// สิ่งที่ตรวจได้คือความสอดคล้องของบัญชี รับ–เบิก–คงเหลือ ซึ่งเป็นหัวใจของชีตนี้
+// ─────────────────────────────────────────────────────────────
+function checkSupply(source, out, now) {
+  const todayIso = now.toISOString().slice(0, 10);
+  const staleLimit = new Date(now);
+  staleLimit.setDate(staleLimit.getDate() - SUPPLY_STALE_DAYS);
+  const staleIso = staleLimit.toISOString().slice(0, 10);
+
+  // จัดแถว log เข้ากลุ่มตามแท็บ เพื่อไล่ยอดยกมาทีละรายการ
+  const byTab = new Map();
+  for (const rec of source.rows) {
+    if (rec.kind !== 'log') continue;
+    if (!byTab.has(rec.tab)) byTab.set(rec.tab, []);
+    byTab.get(rec.tab).push(rec);
+  }
+
+  for (const [tabName, rows] of byTab) {
+    let prev = null;
+    let driftReported = false;
+
+    for (const rec of rows) {
+      // ยอดติดลบ = บัญชีผิดแน่นอน ของจริงติดลบไม่ได้
+      if (rec.balance !== null && rec.balance < 0) {
+        out.push(
+          finding('supply.negativeBalance', 'critical', {
+            source: source.key,
+            tab: tabName,
+            row: rec.rowIndex,
+            field: 'จำนวนคงเหลือ',
+            messageTh: `${rec.item}: ยอดคงเหลือวันที่ ${rec.date} ติดลบ (${fmt(rec.balance)})`,
+            messageEn: `${rec.item}: balance on ${rec.date} is negative (${fmt(rec.balance)})`,
+            actual: rec.balance,
+          })
+        );
+      }
+
+      // Index ในชีตควรเท่ากับ คงเหลือ − ขั้นต่ำ เสมอ ถ้าไม่ตรงแปลว่ามีคนพิมพ์ทับสูตร
+      if (rec.index !== null && rec.balance !== null && rec.minimum !== null) {
+        const expected = rec.balance - rec.minimum;
+        if (Math.abs(rec.index - expected) >= 0.5) {
+          out.push(
+            finding('supply.indexMismatch', 'warning', {
+              source: source.key,
+              tab: tabName,
+              row: rec.rowIndex,
+              field: 'Index',
+              messageTh: `${rec.item}: ช่อง Index = ${fmt(rec.index)} แต่ คงเหลือ − ขั้นต่ำ = ${fmt(expected)}`,
+              messageEn: `${rec.item}: Index cell is ${fmt(rec.index)} but balance − minimum = ${fmt(expected)}`,
+              expected,
+              actual: rec.index,
+              delta: rec.index - expected,
+            })
+          );
+        }
+      }
+
+      // ยอดยกมาต้องเดินต่อกันได้: คงเหลือ = คงเหลือเดิม + รับ − เบิก
+      // รายงานแค่ครั้งแรกต่อแท็บ เพราะเมื่อหลุดแล้วแถวถัดไปจะผิดตามกันทั้งคอลัมน์
+      if (!driftReported && prev !== null && rec.balance !== null) {
+        const expected = prev + (rec.received ?? 0) - (rec.issued ?? 0);
+        if (Math.abs(rec.balance - expected) >= 0.5) {
+          out.push(
+            finding('supply.balanceDrift', 'warning', {
+              source: source.key,
+              tab: tabName,
+              row: rec.rowIndex,
+              field: 'จำนวนคงเหลือ',
+              messageTh:
+                `${rec.item}: วันที่ ${rec.date} ยอดคงเหลือ ${fmt(rec.balance)} ` +
+                `แต่ยอดยกมา ${fmt(prev)} + รับ ${fmt(rec.received ?? 0)} − เบิก ${fmt(rec.issued ?? 0)} = ${fmt(expected)}`,
+              messageEn:
+                `${rec.item}: on ${rec.date} balance is ${fmt(rec.balance)} but ` +
+                `${fmt(prev)} + ${fmt(rec.received ?? 0)} − ${fmt(rec.issued ?? 0)} = ${fmt(expected)}`,
+              expected,
+              actual: rec.balance,
+              delta: rec.balance - expected,
+            })
+          );
+          driftReported = true;
+        }
+      }
+      if (rec.balance !== null) prev = rec.balance;
+    }
+  }
+
+  // ตรวจระดับแท็บ — ใช้ค่า current ที่ parser คำนวณจากแถวล่าสุดที่ยังไม่เลยวันนี้
+  for (const tab of source.tabs || []) {
+    if (tab.skipped || tab.role === 'order') continue;
+
+    if (tab.current && tab.current.minimum === null) {
+      out.push(
+        finding('supply.noMinimum', 'info', {
+          source: source.key,
+          tab: tab.name,
+          field: 'ขั้นต่ำ',
+          messageTh: `${tab.item}: ไม่ได้กำหนดจำนวนขั้นต่ำ จึงไม่ขึ้นในรายการของที่ต้องสั่งซื้อ`,
+          messageEn: `${tab.item}: no minimum quantity set, so it can never appear in the reorder list`,
+        })
+      );
+    }
+
+    if (tab.current && tab.current.date < staleIso) {
+      out.push(
+        finding('supply.staleItem', 'info', {
+          source: source.key,
+          tab: tab.name,
+          field: 'วันที่',
+          messageTh: `${tab.item}: บันทึกล่าสุด ${tab.current.date} เก่ากว่า ${SUPPLY_STALE_DAYS} วัน`,
+          messageEn: `${tab.item}: last entry ${tab.current.date} is older than ${SUPPLY_STALE_DAYS} days`,
+          actual: tab.current.date,
+        })
+      );
+    }
+
+    // รายงานรวมครั้งเดียวต่อแท็บ ไม่ใช่ทีละแถว — ไม่งั้นได้หลักพันรายการ
+    if (tab.futureCount > 0) {
+      out.push(
+        finding('supply.futureRows', 'info', {
+          source: source.key,
+          tab: tab.name,
+          field: 'วันที่',
+          messageTh:
+            `${tab.item}: มี ${tab.futureCount} แถวลงวันที่ล่วงหน้า — ` +
+            `ยอดคงเหลือปัจจุบันอ่านจากแถววันที่ ≤ ${todayIso} เท่านั้น`,
+          messageEn:
+            `${tab.item}: ${tab.futureCount} rows are dated in the future — ` +
+            `the current balance is read from rows dated ≤ ${todayIso} only`,
+          actual: tab.futureCount,
+        })
+      );
     }
   }
 }
@@ -820,6 +1121,19 @@ export function analyze(sources) {
     if (!source) continue;
     checkStructural(source, findings);
     if (source.status === 'error') continue; // ไม่มีข้อมูลให้ตรวจต่อ
+
+    // วัสดุสิ้นเปลืองไม่มีน้ำหนัก/ขนาด/สายพันธุ์ให้ตรวจ ใช้กฎคนละชุดกันทั้งหมด
+    if (source.kind === 'supply') {
+      checkSupply(source, findings, now);
+      continue;
+    }
+
+    // งบรายรับ-รายจ่ายก็เช่นกัน — เป็นจำนวนเงินรายเดือน ไม่ใช่น้ำหนักดอก
+    if (source.kind === 'finance') {
+      checkFinance(source, findings, now);
+      continue;
+    }
+
     checkArithmetic(source, findings);
     checkRange(source, findings);
     checkUnits(source, findings);
@@ -843,9 +1157,24 @@ export function analyze(sources) {
 
   // คะแนนคุณภาพ: หัก 12 ต่อ critical, 4 ต่อ warning, 1 ต่อ info
   // แล้ว normalize ด้วยจำนวนแถวเพื่อไม่ให้ชุดข้อมูลใหญ่เสียเปรียบ
-  const totalRows = Object.values(sources).reduce((n, s) => n + (s?.rowCount || 0), 0) || 1;
+  //
+  // ตัวหารนับเฉพาะรายงานดอกไม้ — ชีตวัสดุสิ้นเปลืองมีแถว log หลายพันแถว
+  // ถ้านับรวมเข้าไปด้วย คะแนนจะกระโดดขึ้นทั้งที่คุณภาพข้อมูลไม่ได้ดีขึ้นเลย
+  // (badge บนหัวเว็บจะกลายเป็นตัวเลขที่โกหก)
+  const scoredRows = Object.values(sources).reduce(
+    (n, s) => n + (s?.kind === 'supply' || s?.kind === 'finance' ? 0 : s?.rowCount || 0),
+    0
+  );
   const penalty = findings.reduce((p, f) => p + SEVERITY_WEIGHT[f.severity], 0);
-  const score = Math.max(0, Math.round(100 - (penalty / Math.max(totalRows, 40)) * 100));
+
+  /* ไม่มีแถวที่นับคะแนนเลย (เช่นตอนวิเคราะห์เฉพาะรายงานวัสดุ) → คะแนนเป็น null
+   * ถ้าปล่อยให้ตกไปใช้ตัวหารขั้นต่ำ 40 จะได้ตัวเลขที่ดูเหมือนคะแนนแต่ไม่มีความหมาย
+   * แล้วเอาไปเทียบกับคะแนนของ Dashboard หลักไม่ได้ */
+  const totalRows = scoredRows || 1;
+  const score =
+    scoredRows === 0
+      ? null
+      : Math.max(0, Math.round(100 - (penalty / Math.max(totalRows, 40)) * 100));
 
   const bySource = {};
   for (const key of Object.keys(sources)) {
@@ -955,6 +1284,46 @@ export function verifyPresentation(analysis, kpi) {
     if (!r.ok) addOrderFinding(key, 'series', label[0], label[1], r);
   }
 
+  // เดือนของตารางการเบิกวัสดุ — เขียนแยกจาก loop ข้างบนเพราะ supply ไม่มี .series
+  // (กับดัก: ตอนนี้ข้อมูลอยู่ในปีเดียวกันหมด localeCompare จึงเรียงถูกโดยบังเอิญ
+  //  บั๊กจะโผล่ตอนข้ามปีเท่านั้น จึงต้องมีตัวตรวจไว้ตั้งแต่แรก)
+  const supplyMonths = kpi?.supply?.months ?? [];
+  const sm = checkChronological(supplyMonths);
+  if (!sm.ok) {
+    addOrderFinding('supplyLog', 'months', 'เดือนของการเบิกวัสดุ', 'Supply usage months', sm);
+  }
+
+  /* ของที่ต้องสั่งซื้อแต่ไม่มีราคา — ใบขอซื้อจะออกมาโดยไม่มีมูลค่า
+   *
+   * รวมเป็นรายการเดียวไม่ใช่ทีละชิ้น เพราะปกติขาดพร้อมกันหลายสิบรายการ
+   * (ตารางสั่งของรายเดือนมีแค่ 60 รายการ แต่มีแท็บ log 138 รายการ)
+   * ห้ามคิดราคาที่ขาดเป็น 0 เพราะยอดรวมในใบขอซื้อจะต่ำกว่าจริง */
+  const noPrice = (kpi?.supply?.needsReorder ?? []).filter((r) => r.unitPrice === null);
+  if (noPrice.length > 0) {
+    const names = noPrice.slice(0, 6).map((r) => r.item).join(', ');
+    const more = noPrice.length > 6 ? ` และอีก ${noPrice.length - 6} รายการ` : '';
+    const moreEn = noPrice.length > 6 ? ` and ${noPrice.length - 6} more` : '';
+    extra.push({
+      id: 'supply.missingPrice',
+      severity: 'warning',
+      source: 'supplyLog',
+      tab: 'สั่งของรายเดือน',
+      gid: null,
+      row: null,
+      field: 'ราคา / @',
+      messageTh:
+        `มี ${noPrice.length} รายการที่ต้องสั่งซื้อแต่หาราคาในแท็บ "สั่งของรายเดือน" ไม่เจอ ` +
+        `จึงคำนวณมูลค่าใบขอซื้อไม่ครบ — ${names}${more}`,
+      messageEn:
+        `${noPrice.length} items need reordering but have no price in the "สั่งของรายเดือน" tab, ` +
+        `so the purchase request total is incomplete — ${names}${moreEn}`,
+      expected: null,
+      actual: noPrice.length,
+      delta: null,
+      related: [],
+    });
+  }
+
   if (extra.length === 0) return analysis;
 
   const findings = [...analysis.findings, ...extra];
@@ -970,8 +1339,12 @@ export function verifyPresentation(analysis, kpi) {
   }
 
   // คิดคะแนนใหม่ด้วยสูตรเดียวกับ analyze() เพื่อให้ตัวเลขบน badge สอดคล้องกัน
+  // (คะแนนเดิมเป็น null แปลว่าชุดนี้ไม่มีแถวที่นับคะแนน — ต้องคง null ไว้)
   const penalty = findings.reduce((p, f) => p + SEVERITY_WEIGHT[f.severity], 0);
-  const score = Math.max(0, Math.round(100 - (penalty / Math.max(analysis.rowsChecked, 40)) * 100));
+  const score =
+    analysis.score === null
+      ? null
+      : Math.max(0, Math.round(100 - (penalty / Math.max(analysis.rowsChecked, 40)) * 100));
 
   const order = { critical: 0, warning: 1, info: 2 };
   findings.sort(

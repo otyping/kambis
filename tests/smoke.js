@@ -98,13 +98,42 @@ describe('แหล่งข้อมูลทั้ง 6 รายงาน', (
 });
 
 describe('ค่าที่ยืนยันแล้วจากชีตจริง', () => {
-  test('inventory / Stock หัวหิน รวมดอก 146,295 g และไม่ใช่ดอก 27,800 g', () => {
+  /* ชีตคงเหลือเป็น "ภาพนิ่ง ณ วันที่อัปเดต" ที่ถูกเขียนทับทุกครั้งที่นับสต็อกใหม่
+   * ตรึงตัวเลขไว้ตรง ๆ จึงพังทุกครั้งที่มีคนนับสต็อก ทั้งที่โค้ดไม่ได้ผิดอะไร
+   * (เคยตรึงไว้ 146,295 g แล้วชีตขยับเป็น 157,015 g)
+   *
+   * สิ่งที่ต้องกันจริง ๆ คือ "โครงคอลัมน์เพี้ยนแล้วอ่านผิดช่อง" ซึ่งตรวจได้ด้วย
+   * กฎข้อ 1 ของโปรเจกต์: sum เองจากคอลัมน์ขนาด แล้วเทียบกับยอดที่ชีตบอก
+   * ความสัมพันธ์นี้เป็นจริงเสมอไม่ว่าตัวเลขจะเปลี่ยนไปแค่ไหน
+   */
+  test('inventory / ยอดที่คำนวณเองตรงกับแถว Total ของชีตทุกคลัง', () => {
+    const tabs = (payload.sources.inventory.tabs || []).filter((t) => t.statedTotal);
+    assert.ok(tabs.length >= 2, 'ควรมีอย่างน้อยสองคลัง (หัวหิน + กรุงเทพ)');
+
+    for (const tab of tabs) {
+      const rows = payload.sources.inventory.rows.filter((r) => r.tab === tab.name);
+      assert.ok(rows.length > 0, `${tab.name}: ไม่มีแถวข้อมูล`);
+
+      const flower = rows.reduce((t, r) => t + (r.flowerTotal || 0), 0);
+      const nonFlower = rows.reduce((t, r) => t + (r.nonFlowerTotal || 0), 0);
+
+      assert.ok(
+        Math.abs(flower - tab.statedTotal.flowerTotal) <= 0.5,
+        `${tab.name}: รวมดอกคำนวณได้ ${flower} แต่ชีตบอก ${tab.statedTotal.flowerTotal}`
+      );
+      assert.ok(
+        Math.abs(nonFlower - tab.statedTotal.nonFlowerTotal) <= 0.5,
+        `${tab.name}: รวมที่ไม่ใช่ดอกคำนวณได้ ${nonFlower} แต่ชีตบอก ${tab.statedTotal.nonFlowerTotal}`
+      );
+    }
+  });
+
+  test('inventory / คลังหัวหินยังมีของและอ่านค่าออกมาได้', () => {
     const rows = payload.sources.inventory.rows.filter((r) => /หัวหิน/.test(r.location || ''));
     assert.ok(rows.length > 0, 'ไม่พบข้อมูลคลังหัวหิน');
     const flower = rows.reduce((t, r) => t + (r.flowerTotal || 0), 0);
-    const nonFlower = rows.reduce((t, r) => t + (r.nonFlowerTotal || 0), 0);
-    assert.equal(flower, 146295);
-    assert.equal(nonFlower, 27800);
+    // ขอบเขตกว้าง ๆ พอจับกรณี "อ่านผิดหน่วย" หรือ "อ่านไม่ออกเลย" โดยไม่ผูกกับยอดจริง
+    assert.ok(flower > 1000, `รวมดอกหัวหิน = ${flower} ซึ่งน้อยผิดปกติ`);
   });
 
   test('dailyTrim / ครอป G4/2-07NOV25 รวมดอก 39,280 g และเกรด >M 10,955 g', () => {
@@ -302,6 +331,26 @@ describe('การตรวจรายแท็บ', () => {
     // ถ้ากรองพลาดจะได้ false alarm ทีเดียว 37 อัน คะแนนพังทั้งที่ข้อมูลถูกต้อง
     const wrong = tabFindings('structural.tabEmpty').filter((f) => f.source === 'perCrop');
     assert.equal(wrong.length, 0, `perCrop ไม่ควรมี tabEmpty แต่เจอ ${wrong.length} อัน`);
+  });
+
+  /* ค้นรายชื่อแท็บสดไม่สำเร็จ = แท็บที่เพิ่งเพิ่มในชีตจะถูกมองข้ามในรอบนั้น
+   * ต้องมีร่องรอย ไม่ใช่หายเงียบ แต่ต้องไม่ฉุดคะแนนคุณภาพข้อมูล (เน็ตกระตุก ≠ ข้อมูลผิด) */
+  test('ใช้รายชื่อแท็บเก่าเพราะค้นสดไม่สำเร็จ ต้องมี finding ระดับ info', () => {
+    assert.equal(
+      tabFindings('structural.tabDiscoveryFallback').length,
+      0,
+      'ข้อมูลจริงค้นแท็บสดสำเร็จทุกรายงาน จึงไม่ควรมี finding นี้'
+    );
+
+    const degraded = analyze({
+      ...payload.sources,
+      sales: { ...payload.sources.sales, discovery: 'config', discoveryError: 'เน็ตหลุด' },
+    });
+    const hit = degraded.findings.filter((f) => f.id === 'structural.tabDiscoveryFallback');
+    assert.equal(hit.length, 1);
+    assert.equal(hit[0].severity, 'info');
+    assert.equal(hit[0].source, 'sales');
+    assert.match(hit[0].messageTh, /เน็ตหลุด/);
   });
 
   test('แท็บที่ถูกข้ามเพราะชื่อไม่ตรงแพตเทิร์นต้องได้ระดับ warning', () => {

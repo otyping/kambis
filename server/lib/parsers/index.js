@@ -7,12 +7,16 @@ import { parse as perCrop } from './perCrop.js';
 import { parse as transfer } from './transfer.js';
 import { parse as sales } from './sales.js';
 import { parse as inventory } from './inventory.js';
+import { parse as supplyLog } from './supplyLog.js';
+import { parse as cost } from './cost.js';
 
 export const PARSERS = {
   dailyTrim,
   perCrop,
   sales,
   inventory,
+  supplyLog,
+  cost,
   // ขนย้ายออกจากฟาร์ม และ รับดอกถึงกรุงเทพ ใช้ฟอร์มเดียวกัน
   outbound: (args) => transfer({ ...args, sourceKey: args.sourceKey || 'outbound' }),
   inbound: (args) => transfer({ ...args, sourceKey: args.sourceKey || 'inbound' }),

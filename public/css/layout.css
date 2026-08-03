@@ -58,6 +58,18 @@
   color: var(--ink-mute);
 }
 
+/* ชื่อหน้าปัจจุบัน — ใช้แทน brand__sub บนจอเล็กที่เมนูถูกพับเก็บไว้ในแผง
+ * ถ้าไม่มีบรรทัดนี้ ผู้ใช้จะไม่มีทางรู้ว่ากำลังอยู่หน้าไหนโดยไม่เปิดเมนู */
+.brand__crumb {
+  display: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .header-tools {
   display: flex;
   align-items: center;

@@ -10,6 +10,7 @@ import { icon } from './icons.js';
 import * as charts from '../charts/index.js';
 import { releaseCharts } from '../charts/core.js';
 import { breakdownControls } from './controls.js';
+import { dataGaps, gapList } from './gaps.js';
 
 /** ระดับคุณภาพจากจำนวน finding */
 export function qualityLevel(counts) {
@@ -123,12 +124,39 @@ function attachBreakdown(body, views, deferred) {
 
   /* ห้ามวาดตอนนี้ — การ์ดยังไม่ได้ถูกใส่ลงหน้า จึงวัดความกว้างไม่ได้
    * ถ้าวาดเลย canvas จะได้ขนาด default แล้วโดน CSS ยืด/บีบทีหลังจนภาพเพี้ยน
-   * ผู้เรียกจะสั่งวาดให้หลัง appendChild แล้ว */
-  deferred.push(() => bar.__emit());
+   * ผู้เรียกจะสั่งวาดให้หลัง appendChild แล้ว
+   *
+   * ผูก node ไว้ด้วย เพื่อให้ข้ามการ์ดที่ไม่ได้ถูกใส่ลงหน้าในรอบนี้ได้
+   * (หน้าแต่ละหน้าหยิบการ์ดไปแค่บางใบ) — ไม่งั้นจะเสียเวลาวาดของที่ไม่มีใครเห็น */
+  deferred.push({ node: body, run: () => bar.__emit() });
 }
 
-/** ─── การ์ดทั้ง 8 ใบ ─── */
-export function renderCards(el, payload, onOpen) {
+/** สั่งวาดกราฟที่เลื่อนไว้ เฉพาะอันที่อยู่ในหน้าจริงแล้ว */
+export function runDeferred(deferred) {
+  for (const item of deferred) {
+    if (typeof item === 'function') {
+      item();
+    } else if (item.node.isConnected) {
+      item.run();
+    }
+  }
+}
+
+/**
+ * ─── การ์ดทั้ง 8 ใบ ───
+ *
+ * @param {HTMLElement} el
+ * @param {object} payload
+ * @param {(key:string, trigger:HTMLElement)=>void} onOpen
+ * @param {{only?: string[], defer?: Array}} [opts]
+ *   only  — เลือกเฉพาะการ์ดที่ต้องการ ตามลำดับที่ระบุ
+ *           หน้าแต่ละหน้าหยิบการ์ดไปคนละชุด แต่ยังใช้โค้ดสร้างชุดเดียวกัน
+ *           เพื่อไม่ให้ตัวเลขบนการ์ดเดียวกันเพี้ยนไปคนละแบบในแต่ละหน้า
+ *   defer — ส่ง array ของหน้ามาให้ แล้วงานวาดกราฟจะถูกฝากไว้ในนั้นแทนที่จะวาดทันที
+ *           **จำเป็นเมื่อเรียกจากหน้าที่ยังไม่ถูกใส่ลง DOM** เพราะกล่องยังกว้าง 0
+ *           setupCanvas จะคืน null แล้วกราฟหายเงียบ ๆ (เคยพังมาแล้ว)
+ */
+export function renderCards(el, payload, onOpen, opts = {}) {
   const { kpi, analysis, meta } = payload;
   const bySource = analysis.bySource ?? {};
   const metaOf = (key) => meta.sources.find((s) => s.key === key) ?? {};
@@ -425,69 +453,122 @@ export function renderCards(el, payload, onOpen) {
     cards.push(card);
   }
 
-  // 8) คุณภาพข้อมูล
-  {
-    const c = analysis.counts;
-    const card = cardShell({
-      key: 'quality',
-      iconName: 'quality',
-      title: t('quality.title'),
-      sub: t('quality.desc'),
-      metric: String(analysis.score),
-      unit: '/ 100',
-      stats: [
-        stat(t('quality.critical'), n(c.critical)),
-        stat(t('quality.warning'), n(c.warning)),
-        stat(t('quality.info'), n(c.info)),
-        stat(t('quality.checked'), `${n(analysis.rowsChecked)} ${t('meta.rows')}`),
-      ].join(''),
-      chip: qualityChip(c),
-    });
-    // จำนวน finding แยกตามรายงาน — เอาไว้ให้เลือกดูว่าปัญหากระจุกอยู่ที่ชีตไหน
-    const bySourceRows = Object.entries(analysis.bySource ?? {})
-      .map(([key, counts]) => ({ key: titleOf(key), flower: counts.total }))
-      .filter((r) => r.flower > 0);
+  /* การ์ด "คุณภาพข้อมูล" ไม่ได้อยู่ในชุดนี้ — หน้าเป็นคนวางเองด้วย qualityCard()
+   * เพราะผู้ใช้กำหนดว่ามันต้องเป็นการ์ด **ใบสุดท้ายของหน้า** ซึ่งอยู่หลังการ์ด
+   * "รอข้อมูล" ที่หน้าเป็นคนสร้าง การ์ดชุดนี้จึงเรียงให้ไม่ได้ */
 
-    attachBreakdown(card.querySelector('.card__body'), [
-      {
-        label: t('quality.bySeverity'),
-        rows: [],
-        sortable: false,
-        render: (box) => {
-          const total = Math.max(1, c.critical + c.warning + c.info);
-          box.innerHTML = `<div class="mini-bars">${['critical', 'warning', 'info']
-            .map((sev) => {
-              const color =
-                sev === 'critical'
-                  ? 'var(--sev-critical)'
-                  : sev === 'warning'
-                    ? 'var(--sev-warning)'
-                    : 'var(--sev-info)';
-              return `<div class="mini-bar">
-                  <span class="mini-bar__label">${t(`quality.${sev}`)}</span>
-                  <span class="mini-bar__track"><span class="mini-bar__fill" style="width:${
-                    (c[sev] / total) * 100
-                  }%;background:${color}"></span></span>
-                  <span class="mini-bar__value num">${n(c[sev])}</span>
-                </div>`;
-            })
-            .join('')}</div>`;
-        },
-      },
-      {
-        label: t('quality.bySource'),
-        rows: bySourceRows,
-        render: (box, rows) => charts.barH(box, rows, { max: 6, unit: '' }),
-      },
-    ], drawLater);
-    cards.push(card);
-  }
+  // เลือกเฉพาะการ์ดที่หน้านี้ต้องการ และเรียงตามลำดับที่ระบุ
+  const wanted = opts.only
+    ? opts.only.map((key) => cards.find((c) => c.dataset.card === key)).filter(Boolean)
+    : cards;
 
-  for (const card of cards) {
+  for (const card of wanted) {
     card.addEventListener('click', () => onOpen(card.dataset.card, card));
     el.appendChild(card);
   }
 
+  /* ถ้าผู้เรียกส่ง defer มา แปลว่ากล่องนี้ยังไม่อยู่ในหน้า — ฝากงานวาดไว้ให้เขาสั่งเอง
+   * หลังจากใส่ลง DOM แล้ว ไม่งั้น canvas จะกว้าง 0 แล้วกราฟหายทั้งหมด */
+  if (opts.defer) {
+    opts.defer.push(...drawLater);
+    return;
+  }
+
   // ตอนนี้การ์ดอยู่ในหน้าแล้ว วัดความกว้างได้จริง จึงค่อยวาดกราฟ
-  for (const draw of drawLater) draw();
+  runDeferred(drawLater);
+}
+
+/**
+ * ─── การ์ดคุณภาพข้อมูล ───
+ *
+ * แยกออกมาเป็นฟังก์ชันของตัวเองเพราะใช้สองที่ที่มี payload คนละก้อน:
+ * รายงาน Dryflower ใช้ผลวิเคราะห์จาก /api/reports ส่วนรายงาน Supply โหลดแยก (lazy)
+ * จึงมี meta/analysis เป็นของตัวเอง — เอาก้อนของ Dryflower ไปแสดงบนหน้า Supply ไม่ได้
+ *
+ * นอกจาก finding แล้ว การ์ดนี้ยังต้องบอก **สิ่งที่ชีตยังไม่มี** ด้วย
+ * เพราะ "ตัวเลขถูกต้องแต่ไม่ครบ" กับ "ตัวเลขผิด" เป็นคนละเรื่อง และผู้ใช้ต้องรู้ทั้งคู่
+ *
+ * @param {{analysis:object, meta:object, kpi?:object, report?:string}} payload
+ * @param {Array} drawLater งานวาดที่ต้องรอให้การ์ดเข้า DOM ก่อน
+ * @param {{wide?:boolean}} [opts]
+ */
+export function qualityCard(payload, drawLater, opts = {}) {
+  const { analysis, meta } = payload;
+  const report = payload.report ?? 'dryflower';
+  const c = analysis.counts;
+  const titleOf = (key) => pick(meta.sources.find((s) => s.key === key) ?? {}, 'title') || key;
+
+  const gaps = dataGaps(report, payload);
+
+  const card = cardShell({
+    key: 'quality',
+    iconName: 'quality',
+    title: t('quality.title'),
+    sub: t('quality.desc'),
+    metric: String(analysis.score),
+    unit: '/ 100',
+    wide: opts.wide ?? false,
+    stats: [
+      stat(t('quality.critical'), n(c.critical)),
+      stat(t('quality.warning'), n(c.warning)),
+      stat(t('quality.info'), n(c.info)),
+      stat(t('quality.gaps'), n(gaps.length)),
+      stat(t('quality.checked'), `${n(analysis.rowsChecked)} ${t('meta.rows')}`),
+    ].join(''),
+    chip: qualityChip(c),
+  });
+
+  // จำนวน finding แยกตามรายงาน — เอาไว้ให้เลือกดูว่าปัญหากระจุกอยู่ที่ชีตไหน
+  const bySourceRows = Object.entries(analysis.bySource ?? {})
+    .map(([key, counts]) => ({ key: titleOf(key), flower: counts.total }))
+    .filter((r) => r.flower > 0);
+
+  const views = [
+    {
+      label: t('quality.bySeverity'),
+      rows: [],
+      sortable: false,
+      render: (box) => {
+        const total = Math.max(1, c.critical + c.warning + c.info);
+        box.innerHTML = `<div class="mini-bars">${['critical', 'warning', 'info']
+          .map((sev) => {
+            const color =
+              sev === 'critical'
+                ? 'var(--sev-critical)'
+                : sev === 'warning'
+                  ? 'var(--sev-warning)'
+                  : 'var(--sev-info)';
+            return `<div class="mini-bar">
+                <span class="mini-bar__label">${t(`quality.${sev}`)}</span>
+                <span class="mini-bar__track"><span class="mini-bar__fill" style="width:${
+                  (c[sev] / total) * 100
+                }%;background:${color}"></span></span>
+                <span class="mini-bar__value num">${n(c[sev])}</span>
+              </div>`;
+          })
+          .join('')}</div>`;
+      },
+    },
+    {
+      label: t('quality.gaps'),
+      rows: [],
+      sortable: false,
+      render: (box) => {
+        box.innerHTML = '';
+        gapList(box, gaps, { compact: true });
+      },
+    },
+  ];
+
+  // รายงาน Supply มีชีตเดียว กราฟ "แยกตามรายงาน" จึงเป็นแท่งเดียวโดด ๆ ที่ไม่บอกอะไร
+  if (bySourceRows.length > 1) {
+    views.push({
+      label: t('quality.bySource'),
+      rows: bySourceRows,
+      render: (box, rows) => charts.barH(box, rows, { max: 6, unit: '' }),
+    });
+  }
+
+  attachBreakdown(card.querySelector('.card__body'), views, drawLater);
+  return card;
 }

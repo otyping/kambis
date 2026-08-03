@@ -190,7 +190,11 @@ export function sizeMixBar(container, mix, opts = {}) {
  * ค่า null คือช่องว่าง เส้นจะขาดตรงนั้น ไม่ลากลงศูนย์
  */
 export function line(container, series, opts = {}) {
-  const { xKey = 'date', height = 190, format = 'date' } = opts;
+  /* colors  — กำหนดสีเองได้ เพราะกราฟที่มีตั้งแต่ 3 เส้นขึ้นไป (เช่นสต็อกแยกคลัง)
+   *           ใช้แค่ series1/series2 ไม่พอ
+   * dashed  — ดัชนีของเส้นที่ต้องวาดเป็นเส้นประ ใช้กับค่าที่เป็น "ประมาณการ"
+   *           ไม่ใช่ค่าที่วัดได้จริง — ต้องดูออกโดยไม่ต้องอ่านคำอธิบาย */
+  const { xKey = 'date', height = 190, format = 'date', colors, dashed = [] } = opts;
   const height_ = height;
   const { canvas, setup } = prepare(container, height_);
   if (!setup) return;
@@ -222,8 +226,11 @@ export function line(container, series, opts = {}) {
     box.y + box.h + 8
   );
 
+  const colorAt = (si) =>
+    colors?.[si] ?? (si === 0 ? p.series1 : si === 1 ? p.series2 : p.cats[si % p.cats.length]);
+
   active.forEach((s, si) => {
-    const color = si === 0 ? p.series1 : p.series2;
+    const color = colorAt(si);
 
     // พื้นที่ใต้เส้นแบบจาง เฉพาะชุดแรก
     if (si === 0 && count > 1) {
@@ -255,6 +262,8 @@ export function line(container, series, opts = {}) {
     ctx.lineWidth = 2;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
+    // เส้นประ = ค่าประมาณการ ไม่ใช่ค่าที่วัดได้จริง (ต้องดูออกโดยไม่ต้องอ่านคำอธิบาย)
+    ctx.setLineDash(dashed.includes(si) ? [5, 4] : []);
     ctx.beginPath();
     let pen = false;
     s.points.forEach((pt, i) => {
@@ -270,6 +279,7 @@ export function line(container, series, opts = {}) {
       } else ctx.lineTo(x, y);
     });
     ctx.stroke();
+    ctx.setLineDash([]); // คืนค่าเดิม ไม่ให้เส้นประเลยไปถึงจุดข้อมูลและชุดถัดไป
 
     // จุดข้อมูล เฉพาะเมื่อจุดไม่แน่นเกินไป
     if (count <= 40) {
@@ -304,7 +314,7 @@ export function line(container, series, opts = {}) {
   if (active.length >= 2) {
     const legend = document.createElement('div');
     legend.innerHTML = legendHtml(
-      active.map((s, i) => ({ label: s.label, color: i === 0 ? p.series1 : p.series2 }))
+      active.map((s, i) => ({ label: s.label, color: colorAt(i) }))
     );
     container.appendChild(legend.firstElementChild);
   }
@@ -313,9 +323,15 @@ export function line(container, series, opts = {}) {
 }
 
 // ─────────────────────────────────────────────────────────────
-/** โดนัท — สัดส่วนตามขนาดดอก (ข้อมูลเรียงลำดับ ใช้ไล่เฉดสีเดียว) */
+/**
+ * โดนัท — ค่าเริ่มต้นคือสัดส่วนตามขนาดดอก (ข้อมูลมีลำดับ จึงใช้ไล่เฉดสีเดียว)
+ *
+ * order/ramp กำหนดเองได้ เพื่อใช้กับหมวดอื่นที่ไม่มีลำดับ เช่นสัดส่วนสต็อกระหว่างคลัง
+ * ผู้เรียกเดิมไม่ได้ส่งมา จึงยังได้ผลเหมือนเดิมทุกประการ
+ */
 export function donut(container, mix, opts = {}) {
-  const order = ['XXL', 'XL', 'L', 'M', 'S', 'XS'];
+  const order = opts.order ?? ['XXL', 'XL', 'L', 'M', 'S', 'XS'];
+  const ramp = opts.ramp ?? 'size';
   const values = order.map((k) => mix?.[k] ?? 0);
   const total = values.reduce((a, b) => a + b, 0);
 
@@ -327,6 +343,7 @@ export function donut(container, mix, opts = {}) {
   if (!total) return drawEmpty(ctx, w, h);
 
   const p = palette();
+  const arc = ramp === 'cat' ? p.cats : p.sizes;
   const cx = w / 2;
   const cy = h / 2;
   const outer = Math.min(w, h) / 2 - 12;
@@ -342,7 +359,7 @@ export function donut(container, mix, opts = {}) {
     // เว้นช่องว่างเล็กน้อยระหว่างชิ้น
     const pad = sweep > 0.06 ? 0.012 : 0;
 
-    ctx.fillStyle = p.sizes[i];
+    ctx.fillStyle = arc[i];
     ctx.beginPath();
     ctx.arc(cx, cy, outer, angle + pad, angle + sweep - pad);
     ctx.arc(cx, cy, inner, angle + sweep - pad, angle + pad, true);
@@ -383,7 +400,7 @@ export function donut(container, mix, opts = {}) {
   const legend = document.createElement('div');
   legend.innerHTML = legendHtml(
     order
-      .map((key, i) => ({ label: key, color: p.sizes[i], value: values[i] }))
+      .map((key, i) => ({ label: key, color: arc[i], value: values[i] }))
       .filter((it) => it.value > 0)
   );
   if (legend.firstElementChild) container.appendChild(legend.firstElementChild);
@@ -464,6 +481,151 @@ export function groupedBars(container, rows, opts = {}) {
   if (legend.firstElementChild) container.appendChild(legend.firstElementChild);
 
   onResize(canvas, () => groupedBars(container, rows, opts));
+}
+
+// ─────────────────────────────────────────────────────────────
+/**
+ * แท่งซ้อนแนวตั้ง — x = ช่วงเวลา/ครอป, ชั้นในแท่ง = หมวด (สายพันธุ์ / ขนาดดอก)
+ *
+ * โหมด normalize ทำให้ทุกแท่งสูงเท่ากันแล้วอ่านเป็นสัดส่วน 100%
+ * ใช้ตอบคำถาม "สัดส่วนขนาดดอกเปลี่ยนไปไหม" ซึ่งดูจากปริมาณดิบไม่ออก
+ *
+ * @param {HTMLElement} container
+ * @param {{key:string, sub?:string, parts:Record<string,number>}[]} rows
+ * ramp เลือกชุดสี — 'cat' สำหรับหมวดที่ไม่มีลำดับ (สายพันธุ์),
+ * 'size' สำหรับขนาดดอกซึ่งมีลำดับจึงต้องใช้ไล่เฉดสีเดียว
+ * เลือกที่นี่ไม่ใช่ที่ผู้เรียก เพราะสีต้องอ่านจาก tokens.css ตอนวาดเสมอ
+ * (ผู้เรียกส่ง hex มาเองไม่ได้ — สลับธีมแล้วจะไม่เปลี่ยนตาม)
+ *
+ * @param {{keys:string[], ramp?:'cat'|'size', colors?:string[], height?:number,
+ *          normalize?:boolean, unit?:string, max?:number,
+ *          labelFormat?:'month'|'date'|'raw'}} opts
+ */
+export function stackedBars(container, rows, opts = {}) {
+  const {
+    keys = [],
+    colors,
+    ramp = 'cat',
+    height = 220,
+    normalize = false,
+    unit = 'g',
+    max: topN = 24,
+    labelFormat = 'raw',
+  } = opts;
+
+  const data = rows.slice(-topN);
+
+  const { canvas, setup } = prepare(container, height);
+  if (!setup) return; // กว้าง 0 = ยังไม่เข้า DOM ผู้เรียกต้องวาดใหม่ทีหลัง
+  const { ctx, w, h } = setup;
+
+  const totals = data.map((r) => keys.reduce((t2, k) => t2 + (r.parts?.[k] || 0), 0));
+  if (!data.length || !hasData(totals)) return drawEmpty(ctx, w, h);
+
+  const p = palette();
+  const series = colors ?? (ramp === 'size' ? p.sizes : p.cats);
+  const box = { x: normalize ? 40 : 46, y: 12, w: w - (normalize ? 52 : 58), h: h - 52 };
+
+  // โหมดสัดส่วนใช้แกน 0–100 คงที่ ไม่ต้องหา max จากข้อมูล
+  const top = normalize ? drawYAxis(ctx, box, 100) : drawYAxis(ctx, box, Math.max(...totals, 1));
+
+  const slot = box.w / data.length;
+  const barW = Math.max(3, Math.min(38, slot - GAP * 2));
+  const hits = [];
+
+  data.forEach((row, i) => {
+    const cx = box.x + slot * (i + 0.5);
+    const x = cx - barW / 2;
+    const total = totals[i];
+    if (total > 0) {
+      // ไล่จากฐานขึ้นบน — เก็บไว้ว่าชั้นบนสุดคือชั้นไหน เพื่อมนเฉพาะปลายด้านข้อมูล
+      const stack = keys
+        .map((k, ki) => ({ key: k, value: row.parts?.[k] || 0, color: series[ki % series.length] }))
+        .filter((s) => s.value > 0);
+
+      let acc = 0;
+      stack.forEach((seg, si) => {
+        const value = normalize ? (seg.value / total) * 100 : seg.value;
+        const segH = (value / top) * box.h;
+        const y = box.y + box.h - ((acc + value) / top) * box.h;
+        ctx.fillStyle = seg.color;
+        if (si === stack.length - 1) {
+          roundedTopRect(ctx, x, y, barW, segH, 4);
+        } else {
+          // เว้นช่องว่างสีพื้น 2px ระหว่างชั้น ให้แยกออกจากกันได้โดยไม่ต้องมีเส้นขอบ
+          ctx.fillRect(x, y, barW, Math.max(1, segH - GAP));
+        }
+        acc += value;
+      });
+    }
+    hits.push({ x0: cx - slot / 2, x1: cx + slot / 2, row, cx, total });
+  });
+
+  ctx.font = FONT_SM;
+  ctx.fillStyle = p.inkMute;
+  ctx.textBaseline = 'top';
+
+  const labelOf = (row) =>
+    labelFormat === 'month' ? fmtMonth(row.key) : labelFormat === 'date' ? fmtDate(row.key) : row.key;
+
+  drawXLabels(
+    ctx,
+    box,
+    data.map((row, i) => ({ x: box.x + slot * (i + 0.5), text: truncate(labelOf(row), 14) })),
+    box.y + box.h + 8
+  );
+
+  /* ป้ายบรรทัดที่สอง (เช่นชื่อครอปใต้เดือน) วาดแยกอีกรอบ
+   * ให้ drawXLabels ตรวจการชนของตัวเองใหม่ ไม่ใช่ใช้ผลของบรรทัดแรก
+   * เพราะข้อความยาวไม่เท่ากัน อันที่รอดบรรทัดบนอาจชนกันในบรรทัดล่าง */
+  if (data.some((r) => r.sub)) {
+    drawXLabels(
+      ctx,
+      box,
+      data.map((row, i) => ({ x: box.x + slot * (i + 0.5), text: truncate(row.sub ?? '', 14) })),
+      box.y + box.h + 22
+    );
+  }
+
+  attachTooltip(container, canvas, (mx) => {
+    const hit = hits.find((s) => mx >= s.x0 && mx <= s.x1);
+    if (!hit || !hit.total) return null;
+    const lines = keys
+      .map((k, ki) => ({ k, v: hit.row.parts?.[k] || 0, c: series[ki % series.length] }))
+      .filter((s) => s.v > 0)
+      .sort((a, b) => b.v - a.v)
+      .slice(0, 8)
+      .map(
+        (s) =>
+          `<span style="color:${s.c}">■</span> ${esc(s.k)}: <b>${
+            unit === 'g' ? weight(s.v) : n(s.v)
+          }</b> (${pct((s.v / hit.total) * 100)})`
+      )
+      .join('<br>');
+    const head = hit.row.sub ? `${esc(labelOf(hit.row))} · ${esc(hit.row.sub)}` : esc(labelOf(hit.row));
+    return {
+      html: `${head}<br>${t('label.total')}: <b>${unit === 'g' ? weight(hit.total) : n(hit.total)}</b><br>${lines}`,
+      x: hit.cx,
+      y: box.y,
+    };
+  });
+
+  // มี ≥2 หมวดต้องมี legend เสมอ — ห้ามให้สีเป็นตัวบอกตัวตนเพียงอย่างเดียว
+  const used = keys.filter((k) => data.some((r) => (r.parts?.[k] || 0) > 0));
+  if (used.length >= 2) {
+    const legend = document.createElement('div');
+    legend.innerHTML = legendHtml(
+      used.map((k) => ({ label: k, color: series[keys.indexOf(k) % series.length] }))
+    );
+    if (legend.firstElementChild) container.appendChild(legend.firstElementChild);
+  }
+
+  onResize(canvas, () => stackedBars(container, rows, opts));
+}
+
+/** แท่งซ้อนแบบ 100% — อ่านสัดส่วนล้วน ไม่ใช่ปริมาณ */
+export function pctStackedBars(container, rows, opts = {}) {
+  return stackedBars(container, rows, { ...opts, normalize: true });
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ import { releaseCharts } from '../charts/core.js';
 import { pauseBackground } from '../bg/three-bg.js';
 import { sortableTable } from './table.js';
 import { breakdownControls } from './controls.js';
+import { dataGaps, gapList } from './gaps.js';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -595,6 +596,19 @@ function openQuality(payload, trigger) {
       note.className = 'notice';
       note.textContent = t('quality.sourceNote');
       body.appendChild(note);
+
+      /* ── หมายเหตุ: ข้อมูลที่ยังขาด ──
+       *
+       * อยู่ก่อน finding โดยตั้งใจ เพราะ finding บอกว่า "ตัวเลขที่มีผิดตรงไหน"
+       * ส่วนตรงนี้บอกว่า "มีตัวเลขอะไรที่ยังไม่มีให้ดูเลย" ซึ่งคะแนน 100/100
+       * ก็ไม่ได้แปลว่าครบ — ต้องเห็นก่อนที่จะไปสรุปว่าข้อมูลสมบูรณ์แล้ว */
+      const gaps = dataGaps(payload.report ?? 'dryflower', payload);
+      const gapBox = panel(body, t('quality.gapsTitle'), `${gaps.length} ${t('label.records')}`);
+      const gapNote = document.createElement('p');
+      gapNote.className = 'card__sub';
+      gapNote.textContent = t('quality.gapsNote');
+      gapBox.appendChild(gapNote);
+      gapList(gapBox, gaps);
 
       // ตัวกรองตามระดับความร้ายแรงและรายงาน
       const bar = document.createElement('div');

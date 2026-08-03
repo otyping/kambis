@@ -5,32 +5,33 @@
  * ในชีตของ Kambis "-" แปลว่า "ไม่มีข้อมูล/ไม่เกี่ยวข้อง" การนับเป็น 0 จะทำให้ค่าเฉลี่ยผิด
  */
 
-/** ขนาดดอกเรียงจากใหญ่ไปเล็ก — ใช้เป็นลำดับมาตรฐานทั่วทั้งระบบ */
-export const SIZE_KEYS = ['XXL', 'XL', 'L', 'M', 'S', 'XS'];
+/* ค่าคงที่และกฎการเรียงช่วงเวลามาจากไฟล์ร่วมที่เบราว์เซอร์ใช้ตัวเดียวกัน
+ * เพื่อไม่ให้มีสองชุดที่เพี้ยนจากกันได้ (ดูเหตุผลใน public/js/shared/agg-core.js)
+ *
+ * import เข้ามาก่อนแล้วค่อย re-export เพราะไฟล์นี้เรียกใช้เองด้วย
+ * (`export … from` อย่างเดียวจะไม่ทำให้ชื่อเหล่านี้ใช้ได้ภายในไฟล์) */
+import {
+  SIZE_KEYS,
+  PREMIUM_SIZES,
+  NON_FLOWER_KEYS,
+  NON_FLOWER_LABELS,
+  sum,
+  sumOrNull,
+  periodOrder,
+  comparePeriod,
+  looksLikePeriod,
+} from '../../public/js/shared/agg-core.js';
 
-/** เกรดพรีเมียม (>M) ที่ใช้คิด % เกรดสูงในรายงานผู้บริหาร */
-export const PREMIUM_SIZES = ['XXL', 'XL', 'L', 'M'];
-
-/** ประเภทของที่ไม่ใช่ดอก */
-export const NON_FLOWER_KEYS = [
-  'shake',
-  'shake2',
-  'sugarleaf',
-  'kief',
-  'dokPan',
-  'dokRon',
-  'sesDok',
-];
-
-/** ป้ายชื่อภาษาไทยของของที่ไม่ใช่ดอก */
-export const NON_FLOWER_LABELS = {
-  shake: 'Shake',
-  shake2: 'Shake 2',
-  sugarleaf: 'Sugarleaf',
-  kief: 'Kief',
-  dokPan: 'ดอกปั่น',
-  dokRon: 'ดอกร่อน',
-  sesDok: 'เศษดอก',
+export {
+  SIZE_KEYS,
+  PREMIUM_SIZES,
+  NON_FLOWER_KEYS,
+  NON_FLOWER_LABELS,
+  sum,
+  sumOrNull,
+  periodOrder,
+  comparePeriod,
+  looksLikePeriod,
 };
 
 /**
@@ -55,23 +56,7 @@ export function pct(value) {
   return num(value);
 }
 
-/** บวกตัวเลขโดยข้าม null — คืน null ถ้าไม่มีค่าที่ใช้ได้เลย */
-export function sumOrNull(values) {
-  let total = 0;
-  let seen = false;
-  for (const v of values) {
-    if (typeof v === 'number' && Number.isFinite(v)) {
-      total += v;
-      seen = true;
-    }
-  }
-  return seen ? total : null;
-}
 
-/** บวกตัวเลขโดยมองว่า null = 0 — ใช้ตอนรวมยอดรวมทั้งระบบ */
-export function sum(values) {
-  return values.reduce((t, v) => t + (typeof v === 'number' && Number.isFinite(v) ? v : 0), 0);
-}
 
 const THAI_MONTHS = {
   'ม.ค.': 0, มกราคม: 0, jan: 0, january: 0,
@@ -335,54 +320,3 @@ export function canonicalCrop(code) {
   return datePart ? `${unitPart}-${datePart}` : unitPart;
 }
 
-/**
- * แปลงป้ายช่วงเวลาให้เป็นตัวเลขที่เรียงตามเวลาจริงได้
- *
- * มีไว้เพราะป้ายอย่าง "Q1'2026" เรียงตามตัวอักษรแล้วผิด —
- * Q1'2026 จะมาก่อน Q2'2025 ทั้งที่เกิดทีหลังเป็นปี
- * ต้องอ่านปีก่อนแล้วค่อยอ่านไตรมาส
- *
- * รองรับ: Q1'2026 / Q1 2026 / 2026-Q1 / 2026-03 / 2026-03-15
- * @param {string} label
- * @returns {number} ค่ามาก = ใหม่กว่า, Number.MAX_SAFE_INTEGER = อ่านไม่ออก (ไปท้ายแถว)
- */
-export function periodOrder(label) {
-  const s = String(label ?? '').trim();
-  if (!s) return Number.MAX_SAFE_INTEGER;
-
-  // ไตรมาส — ยอมรับทั้ง Q1'2026, Q1 2026 และ 2026-Q1
-  const q =
-    s.match(/Q\s*([1-4])\s*['\u2019\s/-]*\s*(\d{4})/i) ||
-    s.match(/(\d{4})\s*[-\s]*Q\s*([1-4])/i);
-  if (q) {
-    // สองรูปแบบสลับตำแหน่งปีกับไตรมาส ดูจากอันไหนเป็นเลขสี่หลัก
-    const [a, b] = [q[1], q[2]];
-    const year = Number(a.length === 4 ? a : b);
-    const quarter = Number(a.length === 4 ? b : a);
-    // เทียบเป็นเดือนสุดท้ายของไตรมาส เพื่อให้อยู่มาตราเดียวกับแบบ ปี-เดือน
-    // ถ้าเผลอเอาไตรมาสกับเดือนมาปนในลิสต์เดียวกัน จะยังเรียงถูก
-    return year * 10000 + quarter * 3 * 100;
-  }
-
-  // ปี-เดือน หรือ ปี-เดือน-วัน
-  const ymd = s.match(/(\d{4})-(\d{2})(?:-(\d{2}))?/);
-  if (ymd) {
-    return Number(ymd[1]) * 10000 + Number(ymd[2]) * 100 + Number(ymd[3] ?? 0);
-  }
-
-  const year = s.match(/^(\d{4})$/);
-  if (year) return Number(year[1]) * 10000;
-
-  return Number.MAX_SAFE_INTEGER;
-}
-
-/**
- * เทียบสองป้ายช่วงเวลาตามเวลาจริง
- * ป้ายที่อ่านไม่ออกไปอยู่ท้ายเสมอ และเรียงกันเองตามตัวอักษรเพื่อให้ผลคงที่
- */
-export function comparePeriod(a, b) {
-  const oa = periodOrder(a);
-  const ob = periodOrder(b);
-  if (oa !== ob) return oa - ob;
-  return String(a).localeCompare(String(b));
-}

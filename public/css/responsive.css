@@ -29,29 +29,47 @@
 
   .site-header {
     margin: 0 0 var(--sp-4);
-    padding: var(--sp-3);
+    /* แถบติดบนกินความสูงถาวร ยิ่งเตี้ยยิ่งเหลือที่ให้ตัวเลข — 56 + 8×2 ≈ 72px */
+    padding: var(--sp-2) var(--sp-3);
   }
 
+  /* header เหลือแถวเดียว: [☰] [โลโก้ + ชื่อหน้า] [⟳]
+   * ที่เหลือย้ายเข้าแผงเมนู (nav.js) — บน 375px ถ้าเอาลงมาทั้งหมด
+   * header จะกินความสูงเกิน 1/4 ของจอก่อนเห็นตัวเลขสักตัว */
   .site-header__inner {
     gap: var(--sp-2);
+    flex-wrap: nowrap;
+    min-height: 56px;
+  }
+
+  .brand {
+    min-width: 0; /* ให้ชื่อหน้าที่ยาวเกินหดได้ ไม่ดันปุ่มรีเฟรชตกขอบ */
+  }
+
+  .brand__text {
+    min-width: 0;
   }
 
   .brand__logo {
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
   }
 
   .brand__title {
-    font-size: 15px;
+    font-size: 14px;
   }
 
   .brand__sub {
     display: none;
   }
 
+  .brand__crumb {
+    display: block;
+  }
+
   .header-tools {
-    width: 100%;
-    justify-content: space-between;
+    flex: none;
+    gap: var(--sp-1);
   }
 
   .kpi-strip {

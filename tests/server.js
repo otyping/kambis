@@ -1,0 +1,178 @@
+/**
+ * tests/server.js — ตรรกะฝั่งเซิร์ฟเวอร์ที่ไม่ต้องต่อเน็ตและไม่ต้องเปิดพอร์ต
+ *
+ *   node --test tests/server.js
+ *
+ * ตอนนี้มีสองเรื่อง ซึ่งทั้งคู่คือของที่ "พังแล้วรู้ตัวช้า" บนเซิร์ฟเวอร์จริง:
+ *   1. คูลดาวน์ปุ่มรีเฟรช — กันยิง Google ถี่จนโดน 429
+ *   2. เกณฑ์ payloadHealth — กันของว่างทับชุดสำรองที่ดี
+ */
+import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+import { rm, writeFile, stat } from 'node:fs/promises';
+import path from 'node:path';
+
+import { createRefreshGate } from '../server/lib/refresh-gate.js';
+import { payloadHealth } from '../server/lib/loader.js';
+import { writeSnapshot, readSnapshot, CACHE_DIR } from '../server/lib/cache.js';
+
+describe('คูลดาวน์ปุ่มรีเฟรช', () => {
+  /** นาฬิกาปลอม เพื่อไม่ต้องรอจริงในเทสต์ */
+  const clock = () => {
+    let t = 1_000_000;
+    return { now: () => t, advance: (ms) => (t += ms) };
+  };
+
+  test('กดครั้งแรกผ่าน กดซ้ำทันทีไม่ผ่านและบอกเวลาที่ต้องรอ', () => {
+    const c = clock();
+    const gate = createRefreshGate({ cooldownMs: 120_000, now: c.now });
+
+    assert.equal(gate.check('reports').allowed, true);
+    gate.note('reports');
+
+    const second = gate.check('reports');
+    assert.equal(second.allowed, false);
+    assert.equal(second.waitMs, 120_000);
+    assert.equal(second.cooldownMs, 120_000);
+  });
+
+  test('พ้นคูลดาวน์แล้วกดได้อีกครั้ง', () => {
+    const c = clock();
+    const gate = createRefreshGate({ cooldownMs: 120_000, now: c.now });
+    gate.note('reports');
+
+    c.advance(119_000);
+    assert.equal(gate.check('reports').allowed, false);
+    assert.equal(gate.check('reports').waitMs, 1_000);
+
+    c.advance(1_000);
+    assert.equal(gate.check('reports').allowed, true);
+  });
+
+  test('check() เรียกซ้ำได้โดยไม่เปลี่ยนสถานะ — มีแต่ note() ที่จด', () => {
+    const c = clock();
+    const gate = createRefreshGate({ cooldownMs: 60_000, now: c.now });
+    assert.equal(gate.check('reports').allowed, true);
+    assert.equal(gate.check('reports').allowed, true);
+    assert.equal(gate.check('reports').allowed, true);
+  });
+
+  /* ชีตวัสดุ (140 คำขอ) กับ payload หลัก (125 คำขอ) เป็นคนละชุดคำขอกัน
+   * กดดูรายงานดอกแล้วต้องไม่ไปกินคูลดาวน์ของชีตวัสดุ */
+  test('scope แยกกัน ไม่กินคูลดาวน์ของกันและกัน', () => {
+    const c = clock();
+    const gate = createRefreshGate({ cooldownMs: 120_000, now: c.now });
+
+    gate.note('reports');
+    assert.equal(gate.check('reports').allowed, false);
+    assert.equal(gate.check('supplyLog').allowed, true, 'ชีตวัสดุต้องยังกดได้');
+  });
+});
+
+describe('เกณฑ์ว่า payload ดีพอจะเก็บเป็นชุดสำรองไหม', () => {
+  const src = (over = {}) => ({
+    key: 'dailyTrim',
+    status: 'ok',
+    rowCount: 100,
+    tabCount: 10,
+    tabsOk: 10,
+    tabsStale: 0,
+    ...over,
+  });
+  const meta = (sources) => ({ meta: { sources } });
+
+  test('ปกติครบทุกอย่าง = good', () => {
+    const h = payloadHealth(meta([src(), src({ key: 'sales' })]));
+    assert.equal(h.level, 'good');
+    assert.deepEqual(h.failed, []);
+  });
+
+  /* เคสหลักที่ฟีเจอร์นี้มีไว้กัน: Google ตอบ 200 พร้อมหน้า login หรือ CSV ว่าง
+   * ทุกรายงานจะได้ status 'ok' แต่ 0 แถว — ถ้าเชื่อ status อย่างเดียวจะปล่อยผ่าน
+   * แล้วของว่างก้อนนี้จะไปทับชุดสำรองที่ดีจนกู้ไม่ได้ */
+  test('status ok แต่ 0 แถวทุกรายงาน ต้องเป็น bad ไม่ใช่ good', () => {
+    const h = payloadHealth(meta([src({ rowCount: 0 }), src({ key: 'sales', rowCount: 0 })]));
+    assert.equal(h.level, 'bad');
+    assert.equal(h.reason, 'all-sources-failed');
+    assert.deepEqual(h.failed, ['dailyTrim', 'sales']);
+  });
+
+  test('พังบางรายงาน = partial (ยังส่งให้ผู้ใช้ดูได้ แต่ห้ามเก็บเป็นชุดสำรอง)', () => {
+    const h = payloadHealth(meta([src(), src({ key: 'sales', status: 'error', rowCount: 0 })]));
+    assert.equal(h.level, 'partial');
+    assert.deepEqual(h.failed, ['sales']);
+  });
+
+  test('แท็บหายเกิน 10% = partial แม้ทุกรายงานยังมีแถว', () => {
+    const h = payloadHealth(meta([src({ tabCount: 10, tabsOk: 5, tabsStale: 0 })]));
+    assert.equal(h.level, 'partial');
+    assert.equal(h.reason, 'tabs-missing');
+  });
+
+  test('แท็บ stale นับว่ายังใช้ได้ (มีข้อมูลจากแคช)', () => {
+    const h = payloadHealth(meta([src({ tabCount: 10, tabsOk: 4, tabsStale: 6 })]));
+    assert.equal(h.level, 'good');
+  });
+
+  test('ไม่มี meta.sources เลย = bad ไม่ใช่ crash', () => {
+    assert.equal(payloadHealth(undefined).level, 'bad');
+    assert.equal(payloadHealth({}).level, 'bad');
+    assert.equal(payloadHealth(meta([])).level, 'bad');
+  });
+});
+
+describe('ชุดสำรองบนดิสก์', () => {
+  /* ชื่อต้องไม่มีจุด — safe() ใน cache.js แปลงอักขระนอก [A-Za-z0-9_-] เป็น `_`
+   * ถ้าตั้งชื่อว่า 'snapshot.__test' ไฟล์จริงจะกลายเป็น snapshot___test.json
+   * แล้วเทสต์จะไปล้างคนละไฟล์กับที่เขียน — เคยหลุดมาแล้วตอนเขียนเทสต์นี้ */
+  const NAME = 'snapshot_test_tmp';
+  const file = path.join(CACHE_DIR, `${NAME}.json`);
+  const clean = () =>
+    Promise.all([
+      rm(file, { force: true }),
+      rm(`${file}.prev`, { force: true }),
+      rm(`${file}.tmp`, { force: true }),
+    ]);
+
+  const payload = (tag) => ({ meta: { fetchedAt: tag, sources: [] }, sources: {}, kpi: {} });
+
+  test('เขียนสองรอบแล้วมีชุดก่อนหน้าเก็บไว้', async () => {
+    await clean();
+    assert.equal(await writeSnapshot(payload('รอบแรก'), NAME), true);
+    assert.equal(await writeSnapshot(payload('รอบสอง'), NAME), true);
+
+    assert.equal((await readSnapshot(NAME)).data.meta.fetchedAt, 'รอบสอง');
+    await stat(`${file}.prev`); // ต้องมีอยู่จริง ไม่งั้นโยน
+    await clean();
+  });
+
+  test('ไฟล์หลักพัง ต้องตกไปใช้ชุดก่อนหน้าแทนที่จะคืน null', async () => {
+    await clean();
+    await writeSnapshot(payload('ของดี'), NAME);
+    await writeSnapshot(payload('ของดีกว่า'), NAME);
+
+    await writeFile(file, '{"meta": ตรงนี้พัง', 'utf8');
+    const got = await readSnapshot(NAME);
+    assert.equal(got?.data.meta.fetchedAt, 'ของดี', 'ต้องได้ชุดก่อนหน้ากลับมา');
+    await clean();
+  });
+
+  /* JSON ที่ parse ผ่านแต่ไม่ใช่ payload จริง เป็นกับดักที่แย่กว่าไฟล์พัง
+   * เพราะมันผ่านด่านแรกไปแล้วค่อยพังตอนอ่าน meta.sources ซึ่งไล่ต้นตอยาก */
+  test('ไฟล์ที่ parse ผ่านแต่รูปร่างไม่ใช่ payload ต้องไม่ถูกใช้', async () => {
+    await clean();
+    await writeFile(file, '{}', 'utf8');
+    assert.equal(await readSnapshot(NAME), null);
+
+    await writeFile(file, 'null', 'utf8');
+    assert.equal(await readSnapshot(NAME), null);
+    await clean();
+  });
+
+  test('payload ของรายงาน lazy ใช้ source เอกพจน์ — ต้องอ่านได้ด้วย', async () => {
+    await clean();
+    await writeSnapshot({ meta: { sources: [] }, source: { rows: [] }, kpi: {} }, NAME);
+    assert.ok(await readSnapshot(NAME));
+    await clean();
+  });
+});

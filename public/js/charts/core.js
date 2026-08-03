@@ -29,6 +29,20 @@ export function palette() {
       css('--size-s') || '#2e6927',
       css('--size-xs') || '#0d530e',
     ],
+    /* ชุดสีแยกหมวด — ใช้กับกราฟที่ซ้อนตามสายพันธุ์หรือรายการ
+     * ต่างจาก sizes ตรงที่ sizes เป็นไล่เฉดที่มี "ลำดับ" (ขนาดดอก)
+     * ส่วน cats ไม่มีลำดับ ทุกช่องต้องแยกออกจากกันได้เท่า ๆ กัน
+     * ค่าสำรองคือค่าที่ผ่าน validator แล้ว เผื่อ token หายไปจาก tokens.css */
+    cats: [
+      css('--cat-1') || '#1e6c01',
+      css('--cat-2') || '#f17bad',
+      css('--cat-3') || '#744aaf',
+      css('--cat-4') || '#02a2a3',
+      css('--cat-5') || '#a15205',
+      css('--cat-6') || '#cc71c5',
+      css('--cat-7') || '#b23d2f',
+      css('--cat-8') || '#419df4',
+    ],
     ink: css('--ink') || '#0d2a0c',
     inkSoft: css('--ink-soft') || '#2f5a2b',
     inkMute: css('--ink-mute') || '#5d7a58',

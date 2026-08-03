@@ -8,38 +8,11 @@
 import { t } from '../i18n.js';
 import { esc } from '../format.js';
 
-/**
- * ลำดับเวลาของป้ายช่วงเวลา — ตรรกะเดียวกับ periodOrder() ฝั่ง server
- *
- * ต้องมีสองที่เพราะเบราว์เซอร์ import โค้ดใน server/ ไม่ได้
- * ถ้าแก้ที่นี่ต้องแก้ `server/lib/normalize.js` ให้ตรงกันด้วย
- */
-export function periodOrder(label) {
-  const s = String(label ?? '').trim();
-  if (!s) return Number.MAX_SAFE_INTEGER;
-
-  const q =
-    s.match(/Q\s*([1-4])\s*['’\s/-]*\s*(\d{4})/i) || s.match(/(\d{4})\s*[-\s]*Q\s*([1-4])/i);
-  if (q) {
-    const [a, b] = [q[1], q[2]];
-    const year = Number(a.length === 4 ? a : b);
-    const quarter = Number(a.length === 4 ? b : a);
-    return year * 10000 + quarter * 3 * 100;
-  }
-
-  const ymd = s.match(/(\d{4})-(\d{2})(?:-(\d{2}))?/);
-  if (ymd) return Number(ymd[1]) * 10000 + Number(ymd[2]) * 100 + Number(ymd[3] ?? 0);
-
-  const year = s.match(/^(\d{4})$/);
-  if (year) return Number(year[1]) * 10000;
-
-  return Number.MAX_SAFE_INTEGER;
-}
-
-/** ป้ายนี้เป็นช่วงเวลาที่อ่านออกไหม (ใช้ตัดสินว่าจะเสนอตัวเลือก "ตามเวลา" ไหม) */
-export function looksLikePeriod(label) {
-  return periodOrder(label) !== Number.MAX_SAFE_INTEGER;
-}
+/* กฎการเรียงช่วงเวลามาจากไฟล์ร่วมที่ฝั่ง server ใช้ตัวเดียวกัน
+ * เดิมไฟล์นี้เคยถือสำเนาของตัวเองไว้ แล้วต้องเขียนกำกับใน CLAUDE.md ว่า
+ * "แก้ที่หนึ่งต้องแก้อีกที่ด้วย" ซึ่งเป็นกับดักที่รอวันพลาด */
+export { periodOrder, looksLikePeriod, comparePeriod } from '../shared/agg-core.js';
+import { periodOrder, looksLikePeriod } from '../shared/agg-core.js';
 
 /**
  * โหมดการเรียงที่ใช้ได้กับลิสต์แบบ {key, flower}

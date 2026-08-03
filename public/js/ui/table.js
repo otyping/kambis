@@ -1,8 +1,14 @@
 /**
  * ui/table.js — ตารางที่เรียงลำดับได้ ใช้ใน modal ทุกใบ
  * ตารางกว้างกว่าจอให้ scroll ในกล่องตัวเอง ไม่ทำให้ทั้งหน้าเลื่อนแนวนอน
+ *
+ * **คอลัมน์ที่เป็นช่วงเวลาต้องเรียงตามเวลา ไม่ใช่ตามตัวอักษร**
+ * ป้ายไตรมาสเขียนว่า `Q1'2026` ถ้าเรียงด้วย localeCompare จะได้
+ * Q1'2026 → Q2'2025 → Q2'2026 เพราะเทียบ "Q1" กับ "Q2" ก่อนถึงปี
+ * (กราฟกับการ์ดกันเคสนี้ไว้แล้วผ่าน comparePeriod แต่หัวตารางที่กดเรียงได้เคยหลุด)
  */
 import { esc } from '../format.js';
+import { comparePeriod, looksLikePeriod } from '../shared/agg-core.js';
 
 /**
  * @param {Array<{key:string,label:string,align?:'n',get:(row)=>any,render?:(row)=>string}>} columns
@@ -37,9 +43,28 @@ export function sortableTable(columns, rows, opts = {}) {
   let sortDir = opts.sortDir ?? 'desc';
   let data = [...rows];
 
+  /**
+   * คอลัมน์นี้เป็นช่วงเวลาหรือเปล่า — ดูจากค่าที่มีอยู่จริงทั้งคอลัมน์
+   *
+   * ต้องเข้าเกณฑ์ทุกค่า ไม่ใช่แค่บางค่า ไม่งั้นคอลัมน์ข้อความธรรมดาที่บังเอิญ
+   * มีตัวเลข 4 หลักปนอยู่บางแถวจะถูกเรียงด้วยกฎเวลาแล้วค่าที่เหลือไปกองท้ายหมด
+   */
+  const isPeriodColumn = (col) => {
+    let seen = 0;
+    for (const row of data) {
+      const v = col.get(row);
+      if (v === null || v === undefined || v === '') continue;
+      if (typeof v === 'number') return false;
+      if (!looksLikePeriod(v)) return false;
+      seen++;
+    }
+    return seen > 0;
+  };
+
   const draw = () => {
     if (sortIndex !== null) {
       const col = columns[sortIndex];
+      const byTime = isPeriodColumn(col);
       data.sort((a, b) => {
         const av = col.get(a);
         const bv = col.get(b);
@@ -48,8 +73,9 @@ export function sortableTable(columns, rows, opts = {}) {
         if (aNull && bNull) return 0;
         if (aNull) return 1; // ค่าว่างไปท้ายเสมอ ไม่ว่าจะเรียงทางไหน
         if (bNull) return -1;
-        const cmp =
-          typeof av === 'number' && typeof bv === 'number'
+        const cmp = byTime
+          ? comparePeriod(av, bv)
+          : typeof av === 'number' && typeof bv === 'number'
             ? av - bv
             : String(av).localeCompare(String(bv), 'th');
         return sortDir === 'asc' ? cmp : -cmp;
