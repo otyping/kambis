@@ -852,6 +852,26 @@ process.on('uncaughtException', (err) => {
   process.exit(1);
 });
 
+/* บันทึกว่าใครสั่งปิด
+ *
+ * เคยเจอว่าเซิร์ฟเวอร์ดับทุก 20–55 นาทีโดย stderr ว่างเปล่าสนิท ไม่มีทั้ง
+ * exception และ rejection แปลว่าไม่ได้พังเอง แต่ถูกสั่งปิดจากข้างนอก
+ * ถ้าไม่จดไว้ตรงนี้ จะแยกไม่ออกเลยว่า "โดนสัญญาณปิด" กับ "ถูกฆ่าดื้อ ๆ" ต่างกันยังไง
+ *
+ *   มีบรรทัด "ได้รับสัญญาณ …"  = มีใครสั่งปิดอย่างสุภาพ (Ctrl+C, ปิดหน้าต่าง, logoff)
+ *   ไม่มีบรรทัดนี้เลย          = ถูก TerminateProcess ฆ่าตรง ๆ ไม่มีทางกันได้
+ */
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGBREAK', 'SIGHUP']) {
+  process.on(sig, () => {
+    console.error(`[${new Date().toISOString()}] ได้รับสัญญาณ ${sig} — กำลังปิดเซิร์ฟเวอร์`);
+    process.exit(0);
+  });
+}
+
+process.on('exit', (code) => {
+  console.error(`[${new Date().toISOString()}] โปรเซสจบการทำงาน exit=${code}`);
+});
+
 // ─────────────────────────────────────────────────────────────
 async function start() {
   try {

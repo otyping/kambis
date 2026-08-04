@@ -340,7 +340,7 @@ export async function loadAll(onProgress, opts = {}) {
    * จนได้ Q1'2026 มาก่อน Q2'2025) ไม่มีอะไรจับได้เลย ทั้งที่ทำให้อ่านแนวโน้มผิดทันที */
   let analysis = analyze(sources);
   const kpi = buildKpi(sources, analysis);
-  analysis = verifyPresentation(analysis, kpi);
+  analysis = verifyPresentation(analysis, kpi, sources);
 
   onProgress?.({ type: 'analysis:done', score: analysis.score, counts: analysis.counts });
 
@@ -433,7 +433,7 @@ export async function loadLazySource(key, onProgress) {
   // เช่นเดือนเรียงผิด หรือของที่ต้องสั่งซื้อแต่หาราคาไม่เจอ
   let analysis = analyze(sources);
   const kpi = buildKpi(sources, analysis);
-  analysis = verifyPresentation(analysis, kpi);
+  analysis = verifyPresentation(analysis, kpi, sources);
   onProgress?.({ type: 'analysis:done', score: analysis.score, counts: analysis.counts });
 
   const payload = {

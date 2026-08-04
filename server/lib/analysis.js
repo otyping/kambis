@@ -883,6 +883,12 @@ function money(v) {
   return Number(v ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
 }
 
+/** ตัวเลขทั่วไปในข้อความ finding — เก็บทศนิยมไว้ 2 ตำแหน่งถ้ามี */
+function fmtNum(v) {
+  const n = Number(v ?? 0);
+  return n.toLocaleString('en-US', { maximumFractionDigits: Number.isInteger(n) ? 0 : 2 });
+}
+
 // ─────────────────────────────────────────────────────────────
 // Supply — วัสดุสิ้นเปลือง (ชีต Log Stock บันทึกประจำวัน)
 //
@@ -1306,8 +1312,118 @@ function checkChronological(keys) {
  * @param {object} kpi ผลจาก buildKpi()
  * @returns {object} analysis ที่เติม finding และคิดคะแนนใหม่แล้ว
  */
-export function verifyPresentation(analysis, kpi) {
+export function verifyPresentation(analysis, kpi, sources = null) {
   const extra = [];
+
+  /* ── ตรวจว่า "ตัวเลขที่ขึ้นจอ" ตรงกับข้อมูลดิบจริงไหม ──
+   *
+   * ชั้นนี้บวกใหม่ด้วยลูปธรรมดา **ไม่เรียกฟังก์ชันชุดเดียวกับที่ buildKpi ใช้**
+   * ถ้าเรียกตัวเดิมก็จะได้คำตอบเดิมเสมอ ซึ่งพิสูจน์อะไรไม่ได้เลย
+   * เป็นการกระทบยอดทางที่สองตาม skill data-analysis §6 — จับได้ทั้งกรณีตัวกรองผิด
+   * นับซ้ำ หรือมีคนแก้สูตรรวมยอดจนเพี้ยนโดยไม่มี test คลุมถึง
+   */
+  if (sources) {
+    const plainSum = (rows, pick) => {
+      let total = 0;
+      for (const r of rows ?? []) {
+        const v = pick(r);
+        if (typeof v === 'number' && Number.isFinite(v)) total += v;
+      }
+      return total;
+    };
+
+    const addTotalFinding = (sourceKey, field, labelTh, labelEn, shown, actual, tol, unit) => {
+      const delta = Number((shown - actual).toFixed(2));
+      if (Math.abs(delta) <= tol) return;
+      extra.push({
+        id: 'presentation.totalMismatch',
+        severity: 'critical',
+        source: sourceKey,
+        tab: null,
+        gid: null,
+        row: null,
+        field,
+        messageTh:
+          `${labelTh}: ตัวเลขที่แสดงบน Dashboard คือ ${fmtNum(shown)} ${unit} ` +
+          `แต่บวกใหม่จากข้อมูลดิบได้ ${fmtNum(actual)} ${unit} (ต่าง ${fmtNum(Math.abs(delta))}) ` +
+          '— เป็นข้อผิดพลาดของ Dashboard เอง ไม่ใช่ของชีต',
+        messageEn:
+          `${labelEn}: the dashboard shows ${fmtNum(shown)} ${unit} but recomputing from the raw ` +
+          `records gives ${fmtNum(actual)} ${unit} (off by ${fmtNum(Math.abs(delta))}) ` +
+          '— this is a dashboard bug, not a sheet problem',
+        expected: actual,
+        actual: shown,
+        delta,
+        related: [],
+      });
+    };
+
+    // ── น้ำหนักดอกของทุกรายงาน ──
+    for (const [key, labelTh, labelEn, filter] of [
+      ['dailyTrim', 'ผลผลิตรายวันรวม', 'Total daily trim', null],
+      ['perCrop', 'ผลผลิตต่อครอปรวม', 'Total yield per crop', (r) => r.hasYield],
+      ['outbound', 'ยอดขนออกจากฟาร์ม', 'Total shipped out', null],
+      ['inbound', 'ยอดรับเข้ากรุงเทพ', 'Total received', null],
+      ['sales', 'ยอดขายรวม (กรัม)', 'Total sold (g)', null],
+      ['inventory', 'สินค้าคงเหลือรวม', 'Total stock on hand', null],
+    ]) {
+      const shown = kpi?.[key]?.totalFlower;
+      if (typeof shown !== 'number') continue;
+      const rows = sources[key]?.rows ?? [];
+      const actual = plainSum(filter ? rows.filter(filter) : rows, (r) => r.flowerTotal);
+      addTotalFinding(key, 'totalFlower', labelTh, labelEn, shown, actual, TOLERANCE_G, 'g');
+    }
+
+    // ── งบรายรับ-รายจ่าย ──
+    const fin = kpi?.cost;
+    if (fin?.available && sources.cost) {
+      const summaryRows = (sources.cost.rows ?? []).filter((r) => r.kind === 'summary');
+      const upTo = fin.coverage?.to ?? '9999-99';
+      for (const [line, labelTh, labelEn] of [
+        ['revenue', 'รายได้', 'Revenue'],
+        ['materialCost', 'ต้นทุนวัตถุดิบ', 'Material cost'],
+        ['depreciation', 'ค่าเสื่อมราคา', 'Depreciation'],
+      ]) {
+        const shown = fin.totals?.[line];
+        if (typeof shown !== 'number') continue;
+        const actual = plainSum(
+          summaryRows.filter((r) => r.line === line && r.month <= upTo),
+          (r) => r.amount
+        );
+        addTotalFinding('cost', line, labelTh, labelEn, shown, actual, MONEY_TOL, 'บาท');
+      }
+    }
+
+    /* ── จำนวนของที่ต้องสั่งซื้อ ──
+     * ไม่ใช่ยอดเงินแต่เป็นตัวเลขที่คนเอาไปสั่งของจริง ผิดแล้วเสียหายทันที */
+    const sup = kpi?.supply;
+    if (sup?.items?.length) {
+      const shown = (sup.needsReorder ?? []).length;
+      let actual = 0;
+      for (const it of sup.items) if (it.index !== null && it.index <= 0) actual++;
+      if (shown !== actual) {
+        extra.push({
+          id: 'presentation.totalMismatch',
+          severity: 'critical',
+          source: 'supplyLog',
+          tab: null,
+          gid: null,
+          row: null,
+          field: 'needsReorder',
+          messageTh:
+            `จำนวนของที่ต้องสั่งซื้อ: Dashboard แสดง ${shown} รายการ แต่นับใหม่จากเกณฑ์ ` +
+            `Index ≤ 0 ได้ ${actual} รายการ — เป็นข้อผิดพลาดของ Dashboard เอง`,
+          messageEn:
+            `Items needing reorder: the dashboard shows ${shown} but recounting with the ` +
+            `Index ≤ 0 rule gives ${actual} — this is a dashboard bug`,
+          expected: actual,
+          actual: shown,
+          delta: shown - actual,
+          related: [],
+        });
+      }
+    }
+  }
 
   const addOrderFinding = (sourceKey, field, labelTh, labelEn, bad) => {
     extra.push({
