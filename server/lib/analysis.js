@@ -760,7 +760,42 @@ function checkFinance(source, out) {
     );
   }
 
-  /* EBITDA ต้องเท่ากับ รายได้ − รวมต้นทุนการปลูก และ EBIT ต้องเท่ากับ EBITDA − ค่าเสื่อมราคา
+  /* ── EBITDA ต้องเท่ากับ รายได้ − รวมต้นทุนการปลูก ──
+   *
+   * เป็นการตรวจที่จับของจริงมาแล้ว: มีคนแก้แถวต้นทุนในงบสรุปให้ตรงกับแท็บรายละเอียด
+   * (เพิ่มขึ้นรวม 1.23 ล้าน) แต่ **แถว EBITDA กับ EBIT ไม่ได้คำนวณใหม่ตาม**
+   * ผลคือชีตขัดกันเอง: กำไรขั้นต้นที่คิดจากตัวเลขต้นทุนปัจจุบันไม่เท่ากับช่อง EBITDA
+   *
+   * ถ้าไม่ตรวจข้อนี้ Dashboard จะโชว์ตัวเลขที่ถูก แล้วผู้ใช้เปิดชีตมาเทียบเจอคนละเลข
+   * โดยไม่มีอะไรอธิบายว่าทำไม — ซึ่งทำให้เลิกเชื่อ Dashboard ทั้งระบบ */
+  for (const month of [...new Set(summary.map((r) => r.month))].sort()) {
+    const rev = summary.find((r) => r.line === 'revenue' && r.month === month)?.amount ?? null;
+    const grow = summary.find((r) => r.line === 'growingCost' && r.month === month)?.amount ?? null;
+    const eb = summary.find((r) => r.line === 'ebitda' && r.month === month)?.amount ?? null;
+    if (rev === null || grow === null || eb === null) continue;
+    const delta = Number((rev - grow - eb).toFixed(2));
+    if (Math.abs(delta) <= MONEY_TOL) continue;
+    out.push(
+      finding('finance.ebitdaMismatch', 'critical', {
+        source: source.key,
+        tab: 'สรุป',
+        field: month,
+        expected: Number((rev - grow).toFixed(2)),
+        actual: eb,
+        delta,
+        messageTh:
+          `${month}: ช่อง EBITDA ในชีตบอก ${money(eb)} แต่คิดจากตัวเลขในชีตเองได้ ` +
+          `${money(rev - grow)} (รายได้ ${money(rev)} − รวมต้นทุนการปลูก ${money(grow)}) ` +
+          `ต่างกัน ${money(Math.abs(delta))} บาท — มักเกิดจากแก้แถวต้นทุนแล้วลืมคำนวณแถว EBITDA ใหม่`,
+        messageEn:
+          `${month}: the EBITDA cell says ${money(eb)} but the sheet's own figures give ` +
+          `${money(rev - grow)} (revenue ${money(rev)} − total growing cost ${money(grow)}), ` +
+          `off by ${money(Math.abs(delta))} — usually a cost row edited without refreshing EBITDA`,
+      })
+    );
+  }
+
+  /* EBIT ต้องเท่ากับ EBITDA − ค่าเสื่อมราคา
    * ตรวจรายเดือน เพราะผิดเดือนเดียวก็ทำให้กราฟแนวโน้มเพี้ยนแล้ว */
   const months = [...new Set(summary.map((r) => r.month))].sort();
   const at = (line, month) =>
@@ -787,6 +822,39 @@ function checkFinance(source, out) {
         messageEn:
           `${month}: the stated EBIT (${money(ebit)}) does not equal EBITDA − depreciation ` +
           `(${money(ebitda)} − ${money(dep)} = ${money(ebitda - dep)})`,
+      })
+    );
+  }
+
+  /* ── แต่ละบรรทัดครอบคลุมเดือนไม่เท่ากัน ──
+   *
+   * เจอจริง: รายได้กรอกถึงมิถุนายน แต่ค่าเสื่อมราคาและค่าใช้จ่าย Office ถูกตั้งไว้
+   * ล่วงหน้าครบ 12 เดือน ถ้าใครเอา "ยอดรวมทั้งปี" ของสองฝั่งมาลบกันตรง ๆ
+   * จะได้ผลขาดทุนเกินจริงไป 4.3 ล้านบาท โดยไม่มีอะไรบอกเลยว่าเทียบคนละช่วงเวลา
+   *
+   * Dashboard ตัดยอดที่เดือนล่าสุดที่มีความเคลื่อนไหวให้แล้ว (ดู buildCost)
+   * แต่คนที่เปิดชีตเองยังเจอกับดักนี้อยู่ จึงต้องรายงานไว้ */
+  const monthsOf = (line) =>
+    summary.filter((r) => r.line === line && (r.amount ?? 0) !== 0).map((r) => r.month);
+  const revenueMonths = monthsOf('revenue').length;
+  const depMonths = monthsOf('depreciation').length;
+
+  if (revenueMonths > 0 && depMonths > revenueMonths) {
+    out.push(
+      finding('finance.coverageMismatch', 'warning', {
+        source: source.key,
+        tab: 'สรุป',
+        expected: revenueMonths,
+        actual: depMonths,
+        delta: depMonths - revenueMonths,
+        messageTh:
+          `รายได้กรอกไว้ ${revenueMonths} เดือน แต่ค่าเสื่อมราคากรอกไว้ ${depMonths} เดือน ` +
+          '— เอายอดรวมทั้งปีของสองบรรทัดนี้มาลบกันตรง ๆ ไม่ได้ เพราะเป็นคนละช่วงเวลา ' +
+          '(หน้าต้นทุนตัดยอดที่เดือนล่าสุดที่มีความเคลื่อนไหวให้แล้ว)',
+        messageEn:
+          `Revenue is filled for ${revenueMonths} month(s) but depreciation for ${depMonths}. ` +
+          'Their full-year totals cannot be subtracted directly — different periods. ' +
+          '(The cost page already cuts totals at the last month with activity.)',
       })
     );
   }

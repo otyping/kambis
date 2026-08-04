@@ -112,12 +112,14 @@ describe('parser ชีตต้นทุน', () => {
       'ebit',
       'ebitda',
       'farmExpense',
+      // ยอดต้นทุนที่ชีตคำนวณเอง — ต้องอ่านเก็บไว้เทียบกับที่เราบวกจากสามบรรทัด
+      // (ถ้าตัดทิ้งเพราะขึ้นต้นด้วย "รวม" จะจับไม่ได้เวลาชีตขัดกันเอง)
+      'growingCost',
       'materialCost',
       'officeExpense',
       'revenue',
     ]);
-    // "รวมต้นทุนการปลูก" กับบรรทัดหัวข้อ "Cost" ต้องไม่กลายเป็น record
-    assert.equal(out.rows.filter((r) => r.item === 'รวมต้นทุนการปลูก').length, 0);
+    // บรรทัดหัวข้อ "Cost" ที่ไม่มีตัวเลขต้องไม่กลายเป็น record
     assert.equal(out.rows.filter((r) => r.item === 'Cost').length, 0);
   });
 
@@ -229,6 +231,94 @@ describe('KPI และกฎตรวจของงบต้นทุน', () 
     assert.equal(jan.grossProfit, 45);
   });
 
+  /* กับดักที่หลุดไปแล้วครั้งหนึ่ง: แต่ละบรรทัดในชีตกรอกมาไม่เท่ากัน
+   * รายได้ถึงมิถุนายน แต่ค่าเสื่อมราคาตั้งไว้ล่วงหน้าครบ 12 เดือน
+   * ถ้าบวกทั้ง 12 เดือนจะได้ EBIT ที่ขาดทุนเกินจริง เพราะเอารายได้ที่มี
+   * ไปหักค่าใช้จ่ายของเดือนที่ยังไม่ถึง */
+  test('ยอดรวมต้องตัดที่เดือนล่าสุดที่มีความเคลื่อนไหว ไม่ใช่บวกทั้ง 12 เดือน', () => {
+    // รายได้ 2 เดือน · ค่าเสื่อมราคาตั้งไว้ 4 เดือน
+    const tab = {
+      gid: '20',
+      name: 'สรุป',
+      rows: [
+        head(1),
+        row(['Revenue'], [100, 100, null, null, null, null, null, null, null, null, null, null], '200'),
+        row(['ต้นทุนวัตถุดิบ'], [40, 40, null, null, null, null, null, null, null, null, null, null], '80'),
+        row(['ค่าใช้จ่าย - Farm'], [0, 0, null, null, null, null, null, null, null, null, null, null], '0'),
+        row(['ค่าใช้จ่าย - Office'], [10, 10, 10, 10, null, null, null, null, null, null, null, null], '40'),
+        row(['EBITDA (กำไรขั้นต้น)'], [50, 50, -10, -10, null, null, null, null, null, null, null, null], '80'),
+        row(['ค่าเสื่อมราคา'], [20, 20, 20, 20, null, null, null, null, null, null, null, null], '80'),
+        row(['EBIT'], [30, 30, -30, -30, null, null, null, null, null, null, null, null], '0'),
+      ],
+    };
+    const c = buildKpi(sourcesOf([tab]), { findings: [] }).cost;
+
+    assert.equal(c.lastActiveMonth, '2026-02', 'เดือนล่าสุดที่มีรายได้/ต้นทุนวัตถุดิบ');
+    assert.deepEqual(c.coverage, { from: '2026-01', to: '2026-02' });
+
+    // ยอดที่โชว์ = แค่ ม.ค.–ก.พ.
+    assert.equal(c.totals.revenue, 200);
+    assert.equal(c.totals.depreciation, 40, 'ต้องไม่รวมค่าเสื่อมของเดือนที่ยังไม่ถึง');
+    assert.equal(c.totals.ebit, 60);
+
+    // ยอด 12 เดือนตามที่ชีตบอกยังเก็บไว้ให้ตรวจได้ ไม่ได้ซ่อน
+    assert.equal(c.totalsFullYear.depreciation, 80);
+    assert.equal(c.totalsFullYear.ebit, 0);
+
+    // เดือนล่าสุดที่มีรายได้จริง ต้องไม่ใช่เดือนที่มีแต่ค่าใช้จ่าย
+    assert.equal(c.lastRevenueMonth, '2026-02');
+    assert.equal(c.revenueByMonth, 100);
+  });
+
+  test('เดือนที่มีต้นทุนแต่ยังไม่มีรายได้ ต้องไม่ทำให้ช่องรายได้กลายเป็นค่าว่าง', () => {
+    const tab = {
+      gid: '21',
+      name: 'สรุป',
+      rows: [
+        head(1),
+        row(['Revenue'], [100, null, null, null, null, null, null, null, null, null, null, null], '100'),
+        // เดือนที่ 2 มีต้นทุนแต่ยังไม่บันทึกรายได้ (เกิดขึ้นจริงในชีต — กรกฎาคม)
+        row(['ต้นทุนวัตถุดิบ'], [40, 40, null, null, null, null, null, null, null, null, null, null], '80'),
+      ],
+    };
+    const c = buildKpi(sourcesOf([tab]), { findings: [] }).cost;
+    assert.equal(c.lastActiveMonth, '2026-02');
+    assert.equal(c.lastRevenueMonth, '2026-01');
+    assert.equal(c.revenueByMonth, 100, 'ต้องหยิบเดือนล่าสุดที่มีรายได้ ไม่ใช่ 2026-02 ที่เป็น null');
+  });
+
+  test('บรรทัดที่ครอบคลุมเดือนไม่เท่ากันต้องขึ้น finding', () => {
+    const tab = {
+      gid: '22',
+      name: 'สรุป',
+      rows: [
+        head(1),
+        row(['Revenue'], [100, null, null, null, null, null, null, null, null, null, null, null], '100'),
+        row(['ค่าเสื่อมราคา'], [20, 20, 20, null, null, null, null, null, null, null, null, null], '60'),
+      ],
+    };
+    const hit = analyze(sourcesOf([tab])).findings.find((f) => f.id === 'finance.coverageMismatch');
+    assert.ok(hit, 'ต้องเตือนว่าเทียบยอดรวมทั้งปีของสองบรรทัดนี้ตรง ๆ ไม่ได้');
+    assert.equal(hit.severity, 'warning');
+    assert.equal(hit.expected, 1); // รายได้ 1 เดือน
+    assert.equal(hit.actual, 3); // ค่าเสื่อม 3 เดือน
+
+    // กรอกเท่ากันแล้วต้องไม่เตือน
+    const even = {
+      gid: '23',
+      name: 'สรุป',
+      rows: [
+        head(1),
+        row(['Revenue'], [100, 100, null, null, null, null, null, null, null, null, null, null], '200'),
+        row(['ค่าเสื่อมราคา'], [20, 20, null, null, null, null, null, null, null, null, null, null], '40'),
+      ],
+    };
+    assert.equal(
+      analyze(sourcesOf([even])).findings.filter((f) => f.id === 'finance.coverageMismatch').length,
+      0
+    );
+  });
+
   test('ชีตอ่านไม่ได้ต้องได้ available:false และ null ไม่ใช่ 0', () => {
     const kpi = buildKpi({}, { findings: [] });
     assert.equal(kpi.cost.available, false);
@@ -263,6 +353,64 @@ describe('KPI และกฎตรวจของงบต้นทุน', () 
     assert.equal(hit.severity, 'critical');
     assert.equal(hit.expected, 15);
     assert.equal(hit.actual, 22);
+  });
+
+  /* เคสจริงที่เจอ: มีคนแก้แถวต้นทุนในงบสรุปให้ตรงกับแท็บรายละเอียด
+   * แต่ไม่ได้คำนวณแถว EBITDA ใหม่ → ช่อง EBITDA ค้างค่าเก่า ชีตขัดกันเอง */
+  test('EBITDA ที่ไม่เท่ากับ รายได้ − รวมต้นทุนการปลูก ต้องถูกจับเป็น critical', () => {
+    // งบที่ถูกต้อง: 200 − 195 = 5 … แต่ชีตเขียน EBITDA ไว้ 80 (ค่าเก่า)
+    const stale = {
+      gid: '30',
+      name: 'สรุป',
+      rows: [
+        head(1),
+        row(['Revenue'], [200, null, null, null, null, null, null, null, null, null, null, null], '200'),
+        row(['ต้นทุนวัตถุดิบ'], [150, null, null, null, null, null, null, null, null, null, null, null], '150'),
+        row(['ค่าใช้จ่าย - Farm'], [30, null, null, null, null, null, null, null, null, null, null, null], '30'),
+        row(['ค่าใช้จ่าย - Office'], [15, null, null, null, null, null, null, null, null, null, null, null], '15'),
+        row(['รวมต้นทุนการปลูก'], [195, null, null, null, null, null, null, null, null, null, null, null], '195'),
+        row(['EBITDA (กำไรขั้นต้น)'], [80, null, null, null, null, null, null, null, null, null, null, null], '80'),
+      ],
+    };
+    const hit = analyze(sourcesOf([stale])).findings.find((f) => f.id === 'finance.ebitdaMismatch');
+    assert.ok(hit, 'ต้องจับได้ว่าช่อง EBITDA ไม่ตรงกับตัวเลขในชีตเอง');
+    assert.equal(hit.severity, 'critical');
+    assert.equal(hit.expected, 5); // 200 − 195
+    assert.equal(hit.actual, 80);
+
+    // งบที่สอดคล้องกันต้องไม่ถูกเตือน
+    const ok = {
+      ...stale,
+      gid: '31',
+      rows: stale.rows.map((r) =>
+        r[0] === 'EBITDA (กำไรขั้นต้น)'
+          ? row(['EBITDA (กำไรขั้นต้น)'], [5, null, null, null, null, null, null, null, null, null, null, null], '5')
+          : r
+      ),
+    };
+    assert.equal(
+      analyze(sourcesOf([ok])).findings.filter((f) => f.id === 'finance.ebitdaMismatch').length,
+      0
+    );
+  });
+
+  test('กำไรขั้นต้นบน Dashboard ต้องคิดใหม่เอง ไม่ใช่อ่านช่อง EBITDA ที่ค้างค่าเก่า', () => {
+    const stale = {
+      gid: '32',
+      name: 'สรุป',
+      rows: [
+        head(1),
+        row(['Revenue'], [200, null, null, null, null, null, null, null, null, null, null, null], '200'),
+        row(['ต้นทุนวัตถุดิบ'], [150, null, null, null, null, null, null, null, null, null, null, null], '150'),
+        row(['ค่าใช้จ่าย - Farm'], [30, null, null, null, null, null, null, null, null, null, null, null], '30'),
+        row(['ค่าใช้จ่าย - Office'], [15, null, null, null, null, null, null, null, null, null, null, null], '15'),
+        row(['EBITDA (กำไรขั้นต้น)'], [80, null, null, null, null, null, null, null, null, null, null, null], '80'),
+      ],
+    };
+    const c = buildKpi(sourcesOf([stale]), { findings: [] }).cost;
+    assert.equal(c.totals.cost, 195);
+    assert.equal(c.totals.grossProfit, 5, 'ต้องเป็น 200 − 195 ไม่ใช่ 80 ที่ชีตบอก');
+    assert.equal(c.totals.ebitda, 80, 'ค่าที่ชีตบอกยังเก็บไว้ให้เทียบได้');
   });
 
   test('EBIT ที่ไม่เท่ากับ EBITDA − ค่าเสื่อมราคา ต้องถูกจับ', () => {

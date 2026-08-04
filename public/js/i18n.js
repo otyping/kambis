@@ -403,6 +403,10 @@ const STRINGS = {
     'จากแท็บ "สรุป" ของชีตต้นทุน · แสดงถึงเดือนล่าสุดที่มีความเคลื่อนไหว',
     'From the “สรุป” tab of the cost sheet · shown up to the last month with activity',
   ],
+  'cost.coverageNote': [
+    'ยอดด้านบนคิดถึง {span} เท่านั้น — ชีตกรอกค่าเสื่อมราคาและค่าใช้จ่าย Office ไว้ล่วงหน้าจนถึงสิ้นปี ถ้าบวกครบ 12 เดือนจะได้ EBIT {full} ซึ่งเป็นการเอารายได้ที่มีไปหักค่าใช้จ่ายของเดือนที่ยังไม่ถึง',
+    'The figures above cover {span} only — the sheet pre-fills depreciation and office costs to year end. Summing all 12 months gives EBIT {full}, which offsets actual revenue against months that have not happened yet',
+  ],
   'cost.split': ['สัดส่วนต้นทุน', 'Cost split'],
   'cost.splitNote': ['ทั้งปีตามงบสรุป', 'Full year, per the summary tab'],
   'cost.monthTable': ['งบรายเดือน', 'Monthly P&L'],

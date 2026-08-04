@@ -13,7 +13,7 @@
  * จึงแยกแผงไว้ท้ายหน้า ห้ามเอาไปบวกกับต้นทุนการปลูก
  */
 import { t } from '../i18n.js';
-import { n, esc, DASH } from '../format.js';
+import { n, esc, DASH, month as monthName } from '../format.js';
 import * as charts from '../charts/index.js';
 import { sortableTable } from '../ui/table.js';
 import { awaitingCard } from '../ui/placeholder.js';
@@ -23,6 +23,10 @@ export const meta = { report: 'dryflower', page: 'cost' };
 
 /** จำนวนเงิน — ใช้ทศนิยม 0 เพราะหลักล้านที่มีสตางค์อ่านยากและไม่ช่วยตัดสินใจ */
 const baht = (v) => (v === null || v === undefined || !Number.isFinite(v) ? DASH : n(v, 0));
+const fmtBaht = (v) => `${baht(v)} ฿`;
+
+/** `2026-06` → `มิ.ย. 2026` (ใช้ตัวแปลงเดือนตัวเดียวกับกราฟ) */
+const monthLabel = (m) => (m ? monthName(m) : '');
 
 export function render(ctx) {
   const { host, payload, supply, drawLater, requestSupply, onOpen, filters } = ctx;
@@ -58,21 +62,43 @@ function renderFinance(host, cost, filters, drawLater) {
   const { totals } = cost;
   const margin = totals.revenue > 0 ? (totals.grossProfit / totals.revenue) * 100 : null;
 
+  /* ป้ายต้องบอกช่วงเวลาจริง ห้ามเขียนแค่ปี
+   *
+   * ชีตกรอกค่าเสื่อมราคากับค่าใช้จ่าย Office ไว้ล่วงหน้าครบ 12 เดือน แต่รายได้มีถึงมิถุนายน
+   * ถ้าเขียนว่า "(2026)" ผู้บริหารจะอ่านว่าเป็นผลทั้งปี แล้วเข้าใจว่าขาดทุนมากกว่าความจริง
+   * ยอด 12 เดือนตามที่ชีตบอกยังดูได้ในตารางรายเดือนด้านล่าง ไม่ได้ซ่อน */
+  const span = cost.coverage
+    ? `${monthLabel(cost.coverage.from)}–${monthLabel(cost.coverage.to)}`
+    : cost.year;
+
   tiles(host, [
-    { label: `${t('cost.revenue')} (${cost.year})`, value: totals.revenue, unit: '฿' },
-    { label: `${t('cost.totalCost')} (${cost.year})`, value: totals.cost, unit: '฿', hint: t('cost.growingOnly') },
-    /* ชีตนิยาม EBITDA ว่า รายได้ − รวมต้นทุนการปลูก ซึ่งเท่ากับกำไรขั้นต้นพอดี
-     * จึงเป็นช่องเดียว ไม่ใช่สองช่องที่โชว์เลขเดียวกันจนดูเหมือนบั๊ก
-     * ค่าที่เอามาโชว์คำนวณใหม่เอง ส่วนของชีตถูกเทียบไว้แล้วใน checkFinance() */
+    { label: `${t('cost.revenue')} (${span})`, value: totals.revenue, unit: '฿' },
+    { label: `${t('cost.totalCost')} (${span})`, value: totals.cost, unit: '฿', hint: t('cost.growingOnly') },
+    /* กำไรขั้นต้นคำนวณใหม่จาก รายได้ − ต้นทุน เสมอ ไม่อ่านช่อง EBITDA ในชีต
+     *
+     * เคยเจอจริง: มีคนแก้แถวต้นทุนในงบสรุปแล้วไม่ได้คำนวณแถว EBITDA ใหม่
+     * ทำให้ช่อง EBITDA ค้างค่าเก่าอยู่ 1.23 ล้าน ถ้าเชื่อช่องนั้นตัวเลขบนจอจะผิดตาม
+     * ส่วนที่ชีตขัดกันเองถูกรายงานเป็น finding `finance.ebitdaMismatch` */
     {
       label: t('cost.grossProfit'),
       value: totals.grossProfit,
       unit: '฿',
-      hint: margin === null ? t('cost.ebitda') : `${n(margin, 1)}% ${t('cost.ofRevenue')} · EBITDA`,
+      hint: margin === null ? '' : `${n(margin, 1)}% ${t('cost.ofRevenue')}`,
     },
     { label: t('cost.depreciation'), value: totals.depreciation, unit: '฿' },
     { label: t('cost.ebit'), value: totals.ebit, unit: '฿' },
   ]);
+
+  /* บอกให้ชัดว่าทำไมยอดถึงไม่ใช่ 12 เดือน — ไม่งั้นคนที่เปิดชีตเทียบเองจะงงว่าเลขไม่ตรง */
+  if (cost.coverage && cost.coverage.to < cost.months[cost.months.length - 1]) {
+    const note = document.createElement('p');
+    note.className = 'supply-warn';
+    note.textContent = t('cost.coverageNote', {
+      span,
+      full: fmtBaht(cost.totalsFullYear.ebit),
+    });
+    host.appendChild(note);
+  }
 
   /* แสดงเฉพาะเดือนที่มีความเคลื่อนไหวจริง
    * ชีตกรอกล่วงหน้าถึงสิ้นปี ถ้าลากกราฟไปครบ 12 เดือนจะเห็นเส้นดิ่งลงศูนย์

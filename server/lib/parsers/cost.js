@@ -178,8 +178,12 @@ function parseCostTab(tab, sourceKey, role, group) {
         : null;
     if (mismatch !== null) rowMismatches++;
 
-    const isSubtotal = SUBTOTAL_RE.test(label);
     const summaryKey = role === 'summary' ? summaryKeyOf(label) : null;
+
+    /* ในแท็บสรุป บรรทัดที่ขึ้นต้นด้วย "รวม" ก็ยังเป็นข้อมูลที่ต้องอ่าน
+     * (`รวมต้นทุนการปลูก` คือยอดต้นทุนที่ชีตคำนวณเอง ต้องเก็บไว้เทียบกับที่เราบวกเอง)
+     * กฎตัดแถวยอดรวมใช้เฉพาะแท็บรายละเอียดที่มีแถวรายการปนอยู่เท่านั้น */
+    const isSubtotal = SUBTOTAL_RE.test(label) && !summaryKey;
 
     if (isSubtotal || (role === 'summary' && !summaryKey)) {
       stated.push({ label, total: statedTotal ?? sum, rowIndex: r, grand: r === lastSubtotal });

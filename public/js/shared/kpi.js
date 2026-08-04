@@ -224,6 +224,8 @@ function buildCost(source) {
     'materialCost',
     'farmExpense',
     'officeExpense',
+    // ยอดต้นทุนที่ชีตคำนวณเอง — เก็บไว้เทียบกับที่เราบวกจากสามบรรทัดข้างบน
+    'growingCost',
     'ebitda',
     'depreciation',
     'ebit',
@@ -240,6 +242,7 @@ function buildCost(source) {
     (last, m) => (OPERATING.some((l) => at(l, m) !== null && at(l, m) !== 0) ? m : last),
     null
   );
+  const lastRevenueMonth = months.reduce((last, m) => (at('revenue', m) ? m : last), null);
 
   const byMonth = months.map((month) => {
     const revenue = at('revenue', month);
@@ -263,9 +266,38 @@ function buildCost(source) {
     };
   });
 
-  const totals = Object.fromEntries(LINES.map((l) => [l, lineTotal(l)]));
+  /* ── ยอดรวมต้องคิดเฉพาะเดือนที่ "เกิดขึ้นจริง" ไม่ใช่ทั้ง 12 เดือน ──
+   *
+   * แต่ละบรรทัดในชีตกรอกมาไม่เท่ากัน (ตรวจกับข้อมูลจริงแล้ว):
+   *   รายได้ 6 เดือน · ต้นทุนวัตถุดิบ/Farm 7 เดือน · Office 12 เดือน · ค่าเสื่อมราคา 12 เดือน
+   *
+   * Office กับค่าเสื่อมราคาถูกตั้งไว้ล่วงหน้าถึงสิ้นปี (ค่ารักษาความปลอดภัยเดือนละ 30,900
+   * เท่ากันทุกเดือน และตารางค่าเสื่อมคำนวณไว้ล่วงหน้าทั้งปี)
+   *
+   * ถ้าบวกทั้ง 12 เดือนจะกลายเป็นเอา **รายได้ 6 เดือน ไปหักค่าเสื่อม 12 เดือน**
+   * แล้วได้ EBIT −13.3 ล้าน ทั้งที่ยอดสะสมจริงถึงเดือนล่าสุดคือ −10.3 ล้าน
+   * ส่วนต่าง 4.3 ล้านมาจากเดือนที่ยังไม่ถึง — เป็นตัวเลขที่ตั้งไว้ ไม่ใช่ผลประกอบการ
+   *
+   * `totals` จึงตัดที่เดือนล่าสุดที่มีความเคลื่อนไหวจริง ส่วนยอด 12 เดือนตามที่ชีตบอก
+   * เก็บไว้ที่ `totalsFullYear` ไม่ได้ซ่อน — ตารางรายเดือนก็ยังโชว์ครบทุกเดือนเหมือนเดิม */
+  const within = (m) => !lastActive || m <= lastActive;
+  const activeTotal = (line) =>
+    summary.filter((r) => r.line === line && within(r.month)).reduce((a, r) => a + (r.amount ?? 0), 0);
+
+  const totals = Object.fromEntries(LINES.map((l) => [l, activeTotal(l)]));
   totals.cost = totals.materialCost + totals.farmExpense + totals.officeExpense;
   totals.grossProfit = totals.revenue - totals.cost;
+
+  const totalsFullYear = Object.fromEntries(LINES.map((l) => [l, lineTotal(l)]));
+  totalsFullYear.cost =
+    totalsFullYear.materialCost + totalsFullYear.farmExpense + totalsFullYear.officeExpense;
+  totalsFullYear.grossProfit = totalsFullYear.revenue - totalsFullYear.cost;
+
+  /* จำนวนเดือนที่แต่ละบรรทัดมีตัวเลขจริง — เอาไปบอกผู้ใช้และให้ analysis ตรวจ
+   * ว่าบรรทัดไหนครอบคลุมไม่เท่ากันจนเอามาเทียบกันตรง ๆ ไม่ได้ */
+  const monthsWithValue = Object.fromEntries(
+    LINES.map((l) => [l, summary.filter((r) => r.line === l && (r.amount ?? 0) !== 0).length])
+  );
 
   // ── อันดับรายการที่ใช้เงินมากสุด (จากแท็บรายละเอียด) ──
   const byItem = new Map();
@@ -298,14 +330,22 @@ function buildCost(source) {
     year,
     months,
     lastActiveMonth: lastActive,
+    // ช่วงที่ยอดใน `totals` ครอบคลุมจริง — UI ต้องเอาไปติดป้ายเสมอ ไม่ใช่เขียนว่า "ทั้งปี"
+    coverage: months.length ? { from: months[0], to: lastActive ?? months[0] } : null,
+    monthsWithValue,
     byMonth,
     totals,
+    totalsFullYear,
     byGroup,
     topItems,
     detailTotals,
     // ช่องที่หน้าภาพรวมใช้ตรง ๆ — เดิมเป็น null เพราะยังไม่มีชีตไหนมีตัวเลขเงิน
     revenueByYear: totals.revenue,
-    revenueByMonth: lastActive ? at('revenue', lastActive) : null,
+    /* เดือนล่าสุดที่ **มีรายได้จริง** ไม่ใช่เดือนล่าสุดที่มีความเคลื่อนไหว
+     * เดือนกรกฎาคมมีต้นทุนแต่ยังไม่มีรายได้ ถ้าใช้เดือนนั้นช่องรายได้จะขึ้น "—"
+     * ทั้งที่เดือนก่อนหน้ามีตัวเลขอยู่ ซึ่งอ่านเหมือนระบบพัง */
+    lastRevenueMonth,
+    revenueByMonth: lastRevenueMonth ? at('revenue', lastRevenueMonth) : null,
     costByYear: totals.cost,
     costByMonth: lastActive
       ? sumOrNullList([
