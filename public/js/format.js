@@ -105,6 +105,19 @@ export function countdown(ms) {
   return en ? `${secs} sec` : `${secs} วินาที`;
 }
 
+/**
+ * ความยาวของตัวเลขพาดหัวเป็น "จำนวนอักขระ" — ส่งให้ CSS ผ่าน --val-len
+ * แล้ว .kpi__value / .card__metric-value เอาไปหารความกว้างจริงของการ์ด (หน่วย cqi)
+ * ตัวเลขยาวจึงหดลงพอดีกรอบแทนที่จะล้นออกไป (เคยเจอ 17,299,482฿ ทะลุขอบการ์ด)
+ *
+ * หน่วยตัวเล็กกว่าตัวเลขราวครึ่งหนึ่ง จึงนับ 0.55 ตัวต่ออักขระ บวกช่องไฟอีก 0.4
+ * ค่าไม่ต้องเป๊ะ ขอแค่อย่าต่ำกว่าความจริง ไม่งั้นตัวเลขจะยังล้นอยู่ดี
+ */
+export function valueLen(value, unit = '') {
+  const len = String(value).length + (unit ? String(unit).length * 0.55 + 0.4 : 0);
+  return Math.round(len * 10) / 10;
+}
+
 /** ตัดข้อความยาวให้พอดีป้ายกำกับ */
 export function truncate(text, max = 22) {
   const s = String(text ?? '');

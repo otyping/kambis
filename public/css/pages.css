@@ -105,7 +105,7 @@
 }
 
 .nav-item--report {
-  font-size: 0.82rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--ink);
@@ -124,7 +124,7 @@
 
 .nav-item--page {
   min-height: 48px;
-  font-size: 0.95rem;
+  font-size: var(--fs-md);
 }
 
 .nav-item.is-active {
@@ -186,7 +186,7 @@ body.has-nav-open {
   align-items: center;
   padding: 0.4rem 0.85rem;
   border-radius: var(--r-full);
-  font-size: 0.78rem;
+  font-size: var(--fs-2xs);
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--ink-soft);
@@ -228,7 +228,7 @@ body.has-nav-open {
 .subnav a {
   padding: 0.35rem 0.75rem;
   border-radius: var(--r-sm);
-  font-size: 0.82rem;
+  font-size: var(--fs-xs);
   color: var(--ink-mute);
   text-decoration: none;
   white-space: nowrap;
@@ -275,7 +275,10 @@ body.has-nav-open {
   gap: var(--sp-2);
   flex: none;
   padding: 0 var(--sp-2) 0 var(--sp-3);
-  height: 32px;
+  /* min-height ไม่ใช่ height ตายตัว — ตอนตัวอักษรใหญ่ขึ้น line box จะสูงกว่ากรอบ
+   * แล้วตัวหนังสือล้นออกนอกเม็ดยา ส่วน 38px คือความสูงเดียวกับปุ่มตัวกรองที่อยู่ติดกัน
+   * (ปุ่มบนแถวเดียวกันสูงไม่เท่ากันคือสิ่งที่ทำให้แถบดูไม่เรียบร้อยทันที) */
+  min-height: 38px;
   border-radius: var(--r-full);
   background: var(--glass-fill);
   border: 1px solid var(--glass-border-soft);
@@ -283,7 +286,7 @@ body.has-nav-open {
 }
 
 .filter-year__label {
-  font-size: 12px;
+  font-size: var(--fs-2xs);
   font-weight: 600;
   color: var(--ink-mute);
   white-space: nowrap;
@@ -294,7 +297,7 @@ body.has-nav-open {
   background: transparent;
   color: var(--ink);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   padding: 0 2px;
@@ -333,7 +336,7 @@ body.has-nav-open {
   border-radius: var(--r-full);
   background: var(--accent);
   color: var(--accent-ink);
-  font-size: 11.5px;
+  font-size: var(--fs-3xs);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -360,7 +363,7 @@ body.has-nav-open {
   border-radius: var(--r-full);
   border: 1px solid var(--glass-border-soft);
   background: var(--well-inset);
-  font-size: 12px;
+  font-size: var(--fs-2xs);
   color: var(--ink-soft);
   transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
@@ -387,7 +390,7 @@ body.has-nav-open {
 }
 
 .filter-chip__x {
-  font-size: 15px;
+  font-size: var(--fs-md);
   line-height: 1;
   color: var(--ink-mute);
 }
@@ -467,7 +470,7 @@ body.has-nav-open {
 }
 
 .filter-pop__title {
-  font-size: 15px;
+  font-size: var(--fs-md);
   font-weight: 700;
   color: var(--ink);
 }
@@ -479,7 +482,7 @@ body.has-nav-open {
   width: 40px;
   height: 40px;
   flex: none;
-  font-size: 20px;
+  font-size: var(--fs-2xl);
   line-height: 1;
   border-radius: var(--r-full);
   border: 1px solid var(--glass-border-soft);
@@ -524,7 +527,7 @@ body.has-nav-open {
 
 /* ป้ายกำกับช่อง — เล็กและหนา จึงต้องใช้ --ink-soft ให้ผ่าน AA ทั้งสองโหมด */
 .filter-label {
-  font-size: 0.7rem;
+  font-size: var(--fs-3xs);
   font-weight: 600;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -543,7 +546,7 @@ body.has-nav-open {
   min-height: 40px;
   padding: 0 var(--sp-3);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fs-xs);
   color: var(--ink);
   background: var(--bg-raise);
   border: 1px solid var(--glass-border-soft);
@@ -600,7 +603,7 @@ body.has-nav-open {
 
 .fdrop__name {
   flex: none;
-  font-size: 0.7rem;
+  font-size: var(--fs-3xs);
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -613,7 +616,7 @@ body.has-nav-open {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--ink);
 }
@@ -646,7 +649,7 @@ body.has-nav-open {
   margin-bottom: var(--sp-2);
   padding: 0 var(--sp-3);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fs-xs);
   color: var(--ink);
   background: var(--bg-raise);
   border: 1px solid var(--glass-border-soft);
@@ -662,7 +665,7 @@ body.has-nav-open {
 .fdrop__act {
   min-height: 30px;
   padding: 0 var(--sp-3);
-  font-size: 12px;
+  font-size: var(--fs-2xs);
   font-weight: 600;
   border-radius: var(--r-full);
   border: 1px solid var(--glass-border-soft);
@@ -691,7 +694,7 @@ body.has-nav-open {
   min-height: 34px;
   padding: 0 var(--sp-2);
   border-radius: var(--r-sm);
-  font-size: 13px;
+  font-size: var(--fs-xs);
   color: var(--ink);
   cursor: pointer;
   overflow-wrap: anywhere;
@@ -715,7 +718,7 @@ body.has-nav-open {
 .fdrop__empty,
 .fdrop__hint {
   margin-top: var(--sp-2);
-  font-size: 11.5px;
+  font-size: var(--fs-3xs);
   color: var(--ink-soft);
 }
 
@@ -724,28 +727,39 @@ body.has-nav-open {
 }
 
 /* ── โครงของหน้า ──────────────────────────────────────────── */
+/* ระยะห่าง "ระหว่างแผง" ต้องมากกว่าระยะ "ในแผง" อย่างเห็นได้ ไม่งั้นอ่านเป็นก้อนเดียว
+ * เดิมทั้งคู่เป็น --sp-4 เท่ากันเป๊ะ แผงจึงดูติดกันไปหมด (ตามที่ผู้ใช้ทัก)
+ * ตอนนี้ ระหว่างแผง 32px · ในแผง 24px */
 .page {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-4);
+  gap: var(--sp-6);
+}
+
+/* กล่องที่หน้าเป็นคนวาดใหม่เอง (เช่น dataHost ของหน้า Supply) ต้องมีระยะของตัวเอง
+ * ไม่งั้นแผงข้างในจะไม่ได้ gap ของ .page เพราะเป็นลูกของ div เปล่า ๆ อีกชั้น */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
 }
 
 .page-head__title {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: var(--fs-xl);
   font-weight: 700;
   color: var(--ink);
 }
 
 .page-head__sub {
   margin: 0.2rem 0 0;
-  font-size: 0.85rem;
+  font-size: var(--fs-xs);
   color: var(--ink-mute);
 }
 
 .page-grid {
   display: grid;
-  gap: var(--sp-4);
+  gap: var(--sp-6);
 }
 
 .page-grid--1 {
@@ -757,7 +771,7 @@ body.has-nav-open {
 }
 
 .panel {
-  padding: var(--sp-4);
+  padding: var(--sp-5);
   min-width: 0;
 }
 
@@ -767,26 +781,45 @@ body.has-nav-open {
 
 .empty-note {
   margin: var(--sp-3) 0;
-  font-size: 0.85rem;
+  font-size: var(--fs-xs);
   color: var(--ink-mute);
 }
 
-/* แถบตัวเลขสำคัญ — จำนวนช่องมาจาก JS ผ่าน --tile-count
+/* แถบตัวเลขสำคัญ
  *
- * ใช้ auto-fit แทนการบังคับจำนวนคอลัมน์ เพราะหน้าภาพรวมมี 9 ช่องตามเอกสาร
- * ถ้าอัดเป็นแถวเดียวป้ายจะถูกตัดจนอ่านไม่รู้เรื่อง — ปล่อยให้ขึ้นบรรทัดใหม่เองดีกว่า */
+ * ใช้ auto-fit แทนการบังคับจำนวนคอลัมน์ เพราะหน้าภาพรวมมี 10 ช่อง
+ * ถ้าอัดเป็นแถวเดียวป้ายจะถูกตัดจนอ่านไม่รู้เรื่อง — ปล่อยให้ขึ้นบรรทัดใหม่เองดีกว่า
+ *
+ * ความกว้างขั้นต่ำ 16rem ไม่ใช่ 11rem: ช่องเงินระดับบริษัทเป็นเลข 8 หลักบวกหน่วย
+ * (17,299,482฿) ที่ 11rem ช่องหนึ่งเหลือเนื้อที่ ~128px ตัวเลขจึงล้นออกนอกการ์ด
+ * ตอนนี้บนจอ 1560px ได้ 5 ช่อง/แถวที่กว้างพอให้ตัวเลขเต็มขนาดจริง ๆ */
 .kpi-strip {
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
 }
 
 .kpi__label {
   /* ป้ายยาวให้ตัดสองบรรทัด ไม่ใช่ตัดกลางคำด้วย ellipsis บรรทัดเดียว */
   white-space: normal;
   overflow-wrap: anywhere;
+  /* กันที่ไว้สองบรรทัดเสมอ ป้ายบรรทัดเดียวจึงไม่ดันตัวเลขขึ้นไปสูงกว่าเพื่อนในแถวเดียวกัน
+   * (วัดได้ว่าเหลื่อมกัน 30–32px ตอนป้ายบางใบขึ้นสองบรรทัด) และคุมไม่ให้เกินสองบรรทัด */
+  min-height: calc(2 * 1.35em);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  line-height: 1.35;
 }
 
 .kpi--awaiting .kpi__value {
   color: var(--ink-mute);
+}
+
+/* ช่องที่ไม่มีข้อมูล — "—" ยาวอักขระเดียว สูตร fit-to-width จึงดันขึ้นชนเพดานทุกครั้ง
+ * กลายเป็นว่า "ไม่มีข้อมูล" มีน้ำหนักสายตามากที่สุดบนแถบ ทั้งที่ควรเงียบที่สุด */
+.kpi__value--empty {
+  font-size: var(--fs-xl);
 }
 
 /* ── การ์ด "รอข้อมูล" ─────────────────────────────────────── */
@@ -809,14 +842,14 @@ body.has-nav-open {
 
 .awaiting__why {
   margin: 0 0 var(--sp-2);
-  font-size: 0.85rem;
+  font-size: var(--fs-xs);
   line-height: 1.5;
   color: var(--ink-soft);
 }
 
 .awaiting__need-label {
   margin: 0 0 0.35rem;
-  font-size: 0.72rem;
+  font-size: var(--fs-3xs);
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -836,7 +869,7 @@ body.has-nav-open {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
-  font-size: 0.82rem;
+  font-size: var(--fs-xs);
 }
 
 .awaiting__sheet a {
@@ -850,22 +883,29 @@ body.has-nav-open {
   padding: 0.1rem 0.4rem;
   border-radius: var(--r-sm);
   background: var(--glass-fill);
-  font-size: 0.78rem;
+  font-size: var(--fs-2xs);
   color: var(--ink-soft);
 }
 
-/* ── หน้าต้นทุน: กำไร/ขาดทุน ──
+/* ── กำไร/ขาดทุน ──
  *
  * ขาดทุนต้องเห็นได้โดยไม่ต้องอ่านเครื่องหมายลบ เพราะในตารางที่มีตัวเลขหลักล้าน
- * เครื่องหมายลบตัวเดียวหลุดสายตาได้ง่ายมาก ใช้สีเดียวกับ severity ที่มีอยู่แล้ว
- * ไม่เพิ่มสีใหม่เข้าระบบ (กฎสีของ CLAUDE.md ข้อ 9)
+ * เครื่องหมายลบตัวเดียวหลุดสายตาได้ง่ายมาก
+ *
+ * ใช้ --money-* ไม่ใช่ --sev-* : บนหน้าต้นทุนมีทั้งแดงแบบ finding ("ตัวเลขนี้เชื่อไม่ได้")
+ * และแดงแบบขาดทุน ("ตัวเลขถูก แต่ผลติดลบ") อยู่ด้วยกัน ถ้าผูกกับโทเคนเดียวกัน
+ * วันที่ต้องขยับสีฝั่งหนึ่งจะลากอีกฝั่งไปด้วยโดยไม่ตั้งใจ
+ *
+ * **สีอย่างเดียวไม่พอ** — ทุกที่ที่ใช้คลาสนี้ต้องมีเครื่องหมายลบหรือคำว่า "ขาดทุน"
+ * กำกับอยู่แล้ว เพราะใต้ตาบอดสีแดง-เขียว "มีการทำเครื่องหมายไว้" ยังเห็น
+ * แต่ "เครื่องหมายนี้แปลว่าอะไร" หายไป
  */
 .money-neg {
-  color: var(--sev-critical);
+  color: var(--money-neg);
 }
 
 .money-pos {
-  color: var(--sev-ok);
+  color: var(--money-pos);
 }
 
 /* ── หน้า Supply: แถบตัวกรอง ──
@@ -881,14 +921,15 @@ body.has-nav-open {
   flex: 1 1 12rem;
   min-width: 8rem;
   max-width: 20rem;
-  height: 32px;
+  /* min-height เหมือน .filter-year — ความสูงตายตัวจะบีบตัวอักษรตอนสเกลใหญ่ขึ้น */
+  min-height: 38px;
   padding: 0 var(--sp-3);
   border-radius: var(--r-full);
   border: 1px solid var(--glass-border-soft);
   background: var(--glass-fill);
   color: var(--ink);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fs-xs);
 }
 
 .supply-search:focus-visible {
@@ -896,10 +937,20 @@ body.has-nav-open {
   outline-offset: 1px;
 }
 
+/* ช่องที่ชีตต้นทางยังไม่ได้กรอก — ไม่ใช่ค่าว่างธรรมดา แต่เป็นสิ่งที่ต้องไปเติมที่ชีต
+ * (ต่างจาก .muted ที่แปลว่า "ไม่มีข้อมูลและไม่ต้องทำอะไร")
+ * ใช้สีของ severity เพราะเป็นความหมายเดียวกับ finding: ตัวเลขยังไม่ครบ ต้องไปแก้ที่ต้นทาง
+ * ไม่ใช่ --money-neg ที่แปลว่าขาดทุน */
+.cell-missing {
+  color: var(--sev-critical);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 /* ── หน้า Supply: ตารางของที่ต้องสั่งซื้อ ────────────────── */
 .supply-warn {
   margin: 0 0 var(--sp-3);
-  font-size: 0.83rem;
+  font-size: var(--fs-xs);
   color: var(--ink-soft);
 }
 
@@ -925,7 +976,7 @@ body.has-nav-open {
   flex-wrap: wrap;
   gap: var(--sp-4);
   margin-top: var(--sp-3);
-  font-size: 0.86rem;
+  font-size: var(--fs-xs);
   color: var(--ink-soft);
 }
 
@@ -938,7 +989,7 @@ body.has-nav-open {
 }
 
 .pr-status {
-  font-size: 0.84rem;
+  font-size: var(--fs-xs);
   color: var(--ink-mute);
 }
 

@@ -11,7 +11,7 @@
  * ไม่ใช่เดาว่าเป็นสายพันธุ์อะไร
  */
 import { t } from '../i18n.js';
-import { n, pct, esc, DASH } from '../format.js';
+import { n, pct, esc, date, DASH } from '../format.js';
 import * as charts from '../charts/index.js';
 import { renderCards } from '../ui/cards.js';
 import { sortableTable } from '../ui/table.js';
@@ -40,14 +40,26 @@ export function render(ctx) {
     if (!daily.length) {
       emptyNote(body);
     } else {
-      // ครอปที่เด่นที่สุดของแต่ละเดือน เอาไปเป็นป้ายบรรทัดที่สองใต้เดือน
-      const cropOfMonth = new Map();
+      /* แท่งหนึ่ง = ยอดรวมทั้งเดือนของทุกครอป ป้ายใต้แกน x จึงเขียนชื่อครอปไม่ได้
+       *
+       * เดิมเขียนครอปที่ให้ผลผลิตมากที่สุดของเดือนไว้ใต้ชื่อเดือน ซึ่งอ่านแล้วเข้าใจว่า
+       * ทั้งแท่งมาจากครอปเดียว ทั้งที่เดือนหนึ่งทริมหลายครอปพร้อมกันได้
+       * ครอปย้ายไปอยู่ใน tooltip แทน: สายพันธุ์ที่มาจากครอปเดียวเขียนต่อท้ายบรรทัดเดิม
+       * ส่วนสายพันธุ์ที่มาจากหลายครอปแตกเป็นบรรทัดย่อยพร้อมน้ำหนักของแต่ละครอป
+       * (`detail` ของ stackedBars) — ตอบได้ทั้ง "เดือนนี้ทริมกี่สายพันธุ์"
+       * และ "สายพันธุ์นั้นมาจากครอปไหน ครอปละเท่าไร"
+       */
+      const cropsOfStrain = new Map(); // 'YYYY-MM' → สายพันธุ์ → ครอป → น้ำหนัก
       for (const r of daily) {
+        // ไม่รู้ครอป = ไม่เขียนอะไรกำกับ ห้ามเดาจากครอปที่เหลือของเดือนนั้น
         if (!r.date || !r.crop) continue;
         const m = r.date.slice(0, 7);
-        const byCrop = cropOfMonth.get(m) ?? new Map();
+        const strain = strainScale.map(r.strain);
+        const byStrain = cropsOfStrain.get(m) ?? new Map();
+        const byCrop = byStrain.get(strain) ?? new Map();
         byCrop.set(r.crop, (byCrop.get(r.crop) ?? 0) + (r.flowerTotal || 0));
-        cropOfMonth.set(m, byCrop);
+        byStrain.set(strain, byCrop);
+        cropsOfStrain.set(m, byStrain);
       }
 
       const rows = stackBy(
@@ -56,11 +68,22 @@ export function render(ctx) {
         (r) => strainScale.map(r.strain)
       )
         .map((row) => {
-          const byCrop = cropOfMonth.get(row.key);
-          const topCrop = byCrop
-            ? [...byCrop.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
-            : null;
-          return { ...row, sub: topCrop ?? '' };
+          const detail = {};
+          for (const [strain, byCrop] of cropsOfStrain.get(row.key) ?? []) {
+            const items = [...byCrop.entries()]
+              .filter(([, w]) => w > 0)
+              .sort((a, b) => b[1] - a[1])
+              .map(([label, value]) => ({ label, value }));
+
+            /* แถวที่ไม่มีครอปกำกับต้องโผล่เป็นบรรทัดของตัวเอง ไม่ใช่หายเงียบ ๆ
+             * ไม่งั้นยอดของบรรทัดย่อยจะบวกไม่ถึงยอดของสายพันธุ์ แล้วไม่มีอะไรบอกว่าทำไม */
+            const known = items.reduce((acc, it) => acc + it.value, 0);
+            const rest = (row.parts?.[strain] ?? 0) - known;
+            if (rest > 0.5) items.push({ label: t('label.noCrop'), value: rest });
+
+            if (items.length) detail[strain] = items;
+          }
+          return { ...row, detail };
         })
         .sort((a, b) => comparePeriod(a.key, b.key));
 
@@ -79,17 +102,54 @@ export function render(ctx) {
 
   // ── (b) สัดส่วนขนาดดอกต่อครอป ──
   {
-    const body = panel(g1, t('prod.sizeTrend'), t('prod.sizeTrendNote'));
+    /* ยุบ 6 ขนาดเหลือ 3 กลุ่ม: ดอกใหญ่ (≥M) · S · XS
+     *
+     * คำถามที่กราฟนี้ต้องตอบคือ "สัดส่วนดอกใหญ่ขยับไปทางไหน" ซึ่ง 6 เฉดของไล่สีเดียวกัน
+     * แยกด้วยตาไม่ออกอยู่แล้วบนแท่งกว้าง 38px — สามกลุ่มสามสีอ่านได้ในแวบเดียว
+     * รายละเอียดของกลุ่มดอกใหญ่ไม่ได้หายไป ยังอยู่ครบใน tooltip ผ่าน `detail`
+     * (XXL/XL/L/M ทีละขนาด พร้อม % ของตัวเอง) */
+    const BIG_SIZES = SIZE_KEYS.filter((k) => k !== 'S' && k !== 'XS');
+    const bigLabel = t('prod.bigBuds');
+    const sizeGroups = [bigLabel, 'S', 'XS'];
+
     const rows = harvested
       .filter((r) => (r.flowerTotal || 0) > 0)
       .map((r) => ({
         key: r.crop ?? DASH,
-        sub: r.quarter ?? '',
-        parts: Object.fromEntries(SIZE_KEYS.map((k) => [k, r.sizes?.[k] ?? 0])),
-        // เรียงตามเวลาเก็บเกี่ยว ไม่ใช่ตามตัวอักษรของรหัสครอป
+        /* ป้ายบรรทัดที่สองเป็น "วันที่ทริม" ไม่ใช่ไตรมาส เพราะแท่งเรียงตามวันทริม
+         * ถ้าเขียนไตรมาสไว้ จะเห็นแค่ Q1'2026 ซ้ำ ๆ หกแท่งแล้วตรวจลำดับด้วยตาไม่ได้เลย
+         * ครอปที่ชีตยังไม่กรอกวันเก็บเกี่ยวปล่อยว่าง ไม่เอาไตรมาสมาแทน (คนละหน่วยกัน) */
+        sub: r.cycle?.harvest ? date(r.cycle.harvest) : '',
+        parts: {
+          [bigLabel]: sum(BIG_SIZES.map((k) => r.sizes?.[k])),
+          S: r.sizes?.S ?? 0,
+          XS: r.sizes?.XS ?? 0,
+        },
+        // เรียงจากใหญ่ไปเล็กตามลำดับขนาดจริง ไม่ใช่ตามน้ำหนัก — เป็นข้อมูลที่มีลำดับ
+        detail: {
+          [bigLabel]: BIG_SIZES.map((k) => ({ label: k, value: r.sizes?.[k] ?? 0 })).filter(
+            (it) => it.value > 0
+          ),
+        },
+        /* เรียงตามวันทริมจริง ล่าสุดอยู่ขวาสุด — ไม่ใช่ตามตัวอักษรของรหัสครอป
+         * (รหัสครอปคือวันปลูก ไม่ใช่วันทริม เรียงตามนั้นจะได้คนละลำดับ)
+         * 11 จาก 28 ครอปในชีตยังไม่มีวันเก็บเกี่ยว จึงตกไปใช้ไตรมาสของตัวเองแทน
+         * ไม่งั้นจะหลุดไปกองซ้ายสุดทั้งที่รู้คร่าว ๆ ว่าอยู่ช่วงไหน */
         _order: r.cycle?.harvest ?? r.quarter ?? '',
       }))
       .sort((a, b) => comparePeriod(a._order, b._order) || String(a.key).localeCompare(String(b.key)));
+
+    /* แสดง 10 ครอปล่าสุด (stackedBars ตัดด้วย slice(-max) จึงได้ท้ายแถวคือใหม่สุด)
+     * มากกว่านี้แท่งจะแคบจนอ่านสัดส่วนไม่ออก และครอปเก่าเกินไปก็ไม่ได้ใช้ตัดสินใจแล้ว
+     *
+     * **ตัดแล้วต้องบอกว่าตัดไปเท่าไร** ไม่งั้นคนอ่านจะนึกว่านี่คือครอปทั้งหมดที่มี
+     * (ครอปที่เหลืออยู่ครบในตารางเปรียบเทียบด้านล่าง ไม่ได้หายไปจากหน้า) */
+    const LIMIT = 10;
+    const note =
+      rows.length > LIMIT
+        ? `${t('prod.sizeTrendNote')} · ${t('prod.showingLatest', { n: LIMIT, total: rows.length })}`
+        : t('prod.sizeTrendNote');
+    const body = panel(g1, t('prod.sizeTrend'), note);
 
     if (!rows.length) {
       emptyNote(body);
@@ -99,11 +159,12 @@ export function render(ctx) {
         node: box,
         run: () =>
           charts.pctStackedBars(box, rows, {
-            keys: SIZE_KEYS,
-            // ขนาดดอกเป็นข้อมูลที่มีลำดับ จึงใช้ไล่เฉดสีเดียว ไม่ใช่สีแยกหมวด
-            ramp: 'size',
+            keys: sizeGroups,
+            // ขนาดดอกเป็นข้อมูลที่มีลำดับ จึงใช้ไล่เฉด ไม่ใช่สีแยกหมวด
+            // แต่เป็นไล่เฉดชุด 3 ขั้นที่เว้นช่วงให้แยกกันออกจริง (ดู palette().sizes3)
+            ramp: 'size3',
             height: 260,
-            max: 40,
+            max: LIMIT,
           }),
       });
     }
@@ -156,16 +217,20 @@ export function render(ctx) {
     const rows = harvested.map((r) => {
       const total = r.flowerTotal || 0;
       const big = sum(['XXL', 'XL', 'L', 'M'].map((k) => r.sizes?.[k]));
-      const small = sum(['S', 'XS'].map((k) => r.sizes?.[k]));
+      const share = (key) => (total > 0 ? ((r.sizes?.[key] ?? 0) / total) * 100 : null);
       return {
         crop: r.crop,
-        quarter: r.quarter,
+        /* วันทริม = วันเก็บเกี่ยวของครอปนั้นในชีตต่อครอป (คอลัมน์ Harvest)
+         * เก็บเป็น ISO ไว้เรียง แล้วค่อยจัดรูปแบบตอนแสดง — ครอปที่ชีตยังไม่กรอกวัน
+         * ต้องเป็น null เพื่อให้ตกไปท้ายตารางเสมอ ไม่ใช่เดาจากไตรมาส */
+        harvest: r.cycle?.harvest ?? null,
         strain: strainLabel(r.crop),
         flower: total,
         plants: r.plants,
         gPerPlant: r.gramsPerPlant,
         bigPct: total > 0 ? (big / total) * 100 : null,
-        smallPct: total > 0 ? (small / total) * 100 : null,
+        sPct: share('S'),
+        xsPct: share('XS'),
       };
     });
 
@@ -174,10 +239,16 @@ export function render(ctx) {
     } else {
       const numCell = (v, d = 0) =>
         v === null || v === undefined ? `<span class="muted">${DASH}</span>` : n(v, d);
+      const pctCell = (v) => (v === null ? `<span class="muted">${DASH}</span>` : pct(v));
       const table = sortableTable(
         [
           { label: t('label.crop'), get: (r) => r.crop ?? '' },
-          { label: t('label.quarter'), get: (r) => r.quarter ?? '' },
+          {
+            label: t('prod.trimDate'),
+            // ค่าที่ใช้เรียงเป็น ISO — table.js จะจับได้ว่าเป็นคอลัมน์เวลาแล้วเรียงตามเวลาจริง
+            get: (r) => r.harvest ?? '',
+            render: (r) => (r.harvest ? esc(date(r.harvest)) : `<span class="muted">${DASH}</span>`),
+          },
           {
             label: t('label.strain'),
             get: (r) => r.strain ?? '',
@@ -188,21 +259,17 @@ export function render(ctx) {
           { label: t('label.flower'), align: 'n', get: (r) => r.flower, render: (r) => `<b>${n(r.flower)}</b>` },
           { label: t('label.plants'), align: 'n', get: (r) => r.plants, render: (r) => numCell(r.plants) },
           { label: t('label.gPerPlant'), align: 'n', get: (r) => r.gPerPlant, render: (r) => numCell(r.gPerPlant, 2) },
-          {
-            label: t('prod.bigBuds'),
-            align: 'n',
-            get: (r) => r.bigPct,
-            render: (r) => (r.bigPct === null ? `<span class="muted">${DASH}</span>` : pct(r.bigPct)),
-          },
-          {
-            label: t('prod.smallBuds'),
-            align: 'n',
-            get: (r) => r.smallPct,
-            render: (r) => (r.smallPct === null ? `<span class="muted">${DASH}</span>` : pct(r.smallPct)),
-          },
+          /* สามคอลัมน์นี้ใช้ป้ายชุดเดียวกับ legend ของกราฟด้านบน (ดอกใหญ่ · S · XS)
+           * เดิมรวม S กับ XS เป็น "ดอกเล็ก" ก้อนเดียว ซึ่งซ่อนความต่างที่สำคัญ:
+           * ครอปที่ S 40% กับครอปที่ XS 40% ขายได้ไม่เท่ากันเลย */
+          { label: t('prod.bigBuds'), align: 'n', get: (r) => r.bigPct, render: (r) => pctCell(r.bigPct) },
+          { label: 'S', align: 'n', get: (r) => r.sPct, render: (r) => pctCell(r.sPct) },
+          { label: 'XS', align: 'n', get: (r) => r.xsPct, render: (r) => pctCell(r.xsPct) },
         ],
         rows,
-        { sortIndex: 3, sortDir: 'desc' }
+        // เปิดมาที่ "วันที่ทริมล่าสุดอยู่บนสุด" — ครอปที่เพิ่งทริมคือเรื่องที่กำลังตัดสินใจอยู่
+        // ครอปที่ชีตยังไม่กรอกวันจะตกไปท้ายตารางเสมอ (table.js ดันค่าว่างลงล่างทุกทิศ)
+        { sortIndex: 1, sortDir: 'desc' }
       );
       body.appendChild(table);
     }

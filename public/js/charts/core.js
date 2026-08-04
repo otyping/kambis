@@ -29,6 +29,14 @@ export function palette() {
       css('--size-s') || '#2e6927',
       css('--size-xs') || '#0d530e',
     ],
+    /* 3 กลุ่มขนาดดอก (ดอกใหญ่ · S · XS) — ผู้ใช้กำหนดรหัสสีมาเอง อยู่ที่ --bud-* ใน tokens.css
+     * ไม่ได้อยู่ในไล่เฉด --size-* เพราะเป็นคนละชุดสีกันแล้ว (น้ำตาล/ส้ม/เหลือง)
+     * ค่าสำรองตรงนี้เป็นของโหมดสว่าง เผื่อ token หายไป */
+    sizes3: [
+      css('--bud-big') || '#4f200d',
+      css('--bud-s') || '#ff9a00',
+      css('--bud-xs') || '#ffd93d',
+    ],
     /* ชุดสีแยกหมวด — ใช้กับกราฟที่ซ้อนตามสายพันธุ์หรือรายการ
      * ต่างจาก sizes ตรงที่ sizes เป็นไล่เฉดที่มี "ลำดับ" (ขนาดดอก)
      * ส่วน cats ไม่มีลำดับ ทุกช่องต้องแยกออกจากกันได้เท่า ๆ กัน
@@ -54,8 +62,28 @@ export function palette() {
   };
 }
 
-const FONT = "12px 'Noto Sans Thai', system-ui, sans-serif";
-const FONT_SM = "11px 'Noto Sans Thai', system-ui, sans-serif";
+/* ตัวอักษรบน canvas ตั้งค่าที่นี่เท่านั้น — วาดลง canvas จึงไม่รับ --fs-* จาก CSS
+ * ให้ล้อขนาดของ --fs-xs / --fs-3xs ไว้ ไม่งั้นป้ายกราฟจะเล็กกว่าตัวหนังสือรอบ ๆ จนดูหลุดชุด
+ * ป้ายที่ใหญ่ขึ้นแล้วชนกันจะถูก drawXLabels() ข้ามให้เอง ไม่ต้องมาคุมระยะเอง
+ *
+ * **ต้องเดินตาม --fs-scale ด้วย** ไม่งั้นปรับสเกลตัวอักษรทั้งเว็บแล้วป้ายกราฟค้างขนาดเดิม
+ * อ่าน --fs-* ตรง ๆ ไม่ได้เพราะเป็น calc() (getPropertyValue คืนสตริง "calc(...)" มา)
+ * แต่ --fs-scale เป็นตัวเลขล้วน จึงคูณเองตรงนี้ได้ — และต้องอ่านใหม่ทุกครั้งที่วาด
+ * เพราะสเกลของจอเล็กมาจาก media query */
+const FACE = "'Noto Sans Thai', system-ui, sans-serif";
+
+function fontScale() {
+  const v = parseFloat(css('--fs-scale'));
+  return Number.isFinite(v) && v > 0 ? v : 1;
+}
+
+/** ฟอนต์ของ canvas ที่คูณสเกลแล้ว */
+export function chartFont(size, weight = '') {
+  return `${weight ? `${weight} ` : ''}${(size * fontScale()).toFixed(1)}px ${FACE}`;
+}
+
+const FONT = () => chartFont(13);
+const FONT_SM = () => chartFont(12);
 
 /**
  * เตรียม canvas ให้คมบนจอ HiDPI
@@ -101,7 +129,7 @@ export function setupCanvas(canvas, height) {
 export function drawEmpty(ctx, w, h, message) {
   const p = palette();
   ctx.fillStyle = p.inkMute;
-  ctx.font = FONT;
+  ctx.font = FONT();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(message || t('label.noData'), w / 2, h / 2);
@@ -131,13 +159,27 @@ export function shortNum(value) {
   return String(Math.round(value));
 }
 
+/**
+ * หน่วยของแกน Y — คืนตัวหารกับป้ายหน่วยที่จะเขียนกำกับ
+ *
+ * แกนที่มีแต่ตัวเลขเปล่า ๆ อ่านไม่ออกว่าเป็นหน่วยอะไร: "400k" บนกราฟยอดคงเหลือ
+ * คือ 400,000 กรัม = 400 kg แต่คนอ่านเดาไม่ได้ และ tooltip ก็บอกเป็น kg อยู่แล้ว
+ * จึงแปลงแกนเป็นหน่วยเดียวกับ tooltip แล้วเขียนหน่วยกำกับที่ป้ายบนสุดครั้งเดียว
+ * (ทุกป้ายไม่ต้องมีหน่วย เปลืองที่ในช่องแกนที่กว้างแค่ ~45px)
+ */
+export function axisUnit(unit, max) {
+  const abs = Math.abs(max);
+  if (!unit || unit === 'g') return abs >= 1000 ? { div: 1000, label: 'kg' } : { div: 1, label: 'g' };
+  return { div: 1, label: unit };
+}
+
 /** วาดเส้นตารางแนวนอนพร้อมป้ายแกน Y */
-export function drawYAxis(ctx, box, max, { ticks = 4 } = {}) {
+export function drawYAxis(ctx, box, max, { ticks = 4, div = 1, unitLabel = '' } = {}) {
   const p = palette();
   const step = niceStep(max, ticks);
   const top = Math.ceil(max / step) * step || step;
 
-  ctx.font = FONT_SM;
+  ctx.font = FONT_SM();
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
 
@@ -151,9 +193,50 @@ export function drawYAxis(ctx, box, max, { ticks = 4 } = {}) {
     ctx.stroke();
 
     ctx.fillStyle = p.inkMute;
-    ctx.fillText(shortNum(v), box.x - 7, y);
+    const isTop = v > top - step / 2;
+    ctx.fillText(`${shortNum(v / div)}${isTop && unitLabel ? ` ${unitLabel}` : ''}`, box.x - 7, y);
   }
   return top;
+}
+
+/**
+ * แกน Y ที่ลงต่ำกว่าศูนย์ได้ — ใช้กับกราฟเส้นที่มีค่าติดลบ (เช่น EBITDA/กำไรรายเดือน)
+ *
+ * `drawYAxis()` ข้างบนวนจาก 0 ขึ้นบนอย่างเดียว ค่าติดลบจึงถูกคำนวณเป็นพิกัด
+ * ที่อยู่ **ใต้ผืนผ้าใบ** แล้วหายไปเลยโดยไม่มีอะไรเตือน — บนหน้าต้นทุนเคยทำให้
+ * เส้น EBITDA ที่ขาดทุนสี่เดือนแรกดูเหมือน "ไม่มีข้อมูล" ทั้งที่ความจริงคือติดลบ
+ *
+ * คืน `{top, bottom, span}` ให้ผู้เรียกเอาไปทำ yAt() เอง และ **เส้นศูนย์วาดเข้มกว่า
+ * เส้นตารางอื่น** เพราะเมื่อมีทั้งบวกและลบ เส้นนั้นคือเส้นแบ่งกำไร/ขาดทุน
+ */
+export function drawYAxisRange(ctx, box, min, max, { ticks = 4, div = 1, unitLabel = '' } = {}) {
+  const p = palette();
+  const lo = Math.min(min, 0);
+  const hi = Math.max(max, 0);
+  const step = niceStep(hi - lo || Math.abs(hi) || 1, ticks);
+  const top = Math.ceil(hi / step) * step || step;
+  const bottom = Math.floor(lo / step) * step;
+  const span = top - bottom || step;
+
+  ctx.font = FONT_SM();
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+
+  for (let v = bottom; v <= top + 1e-9; v += step) {
+    const y = box.y + box.h - ((v - bottom) / span) * box.h;
+    const isZero = Math.abs(v) < step * 1e-6;
+    ctx.strokeStyle = isZero && bottom < 0 ? p.axis : p.grid;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(box.x, Math.round(y) + 0.5);
+    ctx.lineTo(box.x + box.w, Math.round(y) + 0.5);
+    ctx.stroke();
+
+    ctx.fillStyle = p.inkMute;
+    const isTop = v > top - step / 2;
+    ctx.fillText(`${shortNum(v / div)}${isTop && unitLabel ? ` ${unitLabel}` : ''}`, box.x - 7, y);
+  }
+  return { top, bottom, span };
 }
 
 /** สี่เหลี่ยมมุมมนด้านบน — ใช้กับแท่งกราฟ (ปลายข้อมูลมน 4px ฐานชิดแกน) */
@@ -235,6 +318,9 @@ export function attachTooltip(container, canvas, hitTest) {
     left = Math.max(4, Math.min(container.clientWidth - tw - 4, left));
     let top = hit.y - th - 12;
     if (top < 0) top = hit.y + 16;
+    /* กล่องที่มีบรรทัดย่อยสูงกว่าเดิมมาก ถ้าไม่ดันกลับจะไหลลงไปทับกราฟใบถัดไป
+     * (Math.max มาทีหลังเสมอ เพื่อให้ขอบบนชนะตอนกล่องสูงกว่าที่ว่างที่มี) */
+    top = Math.max(4, Math.min(container.clientHeight - th - 4, top));
     tip.style.left = `${left}px`;
     tip.style.top = `${top}px`;
   };
@@ -366,14 +452,23 @@ export { FONT, FONT_SM };
  * ป้ายแรกกับป้ายสุดท้ายสำคัญที่สุด (บอกช่วงเวลาของกราฟ) จึงกันที่ไว้ให้ก่อน
  * แล้วค่อยแทรกป้ายตรงกลางเท่าที่ยังมีที่ว่างพอ
  *
+ * **`center: true` สำหรับกราฟแท่ง** — ค่าเริ่มต้นดันป้ายแรกไปชิดซ้ายและป้ายสุดท้าย
+ * ไปชิดขวาของกรอบ ซึ่งถูกสำหรับกราฟเส้น (จุดแรก/สุดท้ายอยู่ที่ขอบกรอบพอดี ถ้าวาง
+ * กึ่งกลางจะล้นออกนอก canvas) แต่กับกราฟแท่ง จุดแรกอยู่ลึกเข้ามาครึ่งช่อง
+ * การดันไปชิดขอบทำให้ป้ายยาว ๆ กินพื้นที่ของแท่งที่สอง **แล้วป้ายของแท่งที่สองหายไปเลย**
+ * (เจอจริง: ชื่อครอปของแท่งที่ 2 กับที่ 9 หายทั้งที่ที่ว่างพอ ส่วนบรรทัดวันที่ซึ่งสั้นกว่าไม่หาย)
+ * โหมดนี้จึงวางทุกป้ายไว้กึ่งกลางแท่งของตัวเอง แล้วหนีบไม่ให้ล้น canvas ด้วย `bounds`
+ *
  * @param {CanvasRenderingContext2D} ctx
  * @param {{x:number,w:number}} box กรอบพื้นที่วาดกราฟ
  * @param {{x:number,text:string}[]} items ตำแหน่งกึ่งกลางและข้อความของทุกจุด
  * @param {number} y ตำแหน่งบนสุดของบรรทัดป้าย
  * @param {number} [minGap] ช่องว่างขั้นต่ำระหว่างป้ายสองอัน
+ * @param {{center?:boolean, bounds?:[number,number]}} [opts]
  */
-export function drawXLabels(ctx, box, items, y, minGap = 10) {
+export function drawXLabels(ctx, box, items, y, minGap = 10, opts = {}) {
   if (!items.length) return;
+  const { center = false, bounds = null } = opts;
 
   const measured = items.map((it) => ({ ...it, w: ctx.measureText(it.text).width }));
   const last = measured[measured.length - 1];
@@ -394,6 +489,22 @@ export function drawXLabels(ctx, box, items, y, minGap = 10) {
     const right = item.x + item.w / 2;
     return placed.every((s) => right + minGap < s.left || left - minGap > s.right);
   };
+
+  if (center) {
+    // หนีบเฉพาะเท่าที่จำเป็นไม่ให้ตัวหนังสือล้นขอบ canvas ที่เหลือยังอยู่กึ่งกลางแท่งจริง ๆ
+    const clamp = (item) =>
+      bounds
+        ? { ...item, x: Math.min(Math.max(item.x, bounds[0] + item.w / 2), bounds[1] - item.w / 2) }
+        : item;
+    // เรียงลำดับความสำคัญเหมือนโหมดปกติ: หัว → ท้าย → ที่เหลือจากซ้ายไปขวา
+    const order = [0, measured.length - 1, ...measured.map((_, i) => i).slice(1, -1)];
+    for (const i of new Set(order)) {
+      const item = clamp(measured[i]);
+      if (fits(item)) draw(item, 'center');
+    }
+    ctx.textAlign = 'center';
+    return;
+  }
 
   draw(first, measured.length === 1 ? 'center' : 'left');
   if (measured.length > 1) draw(last, 'right');

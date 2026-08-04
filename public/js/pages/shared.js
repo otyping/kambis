@@ -7,7 +7,7 @@
  * และ onResize ข้าม width === 0 จึงไม่มีวันแก้ตัวเองตอนแสดงผลทีหลัง
  */
 import { t } from '../i18n.js';
-import { esc, grams, n, DASH } from '../format.js';
+import { esc, grams, n, valueLen, DASH } from '../format.js';
 import { qualityCard } from '../ui/cards.js';
 
 /** กล่องหัวข้อของหน้า */
@@ -54,9 +54,24 @@ export function grid(host, { cols = 2 } = {}) {
  * แถบตัวเลขสำคัญ — ใช้แทน renderKpiStrip เดิม แต่รับจำนวนช่องเท่าไรก็ได้
  * `.kpi-strip` เดิมตั้ง grid ไว้ 6 คอลัมน์ตายตัว จึงส่งจำนวนจริงผ่าน custom property
  *
+ * `tone: 'signed'` = ช่องนี้เครื่องหมายมีความหมาย (กำไร/ขาดทุน) ให้ย้อมสีตามเครื่องหมาย
+ * **ผู้เรียกเป็นคนประกาศว่าช่องไหนเป็นแบบนี้ ห้ามให้ tiles() เดาเอาจากค่าติดลบ**
+ * เพราะติดลบไม่ได้แปลว่าแย่เสมอไป — หน้า Supply มีรายการที่ "เบิกลดลง" ซึ่งติดลบแล้วดี
+ * (`usage-row[data-level="good"]` ใน pages/supply.js) ถ้าเดาจากเครื่องหมายจะย้อมผิดทันที
+ *
  * @param {{label:string, value:number|null, unit?:string, hint?:string,
- *          awaiting?:boolean, decimals?:number}[]} items
+ *          awaiting?:boolean, decimals?:number, tone?:'signed'}[]} items
  */
+/**
+ * เติมคำว่า "ขาดทุน" ให้ช่องที่ติดลบ ต่อหน้าข้อความเดิมที่มีอยู่
+ * ใช้คู่กับ `tone: 'signed'` เสมอ — สีแดงอย่างเดียวไม่รอดตาบอดสีแดง-เขียว
+ * และไม่รอดการแคปหน้าจอส่งต่อแบบขาวดำ
+ */
+export function lossHint(value, base = '') {
+  if (!Number.isFinite(value) || value >= 0) return base;
+  return base ? `${t('cost.loss')} · ${base}` : t('cost.loss');
+}
+
 export function tiles(host, items) {
   const strip = document.createElement('div');
   strip.className = 'kpi-strip';
@@ -78,9 +93,14 @@ export function tiles(host, items) {
       }
       const cls = item.awaiting ? ' kpi--awaiting' : '';
       const hint = item.awaiting ? t('awaiting.badge') : (item.hint ?? '');
-      return `<div class="glass kpi${cls}">
+      // ช่องที่ประกาศ tone: 'signed' และมีค่าจริงเท่านั้น — "—" ต้องเป็นสีเทาเหมือนเดิม
+      const signed = item.tone === 'signed' && !item.awaiting && Number.isFinite(item.value);
+      const tone = signed ? ` ${item.value < 0 ? 'money-neg' : 'money-pos'}` : '';
+      // "—" ต้องไม่ถูกสูตร fit-to-width ดันจนใหญ่กว่าตัวเลขจริงที่อยู่ข้าง ๆ
+      const empty = value === DASH ? ' kpi__value--empty' : '';
+      return `<div class="glass kpi${cls}" style="--val-len:${valueLen(value, unit)}">
         <span class="kpi__label">${esc(item.label)}</span>
-        <div class="kpi__value num">${value}${unit ? `<span class="kpi__unit">${esc(unit)}</span>` : ''}</div>
+        <div class="kpi__value num${tone}${empty}">${value}${unit ? `<span class="kpi__unit">${esc(unit)}</span>` : ''}</div>
         <div class="kpi__hint">${esc(hint)}</div>
       </div>`;
     })

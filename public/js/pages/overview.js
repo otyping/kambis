@@ -11,7 +11,7 @@ import { t, pick } from '../i18n.js';
 import { n } from '../format.js';
 import { renderCards } from '../ui/cards.js';
 import { awaitingCard } from '../ui/placeholder.js';
-import { pageHeader, tiles, grid, appendQualityCard } from './shared.js';
+import { pageHeader, tiles, lossHint, grid, appendQualityCard } from './shared.js';
 import { monthlySeries, sum, comparePeriod } from '../shared/agg-core.js';
 
 export const meta = { report: 'dryflower', page: 'overview' };
@@ -94,7 +94,12 @@ export function render(ctx) {
       label: t('exec.grossProfit'),
       value: fin?.totals?.grossProfit ?? null,
       unit: '฿',
-      hint: t('exec.grossProfitHint'),
+      // ติดลบ = ขาดทุนจริง ย้อมสีตามเครื่องหมายพร้อมคำกำกับ (ดู tiles() ใน pages/shared.js)
+      tone: 'signed',
+      /* ตอนขาดทุนเขียนแค่ "ขาดทุน" ไม่ต่อท้ายสูตร — ช่อง hint เป็นบรรทัดเดียวตัดท้ายด้วย …
+       * บนจอ 375px ข้อความรวมยาวเกินช่อง 15px แล้วสูตรจะโดนตัดกลางคำอยู่ดี
+       * คำว่าขาดทุนสำคัญกว่าสูตร ส่วนสูตรยังอยู่ครบบนหน้าต้นทุน */
+      hint: lossHint(fin?.totals?.grossProfit) || t('exec.grossProfitHint'),
       awaiting: !fin?.available,
     },
     {

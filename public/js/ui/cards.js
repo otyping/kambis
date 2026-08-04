@@ -5,7 +5,7 @@
  * ทุกการ์ดเป็น <button> จริง เพื่อให้ใช้คีย์บอร์ดและ screen reader ได้
  */
 import { t, pick } from '../i18n.js';
-import { weight, grams, n, pct, esc, DASH } from '../format.js';
+import { weight, grams, n, pct, esc, valueLen, DASH } from '../format.js';
 import { icon } from './icons.js';
 import * as charts from '../charts/index.js';
 import { releaseCharts } from '../charts/core.js';
@@ -54,9 +54,9 @@ export function renderKpiStrip(el, kpi) {
         }
       }
       const hint = pick(item, 'hint') || item.hint || '';
-      return `<div class="glass kpi">
+      return `<div class="glass kpi" style="--val-len:${valueLen(value, unit)}">
         <span class="kpi__label">${esc(pick(item, 'label'))}</span>
-        <div class="kpi__value num">${value}${unit ? `<span class="kpi__unit">${unit}</span>` : ''}</div>
+        <div class="kpi__value num${value === DASH ? ' kpi__value--empty' : ''}">${value}${unit ? `<span class="kpi__unit">${unit}</span>` : ''}</div>
         <div class="kpi__hint">${esc(hint)}</div>
       </div>`;
     })
@@ -79,7 +79,7 @@ function cardShell({ key, iconName, title, sub, metric, unit, stats, chip, wide 
         <span class="card__sub">${esc(sub)}</span>
       </span>
     </div>
-    <div class="card__metric">
+    <div class="card__metric" style="--val-len:${valueLen(metric, unit)}">
       <span class="card__metric-value num">${metric}</span>
       ${unit ? `<span class="card__metric-unit">${unit}</span>` : ''}
     </div>
@@ -559,6 +559,39 @@ export function qualityCard(payload, drawLater, opts = {}) {
       },
     },
   ];
+
+  /* ── ชีตไหนมีปัญหา เรียงจากหนักสุด ──
+   *
+   * คำถามแรกที่ผู้ใช้ถามเสมอเวลาเห็นคะแนนต่ำคือ "แล้วชีตไหนผิด"
+   * กราฟแท่งนับรวมตอบไม่ได้ เพราะ 10 ข้อสังเกตกับ 1 ข้อร้ายแรงแท่งยาวไม่เท่ากัน
+   * ทั้งที่อันหลังสำคัญกว่ามาก — จึงแยกระดับความรุนแรงให้เห็นทีละชีต */
+  const sheetRows = Object.entries(analysis.bySource ?? {})
+    .map(([key, counts]) => ({ key, title: titleOf(key), ...counts }))
+    .filter((s) => s.total > 0)
+    .sort((a, b) => b.critical - a.critical || b.warning - a.warning || b.total - a.total);
+
+  if (sheetRows.length) {
+    views.push({
+      label: t('quality.bySheet'),
+      rows: [],
+      sortable: false,
+      render: (box) => {
+        box.innerHTML = `<div class="sheet-health">${sheetRows
+          .map((s) => {
+            const level = s.critical ? 'bad' : s.warning ? 'warn' : 'good';
+            const bits = [];
+            if (s.critical) bits.push(`${n(s.critical)} ${t('quality.critical')}`);
+            if (s.warning) bits.push(`${n(s.warning)} ${t('quality.warning')}`);
+            if (!bits.length && s.info) bits.push(`${n(s.info)} ${t('quality.info')}`);
+            return `<div class="sheet-health__row" data-level="${level}">
+                <span class="sheet-health__name">${esc(s.title)}</span>
+                <span class="sheet-health__counts">${esc(bits.join(' · '))}</span>
+              </div>`;
+          })
+          .join('')}</div>`;
+      },
+    });
+  }
 
   // รายงาน Supply มีชีตเดียว กราฟ "แยกตามรายงาน" จึงเป็นแท่งเดียวโดด ๆ ที่ไม่บอกอะไร
   if (bySourceRows.length > 1) {

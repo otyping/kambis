@@ -9,6 +9,7 @@ import {
   drawEmpty,
   hasData,
   drawYAxis,
+  drawYAxisRange,
   roundedTopRect,
   roundedRightRect,
   palette,
@@ -19,6 +20,8 @@ import {
   shortNum,
   drawXLabels,
   FONT_SM,
+  chartFont,
+  axisUnit,
 } from './core.js';
 import { t } from '../i18n.js';
 import { weight, n, pct, date as fmtDate, month as fmtMonth, truncate, esc } from '../format.js';
@@ -41,6 +44,20 @@ function prepare(container, height) {
 
 /** ช่องว่างสีพื้น 2px ระหว่างส่วนที่ติดกัน ทำให้แยกแท่งออกจากกันได้ */
 const GAP = 2;
+
+/**
+ * จัดรูปแบบค่าตามหน่วยของกราฟนั้น — ทุกกราฟต้องผ่านตัวนี้ตัวเดียว
+ *
+ * `'g'` (ค่าเริ่มต้น) = น้ำหนัก ย่อเป็น kg ให้เอง · `'%'` = เปอร์เซ็นต์
+ * หน่วยอื่น เช่น `'฿'` = ตัวเลขล้วนตามด้วยหน่วย **ห้ามเอา weight() ไปครอบ**
+ * ไม่งั้นเงิน 17,299,482 บาท จะขึ้นบนจอว่า "17,299 kg" — เคยเกิดจริงกับ
+ * โดนัทสัดส่วนต้นทุนและแท่ง "วัสดุที่มีมูลค่าสูงสุด" ที่ส่ง unit: '฿' มาแล้วแต่ถูกเมิน
+ */
+function fmtValue(value, unit) {
+  if (unit === '%') return pct(value);
+  if (!unit || unit === 'g') return weight(value);
+  return `${n(value)} ${unit}`;
+}
 
 // ─────────────────────────────────────────────────────────────
 /**
@@ -68,7 +85,7 @@ export function barH(container, rows, opts = {}) {
   const barH_ = Math.min(18, rowH - GAP * 2);
 
   const hits = [];
-  ctx.font = FONT_SM;
+  ctx.font = FONT_SM();
   ctx.textBaseline = 'middle';
 
   // ตัดป้ายชื่อตามความกว้างที่วัดได้จริง ไม่ใช่ตามจำนวนตัวอักษร
@@ -93,7 +110,7 @@ export function barH(container, rows, opts = {}) {
 
     ctx.textAlign = 'left';
     ctx.fillStyle = p.ink;
-    const label = unit === '%' ? pct(row[valueKey]) : weight(row[valueKey]);
+    const label = fmtValue(row[valueKey], unit);
     ctx.fillText(label, box.x + box.w + 8, y + barH_ / 2);
 
     // แถบรับเมาส์กินเต็มความสูงของแถว ไม่เว้นช่องว่างระหว่างแท่ง
@@ -105,7 +122,7 @@ export function barH(container, rows, opts = {}) {
   attachTooltip(container, canvas, (mx, my) => {
     const hit = hits.find((s) => my >= s.y0 && my <= s.y1);
     if (!hit) return null;
-    const value = unit === '%' ? pct(hit.row[valueKey]) : weight(hit.row[valueKey]);
+    const value = fmtValue(hit.row[valueKey], unit);
     const extra = hit.row.rows ? `<br>${t('label.records')}: ${n(hit.row.rows)}` : '';
     return {
       html: `${esc(hit.row[labelKey] ?? '—')}<br><b>${value}</b>${extra}`,
@@ -154,7 +171,7 @@ export function sizeMixBar(container, mix, opts = {}) {
   });
 
   // ป้ายกำกับตรงส่วนที่กว้างพอ (ไม่ใส่ทุกส่วน เพื่อไม่ให้ตัวหนังสือทับกัน)
-  ctx.font = FONT_SM;
+  ctx.font = FONT_SM();
   ctx.textBaseline = 'top';
   ctx.textAlign = 'left';
   let lx = 0;
@@ -194,7 +211,7 @@ export function line(container, series, opts = {}) {
    *           ใช้แค่ series1/series2 ไม่พอ
    * dashed  — ดัชนีของเส้นที่ต้องวาดเป็นเส้นประ ใช้กับค่าที่เป็น "ประมาณการ"
    *           ไม่ใช่ค่าที่วัดได้จริง — ต้องดูออกโดยไม่ต้องอ่านคำอธิบาย */
-  const { xKey = 'date', height = 190, format = 'date', colors, dashed = [] } = opts;
+  const { xKey = 'date', height = 190, format = 'date', colors, dashed = [], unit = 'g' } = opts;
   const height_ = height;
   const { canvas, setup } = prepare(container, height_);
   if (!setup) return;
@@ -205,18 +222,28 @@ export function line(container, series, opts = {}) {
   if (!active.length || !hasData(allValues)) return drawEmpty(ctx, w, h);
 
   const p = palette();
-  const box = { x: 46, y: 12, w: w - 58, h: h - 44 };
+  // ช่องแกน Y กว้างขึ้นเล็กน้อยเพราะป้ายบนสุดมีหน่วยต่อท้าย (เช่น "400 kg")
+  const box = { x: 54, y: 12, w: w - 66, h: h - 44 };
+  /* แกนต้องครอบค่าติดลบด้วย ไม่งั้นจุดที่ติดลบจะถูกวาดใต้ผืนผ้าใบแล้วหายไปเงียบ ๆ
+   * (เคยเกิดกับเส้น EBITDA บนหน้าต้นทุน — สี่เดือนที่ขาดทุนดูเหมือนไม่มีข้อมูล) */
   const max = Math.max(...allValues, 1);
-  const top = drawYAxis(ctx, box, max);
+  const min = Math.min(...allValues, 0);
+  // แกน Y ต้องบอกหน่วยเดียวกับ tooltip ไม่งั้น "400k" อ่านไม่ออกว่ากรัมหรือกิโล
+  const axis = axisUnit(unit, Math.max(Math.abs(max), Math.abs(min)));
+  const { bottom, span } = drawYAxisRange(ctx, box, min, max, {
+    div: axis.div,
+    unitLabel: axis.label,
+  });
 
   const labels = active[0].points.map((pt) => pt[xKey]);
   const count = labels.length;
   const xAt = (i) => (count === 1 ? box.x + box.w / 2 : box.x + (i / (count - 1)) * box.w);
-  const yAt = (v) => box.y + box.h - (v / top) * box.h;
+  const yAt = (v) => box.y + box.h - ((v - bottom) / span) * box.h;
+  const zeroY = yAt(0);
 
   // ป้ายแกน X — วัดความกว้างจริงแล้วข้ามอันที่จะทับกัน
   const fmt = format === 'month' ? fmtMonth : fmtDate;
-  ctx.font = FONT_SM;
+  ctx.font = FONT_SM();
   ctx.fillStyle = p.inkMute;
   ctx.textBaseline = 'top';
   drawXLabels(
@@ -241,13 +268,14 @@ export function line(container, series, opts = {}) {
         const x = xAt(i);
         const y = yAt(pt.value);
         if (!started) {
-          ctx.moveTo(x, box.y + box.h);
+          // ฐานของพื้นที่ใต้เส้นคือเส้นศูนย์ ไม่ใช่ก้นกล่อง — ต่างกันเมื่อแกนลงต่ำกว่าศูนย์
+          ctx.moveTo(x, zeroY);
           ctx.lineTo(x, y);
           started = true;
         } else ctx.lineTo(x, y);
       });
       if (started) {
-        ctx.lineTo(xAt(count - 1), box.y + box.h);
+        ctx.lineTo(xAt(count - 1), zeroY);
         ctx.closePath();
         const grad = ctx.createLinearGradient(0, box.y, 0, box.y + box.h);
         grad.addColorStop(0, p.fade);
@@ -305,7 +333,7 @@ export function line(container, series, opts = {}) {
     const lines = active
       .map((s) => {
         const v = s.points[i]?.value;
-        return `${s.label}: <b>${Number.isFinite(v) ? weight(v) : '—'}</b>`;
+        return `${s.label}: <b>${Number.isFinite(v) ? fmtValue(v, unit) : '—'}</b>`;
       })
       .join('<br>');
     return { html: `${label}<br>${lines}`, x: xAt(i), y: box.y };
@@ -332,6 +360,8 @@ export function line(container, series, opts = {}) {
 export function donut(container, mix, opts = {}) {
   const order = opts.order ?? ['XXL', 'XL', 'L', 'M', 'S', 'XS'];
   const ramp = opts.ramp ?? 'size';
+  // โดนัทถูกใช้กับทั้งน้ำหนักดอกและเงิน — ไม่รับหน่วยจะได้ "17,299 kg" จากยอด 17.3 ล้านบาท
+  const unit = opts.unit ?? 'g';
   const values = order.map((k) => mix?.[k] ?? 0);
   const total = values.reduce((a, b) => a + b, 0);
 
@@ -374,10 +404,9 @@ export function donut(container, mix, opts = {}) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = p.ink;
-  ctx.font = "600 17px 'Noto Sans Thai', system-ui, sans-serif";
-  const wt = weight(total);
-  ctx.fillText(wt, cx, cy - 6);
-  ctx.font = FONT_SM;
+  ctx.font = chartFont(17, '600');
+  ctx.fillText(fmtValue(total, unit), cx, cy - 6);
+  ctx.font = FONT_SM();
   ctx.fillStyle = p.inkMute;
   ctx.fillText(t('label.total'), cx, cy + 13);
 
@@ -391,7 +420,7 @@ export function donut(container, mix, opts = {}) {
     const hit = hits.find((s) => a >= s.a0 && a <= s.a1);
     if (!hit) return null;
     return {
-      html: `${hit.key}<br><b>${weight(hit.value)}</b> · ${hit.share.toFixed(1)}%`,
+      html: `${hit.key}<br><b>${fmtValue(hit.value, unit)}</b> · ${hit.share.toFixed(1)}%`,
       x: mx,
       y: my,
     };
@@ -423,9 +452,11 @@ export function groupedBars(container, rows, opts = {}) {
   if (!data.length) return drawEmpty(ctx, w, h);
 
   const p = palette();
-  const box = { x: 46, y: 12, w: w - 58, h: h - 46 };
+  const box = { x: 54, y: 12, w: w - 66, h: h - 46 };
   const max = Math.max(...data.flatMap((r) => [r[aKey] ?? 0, r[bKey] ?? 0]), 1);
-  const top = drawYAxis(ctx, box, max);
+  // กราฟนี้เป็นน้ำหนักดอกเสมอ (ขนออก↔รับเข้า) จึงบอกหน่วยที่ป้ายบนสุดเหมือนกราฟอื่น
+  const axis = axisUnit('g', max);
+  const top = drawYAxis(ctx, box, max, { div: axis.div, unitLabel: axis.label });
 
   const slot = box.w / data.length;
   const barW = Math.max(3, Math.min(15, slot / 2 - GAP));
@@ -447,14 +478,17 @@ export function groupedBars(container, rows, opts = {}) {
   });
 
   // ป้ายแกน X — วัดความกว้างจริงแล้วข้ามอันที่จะทับกัน
-  ctx.font = FONT_SM;
+  ctx.font = FONT_SM();
   ctx.fillStyle = p.inkMute;
   ctx.textBaseline = 'top';
+  // กราฟแท่งเหมือน stackedBars — ป้ายอยู่กึ่งกลางแท่ง ไม่ดันหัวท้ายไปชิดขอบกรอบ
   drawXLabels(
     ctx,
     box,
     data.map((row, i) => ({ x: box.x + slot * (i + 0.5), text: fmtDate(row.date) })),
-    box.y + box.h + 8
+    box.y + box.h + 8,
+    10,
+    { center: true, bounds: [2, w - 2] }
   );
 
   attachTooltip(container, canvas, (mx) => {
@@ -491,13 +525,19 @@ export function groupedBars(container, rows, opts = {}) {
  * ใช้ตอบคำถาม "สัดส่วนขนาดดอกเปลี่ยนไปไหม" ซึ่งดูจากปริมาณดิบไม่ออก
  *
  * @param {HTMLElement} container
- * @param {{key:string, sub?:string, parts:Record<string,number>}[]} rows
+ * @param {{key:string, sub?:string, parts:Record<string,number>,
+ *          detail?:Record<string,{label:string,value:number}[]>}[]} rows
+ * `sub` = ป้ายบรรทัดที่สองใต้แกน x
+ * `detail[หมวด]` = ที่มาของหมวดนั้นใน tooltip เรียงมากไปน้อย (ยอดต้องบวกได้เท่าหมวดแม่)
+ * ใช้กับกรณีที่แท่งเป็นยอดรวมของหลายอย่างจนป้ายใต้แกนเขียนแทนไม่ได้
+ * เช่นผลผลิตรวมรายเดือน ที่สายพันธุ์เดียวถูกทริมจากหลายครอป
  * ramp เลือกชุดสี — 'cat' สำหรับหมวดที่ไม่มีลำดับ (สายพันธุ์),
- * 'size' สำหรับขนาดดอกซึ่งมีลำดับจึงต้องใช้ไล่เฉดสีเดียว
+ * 'size' สำหรับขนาดดอกซึ่งมีลำดับจึงต้องใช้ไล่เฉดสีเดียว,
+ * 'size3' สำหรับกราฟที่ยุบขนาดดอกเหลือ 3 กลุ่ม (สามขั้นที่แยกกันออกจริง ไม่ใช่สามขั้นแรก)
  * เลือกที่นี่ไม่ใช่ที่ผู้เรียก เพราะสีต้องอ่านจาก tokens.css ตอนวาดเสมอ
  * (ผู้เรียกส่ง hex มาเองไม่ได้ — สลับธีมแล้วจะไม่เปลี่ยนตาม)
  *
- * @param {{keys:string[], ramp?:'cat'|'size', colors?:string[], height?:number,
+ * @param {{keys:string[], ramp?:'cat'|'size'|'size3', colors?:string[], height?:number,
  *          normalize?:boolean, unit?:string, max?:number,
  *          labelFormat?:'month'|'date'|'raw'}} opts
  */
@@ -523,11 +563,18 @@ export function stackedBars(container, rows, opts = {}) {
   if (!data.length || !hasData(totals)) return drawEmpty(ctx, w, h);
 
   const p = palette();
-  const series = colors ?? (ramp === 'size' ? p.sizes : p.cats);
-  const box = { x: normalize ? 40 : 46, y: 12, w: w - (normalize ? 52 : 58), h: h - 52 };
+  const series = colors ?? (ramp === 'size3' ? p.sizes3 : ramp === 'size' ? p.sizes : p.cats);
+  // ช่องแกน Y กว้างขึ้นเมื่อป้ายบนสุดมีหน่วยต่อท้าย — โหมดสัดส่วนใช้ "100%" ซึ่งสั้นกว่า
+  const box = { x: normalize ? 46 : 54, y: 12, w: w - (normalize ? 58 : 66), h: h - 52 };
 
-  // โหมดสัดส่วนใช้แกน 0–100 คงที่ ไม่ต้องหา max จากข้อมูล
-  const top = normalize ? drawYAxis(ctx, box, 100) : drawYAxis(ctx, box, Math.max(...totals, 1));
+  /* โหมดสัดส่วนใช้แกน 0–100 คงที่ ไม่ต้องหา max จากข้อมูล
+   * ส่วนโหมดปริมาณต้องบอกหน่วยที่ป้ายบนสุด ไม่งั้น "200k" อ่านไม่ออกว่ากรัมหรือกิโล */
+  const axisMax = Math.max(...totals, 1);
+  const axis = normalize ? { div: 1, label: '%' } : axisUnit(unit, axisMax);
+  const top = drawYAxis(ctx, box, normalize ? 100 : axisMax, {
+    div: axis.div,
+    unitLabel: axis.label,
+  });
 
   const slot = box.w / data.length;
   const barW = Math.max(3, Math.min(38, slot - GAP * 2));
@@ -561,50 +608,103 @@ export function stackedBars(container, rows, opts = {}) {
     hits.push({ x0: cx - slot / 2, x1: cx + slot / 2, row, cx, total });
   });
 
-  ctx.font = FONT_SM;
+  ctx.font = FONT_SM();
   ctx.fillStyle = p.inkMute;
   ctx.textBaseline = 'top';
 
   const labelOf = (row) =>
     labelFormat === 'month' ? fmtMonth(row.key) : labelFormat === 'date' ? fmtDate(row.key) : row.key;
 
+  /* ตัดป้ายให้พอดี "ช่องของแท่งตัวเอง" โดยวัดความกว้างจริง ไม่ใช่ตัดตายตัวที่ 14 ตัวอักษร
+   *
+   * ป้ายที่ยาวเกินช่องจะถูก drawXLabels ข้ามทิ้ง — ที่ 1280px ตัวอักษรขนาดปกติ
+   * ชื่อครอปยาวเกินช่องไปเล็กน้อย ทำให้หายไปครึ่งหนึ่ง (เหลือ 5 จาก 10 แท่ง)
+   * ตัดเองก่อนจึงได้ครบทุกแท่ง และจอกว้าง ๆ ก็ได้ชื่อเต็มโดยไม่ถูกตัดที่ 14 ตัวเปล่า ๆ
+   *
+   * ถ้าช่องแคบจนเหลือไม่ถึง 6 ตัวอักษร ปล่อยให้ drawXLabels ข้ามไปดีกว่า
+   * เพราะ "G…" สิบอันเรียงกันบอกอะไรไม่ได้เลย */
+  const fitLabel = (raw) => {
+    const text = String(raw ?? '');
+    /* ต้องเหลือช่องไฟมากกว่า minGap ของ drawXLabels (10px) จริง ๆ ไม่ใช่เท่ากันพอดี
+     * เพราะเงื่อนไขการชนใช้ `<` ไม่ใช่ `<=` — พอดีเป๊ะแปลว่าชน แล้วป้ายจะถูกข้าม */
+    const max = slot - 12;
+    if (!text || ctx.measureText(text).width <= max) return text;
+    let s = text;
+    while (s.length > 6 && ctx.measureText(`${s}…`).width > max) s = s.slice(0, -1);
+    return s.length > 6 ? `${s}…` : truncate(text, 14);
+  };
+
+  /* กราฟแท่ง = ป้ายอยู่กึ่งกลางแท่งของตัวเองทุกอัน ไม่ดันหัวท้ายไปชิดขอบกรอบ
+   * (ดูเหตุผลใน drawXLabels — การดันไปชิดขอบทำให้ป้ายของแท่งที่ 2 กับรองสุดท้ายหายไป)
+   * bounds กันตัวหนังสือล้นขอบ canvas ตอนแท่งแรก/สุดท้ายอยู่ใกล้ขอบมาก */
+  const xLabelOpts = { center: true, bounds: [2, w - 2] };
+
   drawXLabels(
     ctx,
     box,
-    data.map((row, i) => ({ x: box.x + slot * (i + 0.5), text: truncate(labelOf(row), 14) })),
-    box.y + box.h + 8
+    data.map((row, i) => ({ x: box.x + slot * (i + 0.5), text: fitLabel(labelOf(row)) })),
+    box.y + box.h + 8,
+    10,
+    xLabelOpts
   );
 
-  /* ป้ายบรรทัดที่สอง (เช่นชื่อครอปใต้เดือน) วาดแยกอีกรอบ
+  /* ป้ายบรรทัดที่สอง (เช่นวันที่ทริมใต้ชื่อครอป) วาดแยกอีกรอบ
    * ให้ drawXLabels ตรวจการชนของตัวเองใหม่ ไม่ใช่ใช้ผลของบรรทัดแรก
    * เพราะข้อความยาวไม่เท่ากัน อันที่รอดบรรทัดบนอาจชนกันในบรรทัดล่าง */
   if (data.some((r) => r.sub)) {
     drawXLabels(
       ctx,
       box,
-      data.map((row, i) => ({ x: box.x + slot * (i + 0.5), text: truncate(row.sub ?? '', 14) })),
-      box.y + box.h + 22
+      data.map((row, i) => ({ x: box.x + slot * (i + 0.5), text: fitLabel(row.sub ?? '') })),
+      box.y + box.h + 22,
+      10,
+      xLabelOpts
     );
   }
 
   attachTooltip(container, canvas, (mx) => {
     const hit = hits.find((s) => mx >= s.x0 && mx <= s.x1);
     if (!hit || !hit.total) return null;
-    const lines = keys
+
+    const fmt = (v) => (unit === 'g' ? weight(v) : n(v));
+    const share = (v) => pct((v / hit.total) * 100);
+    const row = (html) => `<span class="chart-tip__row">${html}</span>`;
+    const sub = (html) => `<span class="chart-tip__sub">${html}</span>`;
+
+    /* หมวดหนึ่งอาจมาจากหลายที่ (เช่นสายพันธุ์เดียวถูกทริมจากหลายครอปในเดือนเดียว)
+     * ที่มาเดียวเขียนต่อท้ายบรรทัดเดิมพอ · หลายที่ต้องแตกเป็นบรรทัดย่อย **ครบทุกอัน**
+     * ไม่ยุบเป็น "อีก N อัน" เพราะผู้ใช้ต้องการเห็นทุกครอปที่ทริมในเดือนนั้นจริง ๆ
+     * (ยอมให้กล่องยาวขึ้น ดีกว่าต้องไปเปิดตารางข้างล่างเพื่อดูอีกสองครอปที่เหลือ)
+     *
+     * % ของบรรทัดย่อยคิดจากยอดรวมของทั้งแท่งเหมือนบรรทัดแม่ บวกกันแล้วต้องได้ % ของแม่พอดี
+     *
+     * ลำดับบรรทัด: หมวดที่ไม่มีลำดับ (สายพันธุ์) เรียงมากไปน้อยเพื่ออ่านเป็นการจัดอันดับ
+     * ส่วนหมวดที่มีลำดับ (ขนาดดอก) ต้องคงลำดับเดิมไว้ให้ตรงกับชั้นในแท่งและ legend
+     * ไม่งั้นจะได้ "XS" มาก่อน "S" ในเดือนที่ XS เยอะกว่า ซึ่งอ่านแล้วสะดุดทุกครั้ง */
+    const ordinal = ramp === 'size' || ramp === 'size3';
+    const entries = keys
       .map((k, ki) => ({ k, v: hit.row.parts?.[k] || 0, c: series[ki % series.length] }))
-      .filter((s) => s.v > 0)
-      .sort((a, b) => b.v - a.v)
-      .slice(0, 8)
-      .map(
-        (s) =>
-          `<span style="color:${s.c}">■</span> ${esc(s.k)}: <b>${
-            unit === 'g' ? weight(s.v) : n(s.v)
-          }</b> (${pct((s.v / hit.total) * 100)})`
-      )
-      .join('<br>');
+      .filter((s) => s.v > 0);
+    const lines = [];
+    for (const s of ordinal ? entries : entries.sort((a, b) => b.v - a.v).slice(0, 8)) {
+      const items = hit.row.detail?.[s.k] ?? [];
+      const inline = items.length === 1 ? ` · ${esc(items[0].label)}` : '';
+      lines.push(
+        row(
+          `<span style="color:${s.c}">■</span> ${esc(s.k)}: <b>${fmt(s.v)}</b> (${share(
+            s.v
+          )})${inline}`
+        )
+      );
+      if (items.length < 2) continue;
+      for (const it of items) {
+        lines.push(sub(`${esc(it.label)}: <b>${fmt(it.value)}</b> (${share(it.value)})`));
+      }
+    }
+
     const head = hit.row.sub ? `${esc(labelOf(hit.row))} · ${esc(hit.row.sub)}` : esc(labelOf(hit.row));
     return {
-      html: `${head}<br>${t('label.total')}: <b>${unit === 'g' ? weight(hit.total) : n(hit.total)}</b><br>${lines}`,
+      html: `${row(head)}${row(`${t('label.total')}: <b>${fmt(hit.total)}</b>`)}${lines.join('')}`,
       x: hit.cx,
       y: box.y,
     };
@@ -661,7 +761,7 @@ export function cycleTimeline(container, crops, opts = {}) {
     ['harvest', 'dryReady', p.sizes[1]],
   ];
 
-  ctx.font = FONT_SM;
+  ctx.font = FONT_SM();
   ctx.textBaseline = 'middle';
   const hits = [];
 

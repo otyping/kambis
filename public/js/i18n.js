@@ -101,6 +101,8 @@ const STRINGS = {
   'label.allCrops': ['ทุกครอป', 'All crops'],
   'label.allTabs': ['ทุกชีตย่อย', 'All tabs'],
   'label.other': ['อื่น ๆ', 'Other'],
+  // บรรทัดย่อยใน tooltip ของกราฟแท่งซ้อน — แตกยอดของหมวดหนึ่งออกตามที่มา
+  'label.noCrop': ['ไม่ระบุครอป', 'Crop not given'],
   'label.noData': ['ไม่มีข้อมูลให้แสดง', 'No data to display'],
   'label.top': ['สูงสุด', 'Top'],
 
@@ -172,6 +174,7 @@ const STRINGS = {
 
   'label.topCrops': ['ครอปเด่น', 'Top crops'],
   'quality.bySeverity': ['ตามความรุนแรง', 'By severity'],
+  'quality.bySheet': ['ชีตไหนมีปัญหา', 'Which sheet has issues'],
   'quality.bySource': ['ตามรายงาน', 'By report'],
 
   'ctl.view': ['มุมมอง', 'View'],
@@ -293,19 +296,34 @@ const STRINGS = {
   'exec.fromDailyTrim': ['จากรายงานทริมรายวัน', 'From the daily trim report'],
   // ── หน้าการผลิต ──
   'prod.overTime': ['ผลผลิตตามช่วงเวลา แยกตามสายพันธุ์', 'Production over time by strain'],
-  'prod.overTimeNote': ['ป้ายใต้เดือนคือครอปที่ให้ผลผลิตมากที่สุดของเดือนนั้น', 'The label under each month is that month largest crop'],
+  'prod.overTimeNote': [
+    'แต่ละแท่งคือยอดรวมทั้งเดือนของทุกครอป · ชี้ที่แท่งเพื่อดูว่าเดือนนั้นทริมสายพันธุ์ไหน จากครอปไหน ครอปละเท่าไร',
+    'Each bar is the whole month across every crop · hover a bar for the strains trimmed, their crops, and how much came from each',
+  ],
   'prod.sizeTrend': ['สัดส่วนขนาดดอกต่อครอป', 'Size distribution by crop'],
-  'prod.sizeTrendNote': ['เรียงตามวันเก็บเกี่ยว ดูได้ว่าสัดส่วนดอกใหญ่ขยับไปทางไหน', 'Ordered by harvest date, so the trend in large-bud share is visible'],
+  'prod.sizeTrendNote': [
+    'เรียงตามวันที่ทริม ล่าสุดอยู่ขวาสุด · ชี้ที่แท่งเพื่อดูดอกใหญ่ทีละขนาด',
+    'Ordered by trim date, latest on the right · hover a bar for the large-bud sizes one by one',
+  ],
+  // ตัดให้เหลือ 10 แท่งต้องบอกด้วยว่าตัดจากทั้งหมดกี่ครอป ไม่งั้นเข้าใจว่านี่คือทั้งหมด
+  'prod.showingLatest': ['แสดง {n} ครอปล่าสุดจาก {total} ครอป', 'Showing the latest {n} of {total} crops'],
   'prod.cropTable': ['เปรียบเทียบรายครอป', 'Crop performance breakdown'],
   'prod.cropTableNote': ['กดหัวตารางเพื่อเรียงลำดับ', 'Click a header to sort'],
   'prod.bigBuds': ['ดอกใหญ่ (≥M)', 'Big buds (≥M)'],
-  'prod.smallBuds': ['ดอกเล็ก (S–XS)', 'Small buds (S–XS)'],
+  // ตารางเปรียบเทียบรายครอปใช้วันทริม (= วันเก็บเกี่ยวในชีตต่อครอป) แทนป้ายไตรมาส
+  // และแยก S กับ XS เป็นคนละคอลัมน์ คีย์ prod.smallBuds ที่รวมสองขนาดจึงไม่มีใครใช้แล้ว
+  'prod.trimDate': ['วันที่ทริม', 'Trim date'],
   'prod.strainUnknown': ['ครอปนี้ยังไม่มีบันทึกในรายงานทริมรายวัน จึงยังไม่รู้สายพันธุ์', 'This crop has no daily-trim record yet, so the strain is unknown'],
   // ── หน้าสต็อก ──
   'stock.snapshot': ['สัดส่วนสต็อกระหว่างคลัง', 'Stock split between locations'],
   'stock.snapshotNote': ['ณ วันที่นับล่าสุดของแต่ละคลัง', 'As of each location latest count'],
   'stock.sizeMix': ['สัดส่วนตามขนาด', 'Size mix'],
   'stock.overTime': ['ยอดคงเหลือตามเวลา', 'Stock balance over time'],
+  // ตัดเหลือ 3 เดือนล่าสุดเพื่อให้ป้ายวันที่ไม่เบียดกัน — ตัดแล้วต้องบอกว่าเหลือช่วงไหน
+  'stock.overTimeWindow': [
+    '{n} เดือนล่าสุด · {from} – {to}',
+    'Last {n} months · {from} – {to}',
+  ],
   'stock.estimateNote': ['คำนวณจากผลผลิต ขนออก รับเข้า และการขายสะสม แล้วปรับให้ปลายเส้นตรงกับยอดที่นับได้จริง — ไม่ใช่ตัวเลขที่บันทึกไว้ในชีต', 'Derived from cumulative production, transfers and sales, anchored to the latest counted balance — not recorded in the sheet'],
   'stock.notEnoughFlow': ['ข้อมูลการเคลื่อนไหวยังไม่พอสร้างเส้นแนวโน้ม', 'Not enough movement data to build a trend line'],
   'stock.agingTable': ['สต็อกแยกตามสายพันธุ์และขนาด', 'Stock by strain and size'],
@@ -381,8 +399,12 @@ const STRINGS = {
   'supply.priceFilter': ['ราคา', 'Price'],
   'supply.hasPrice': ['เฉพาะที่มีราคา', 'Priced only'],
   'supply.noPriceOnly': ['เฉพาะที่ไม่มีราคา', 'Unpriced only'],
-  'supply.orderTable': ['มูลค่าการสั่งซื้อ', 'Purchase value'],
-  'supply.orderTableNote': ['เป็นข้อมูลราคาชุดเดียวที่มีในระบบ', 'The only price data in the whole system'],
+  'supply.stockTable': ['รายการสต๊อกปัจจุบัน', 'Current stock list'],
+  'supply.stockTableNote': [
+    'คงเหลือจากแท็บ log ของแต่ละรายการ · มูลค่า = คงเหลือ × ราคา/หน่วย · ราคามาจากตารางสั่งซื้อรายเดือนซึ่งมีไม่ครบทุกรายการ',
+    'Balances from each item’s log tab · value = balance × unit price · prices come from the monthly order tab, which does not cover every item',
+  ],
+  'supply.noPrice': ['*ยังไม่ใส่ราคา', '*price not set'],
   'exec.fromCostSheet': ['จากชีตต้นทุน', 'From the cost sheet'],
   'exec.grossProfit': ['กำไรขั้นต้น (ทั้งปี)', 'Gross profit (year)'],
   'exec.grossProfitHint': ['รายได้ − ต้นทุนการปลูก', 'Revenue − growing cost'],
@@ -392,16 +414,19 @@ const STRINGS = {
   'cost.growingOnly': ['วัตถุดิบ + Farm + Office', 'Materials + Farm + Office'],
   'cost.grossProfit': ['กำไรขั้นต้น', 'Gross profit'],
   'cost.ofRevenue': ['ของรายได้', 'of revenue'],
+  /* คำกำกับตัวเลขติดลบ — สีแดงอย่างเดียวไม่พอ ใต้ตาบอดสีแดง-เขียวจะเห็นว่า
+   * "มีการทำเครื่องหมายไว้" แต่ไม่รู้ว่าแปลว่าอะไร และแคปหน้าจอขาวดำก็หายไปเลย */
+  'cost.loss': ['ขาดทุน', 'Loss'],
   'cost.ebitda': ['EBITDA', 'EBITDA'],
   'cost.ebit': ['EBIT', 'EBIT'],
   'cost.depreciation': ['ค่าเสื่อมราคา', 'Depreciation'],
   'cost.material': ['ต้นทุนวัตถุดิบ', 'Materials'],
   'cost.farm': ['ค่าใช้จ่าย Farm', 'Farm expense'],
   'cost.office': ['ค่าใช้จ่าย Office', 'Office expense'],
-  'cost.pnlTitle': ['รายได้ ต้นทุน และ EBITDA รายเดือน', 'Revenue, cost and EBITDA by month'],
+  'cost.pnlTitle': ['รายได้ ต้นทุน และกำไรขั้นต้นรายเดือน', 'Revenue, cost and gross profit by month'],
   'cost.pnlNote': [
-    'จากแท็บ "สรุป" ของชีตต้นทุน · แสดงถึงเดือนล่าสุดที่มีความเคลื่อนไหว',
-    'From the “สรุป” tab of the cost sheet · shown up to the last month with activity',
+    'จากแท็บ "สรุป" ของชีตต้นทุน · กำไรขั้นต้นคำนวณใหม่จากรายได้ − ต้นทุน · แสดงถึงเดือนล่าสุดที่มีความเคลื่อนไหว',
+    'From the “สรุป” tab of the cost sheet · gross profit recomputed as revenue − cost · shown up to the last month with activity',
   ],
   'cost.coverageNote': [
     'ยอดด้านบนคิดถึง {span} เท่านั้น — ชีตกรอกค่าเสื่อมราคาและค่าใช้จ่าย Office ไว้ล่วงหน้าจนถึงสิ้นปี ถ้าบวกครบ 12 เดือนจะได้ EBIT {full} ซึ่งเป็นการเอารายได้ที่มีไปหักค่าใช้จ่ายของเดือนที่ยังไม่ถึง',

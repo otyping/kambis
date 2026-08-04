@@ -17,7 +17,7 @@ import { n, esc, DASH, month as monthName } from '../format.js';
 import * as charts from '../charts/index.js';
 import { sortableTable } from '../ui/table.js';
 import { awaitingCard } from '../ui/placeholder.js';
-import { pageHeader, panel, well, grid, tiles, emptyNote, appendQualityCard } from './shared.js';
+import { pageHeader, panel, well, grid, tiles, lossHint, emptyNote, appendQualityCard } from './shared.js';
 
 export const meta = { report: 'dryflower', page: 'cost' };
 
@@ -27,6 +27,12 @@ const fmtBaht = (v) => `${baht(v)} ฿`;
 
 /** `2026-06` → `มิ.ย. 2026` (ใช้ตัวแปลงเดือนตัวเดียวกับกราฟ) */
 const monthLabel = (m) => (m ? monthName(m) : '');
+
+/** ตัวเลขเงินในตารางที่ติดลบแล้วมีความหมาย (กำไร/EBIT) — ห้ามใช้กับรายจ่ายที่เก็บเป็นเลขบวก */
+const signedBaht = (v) =>
+  v === null || v === undefined || !Number.isFinite(v)
+    ? `<span class="muted">${DASH}</span>`
+    : `<b class="${v < 0 ? 'money-neg' : 'money-pos'}">${baht(v)}</b>`;
 
 export function render(ctx) {
   const { host, payload, supply, drawLater, requestSupply, onOpen, filters } = ctx;
@@ -79,14 +85,18 @@ function renderFinance(host, cost, filters, drawLater) {
      * เคยเจอจริง: มีคนแก้แถวต้นทุนในงบสรุปแล้วไม่ได้คำนวณแถว EBITDA ใหม่
      * ทำให้ช่อง EBITDA ค้างค่าเก่าอยู่ 1.23 ล้าน ถ้าเชื่อช่องนั้นตัวเลขบนจอจะผิดตาม
      * ส่วนที่ชีตขัดกันเองถูกรายงานเป็น finding `finance.ebitdaMismatch` */
+    /* สองช่องนี้ติด tone: 'signed' — เครื่องหมายมีความหมาย ติดลบ = ขาดทุนจริง
+     * ส่วนค่าเสื่อมราคากับต้นทุนไม่ติด เพราะเก็บเป็นเลขบวกทั้งที่เป็นรายจ่าย
+     * ถ้าย้อมตาม "เงินเข้า/เงินออก" หน้านี้จะแดงทั้งหน้าจนสีไม่เหลือความหมาย */
     {
       label: t('cost.grossProfit'),
       value: totals.grossProfit,
       unit: '฿',
-      hint: margin === null ? '' : `${n(margin, 1)}% ${t('cost.ofRevenue')}`,
+      tone: 'signed',
+      hint: lossHint(totals.grossProfit, margin === null ? '' : `${n(margin, 1)}% ${t('cost.ofRevenue')}`),
     },
     { label: t('cost.depreciation'), value: totals.depreciation, unit: '฿' },
-    { label: t('cost.ebit'), value: totals.ebit, unit: '฿' },
+    { label: t('cost.ebit'), value: totals.ebit, unit: '฿', tone: 'signed', hint: lossHint(totals.ebit) },
   ]);
 
   /* บอกให้ชัดว่าทำไมยอดถึงไม่ใช่ 12 เดือน — ไม่งั้นคนที่เปิดชีตเทียบเองจะงงว่าเลขไม่ตรง */
@@ -126,12 +136,19 @@ function renderFinance(host, cost, filters, drawLater) {
                 label: t('cost.totalCost'),
                 points: active.map((m) => ({ date: m.month, value: m.cost })),
               },
+              /* เส้นที่สามคือกำไรขั้นต้นที่ **คำนวณใหม่** (รายได้ − ต้นทุน) ไม่ใช่ช่อง EBITDA ในชีต
+               *
+               * ช่อง EBITDA ในชีตขัดกับรายได้−ต้นทุนของตัวเองทั้ง 6 เดือนที่เทียบได้
+               * (finding `finance.ebitdaMismatch` ระดับ critical ทุกเดือน) และ tile
+               * ด้านบนก็คิดใหม่อยู่แล้ว การให้กราฟกับ tile คนละที่มาแปลว่ามีตัวเลข
+               * สองชุดบนหน้าจอเดียวกัน — CLAUDE.md §6 ห้ามอ่านช่อง EBITDA มาแสดงตรง ๆ */
               {
-                label: t('cost.ebitda'),
-                points: active.map((m) => ({ date: m.month, value: m.ebitda })),
+                label: t('cost.grossProfit'),
+                points: active.map((m) => ({ date: m.month, value: m.grossProfit })),
               },
             ],
-            { height: 260, format: 'month' }
+            // unit: '฿' — ไม่ส่งแล้วทั้งแกน Y และ tooltip จะคิดว่าเป็นน้ำหนักแล้วขึ้นเป็น kg
+            { height: 260, format: 'month', unit: '฿' }
           ),
       });
     }
@@ -156,7 +173,8 @@ function renderFinance(host, cost, filters, drawLater) {
       const box = well(body);
       drawLater.push({
         node: box,
-        run: () => charts.donut(box, mix, { order, ramp: 'cat', height: 220 }),
+        // unit: '฿' จำเป็น ไม่งั้นยอด 17.3 ล้านบาทจะขึ้นกลางโดนัทว่า "17,299 kg"
+        run: () => charts.donut(box, mix, { order, ramp: 'cat', height: 220, unit: '฿' }),
       });
     }
   }
@@ -200,17 +218,16 @@ function renderFinance(host, cost, filters, drawLater) {
             get: (r) => r.cost,
             render: (r) => `<b>${baht(r.cost)}</b>`,
           },
+          /* ขาดทุนต้องเห็นทันทีโดยไม่ต้องอ่านเครื่องหมายลบ — และต้องทำครบทั้งสองคอลัมน์
+           * ถ้าย้อมแค่กำไรขั้นต้น แถวที่ EBIT ติดลบหนักกว่าจะเป็นสีปกติ
+           * แล้วคนอ่านจะสรุปว่า "ไม่แดง = ไม่ติดลบ" ซึ่งผิดทั้งคอลัมน์ */
           {
             label: t('cost.grossProfit'),
             align: 'n',
             get: (r) => r.grossProfit,
-            // ขาดทุนต้องเห็นทันทีโดยไม่ต้องอ่านเครื่องหมายลบ
-            render: (r) =>
-              r.grossProfit === null
-                ? `<span class="muted">${DASH}</span>`
-                : `<b class="${r.grossProfit < 0 ? 'money-neg' : 'money-pos'}">${baht(r.grossProfit)}</b>`,
+            render: (r) => signedBaht(r.grossProfit),
           },
-          { label: t('cost.ebit'), align: 'n', get: (r) => r.ebit, render: (r) => baht(r.ebit) },
+          { label: t('cost.ebit'), align: 'n', get: (r) => r.ebit, render: (r) => signedBaht(r.ebit) },
         ],
         cost.byMonth,
         { sortIndex: 0, sortDir: 'asc' }

@@ -14,7 +14,7 @@
  * ซึ่ง CLAUDE.md ข้อ 2 ห้ามไว้
  */
 import { t, pick } from '../i18n.js';
-import { n, esc, DASH } from '../format.js';
+import { n, esc, date as fmtDate, DASH } from '../format.js';
 import * as charts from '../charts/index.js';
 import { renderCards } from '../ui/cards.js';
 import { sortableTable } from '../ui/table.js';
@@ -76,6 +76,9 @@ export function render(ctx) {
 
   // ── (b) ยอดคงเหลือตามเวลา — ประมาณการจากการไหลของของ ──
   {
+    /* หัวข้อกับคำกำกับช่วงเวลาสร้างทีหลัง เพราะต้องรู้ก่อนว่าตัดช่วงไหนมาแสดงจริง
+     * (ตัดข้อมูลออกจากจอแล้วต้องบอกเสมอว่าเหลือช่วงไหน) */
+    let rangeNote = null;
     const body = panel(host, t('stock.overTime'), null, { wide: true });
 
     const chip = estimateChip(t('stock.estimateNote'));
@@ -125,6 +128,37 @@ export function render(ctx) {
       const bp = shift(bkkPts, actualBkk);
       const tp = fp.map((p, i) => ({ date: p.date, value: p.value + bp[i].value }));
 
+      /* แสดง 3 เดือนล่าสุดนับจากวันนี้ — ทั้งชุดมี 40+ วัน ป้ายวันที่จึงเบียดกันจนอ่านไม่ออก
+       *
+       * **ยอดสะสมต้องคำนวณจากทุกวันก่อน แล้วค่อยตัดช่วงที่จะแสดง** ถ้าตัดข้อมูลก่อนคำนวณ
+       * จุดแรกของกราฟจะเริ่มนับใหม่จากศูนย์ แล้วเส้นทั้งเส้นผิดโดยที่หน้าตายังดูปกติ
+       * (การตรึงปลายเส้นให้ตรงกับยอดที่นับได้จริงก็ต้องทำบนชุดเต็มด้วยเหตุผลเดียวกัน) */
+      const WINDOW_MONTHS = 3;
+      const monthsBack = (iso, months) => {
+        const d = new Date(`${iso}T00:00:00Z`);
+        d.setUTCMonth(d.getUTCMonth() - months);
+        return d.toISOString().slice(0, 10);
+      };
+      const today = new Date().toISOString().slice(0, 10);
+      let cutoff = monthsBack(today, WINDOW_MONTHS);
+      // ชีตที่หยุดอัปเดตไปนานกว่า 3 เดือนต้องไม่ได้กราฟเปล่า — ถอยไปนับจากวันสุดท้ายที่มีข้อมูลแทน
+      if (fp.filter((p) => p.date >= cutoff).length < 2) {
+        cutoff = monthsBack(fp[fp.length - 1].date, WINDOW_MONTHS);
+      }
+      const clip = (pts) => pts.filter((p) => p.date >= cutoff);
+      const [fpShown, bpShown, tpShown] = [clip(fp), clip(bp), clip(tp)];
+
+      if (fpShown.length < fp.length) {
+        rangeNote = t('stock.overTimeWindow', {
+          n: WINDOW_MONTHS,
+          from: fmtDate(fpShown[0].date),
+          to: fmtDate(fpShown[fpShown.length - 1].date),
+        });
+        // panel() รับ note ตอนสร้าง แต่ตอนนั้นยังไม่รู้ช่วงที่ตัดได้จริง จึงเติมทีหลัง
+        const title = body.parentElement.querySelector('.panel__title');
+        if (title) title.insertAdjacentHTML('beforeend', ` <span>${esc(rangeNote)}</span>`);
+      }
+
       const box = well(body);
       drawLater.push({
         node: box,
@@ -132,9 +166,9 @@ export function render(ctx) {
           charts.line(
             box,
             [
-              { label: t('filter.huahin'), points: fp },
-              { label: t('filter.bangkok'), points: bp },
-              { label: t('label.total'), points: tp },
+              { label: t('filter.huahin'), points: fpShown },
+              { label: t('filter.bangkok'), points: bpShown },
+              { label: t('label.total'), points: tpShown },
             ],
             // ทั้งสามเส้นเป็นค่าประมาณ จึงเป็นเส้นประหมด
             { height: 240, dashed: [0, 1, 2] }

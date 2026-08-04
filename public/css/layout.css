@@ -9,8 +9,29 @@
 /* ── Header ──
  * อยู่ระดับ body (นอก .shell) จึงกว้างเต็มจอโดยธรรมชาติ
  * ห้ามใส่ margin ติดลบ เพราะจะดันให้หน้าเลื่อนแนวนอนบนจอเล็ก
+ *
+ * **header ไม่โตตาม --fs-scale ของทั้งเว็บ** — ตัวอักษรที่ใหญ่ขึ้นมีไว้ให้ "ตัวเลขในรายงาน"
+ * อ่านง่ายขึ้น ส่วน header เป็น chrome ที่กินความสูงถาวรทุกหน้าเพราะติดบน (sticky)
+ * ของ 7 ชิ้นบนแถบนี้พอโตขึ้นจะขึ้นบรรทัดใหม่ แล้วแถบสูงจาก 125px เป็น 157px
+ * บนจอ 1280 และ 184 → 242px บนจอ 768 ซึ่งกินที่ก่อนเห็นตัวเลขสักตัว
+ *
+ * **ต้องประกาศบันได --fs-* ซ้ำทั้งชุดตรงนี้ ตั้งแค่ --fs-scale ไม่มีผล**
+ * เพราะ --fs-* ถูก resolve ที่ :root ไปแล้วตั้งแต่ตอนประกาศ ค่าที่ไหลลงมาถึง header
+ * เป็นความยาวที่คำนวณเสร็จแล้ว ไม่ใช่สูตรที่รอ var() ตัวใหม่
  */
 .site-header {
+  --fs-scale: 1;
+  --fs-4xs: calc(0.625rem * var(--fs-scale));
+  --fs-3xs: calc(0.75rem * var(--fs-scale));
+  --fs-2xs: calc(0.8125rem * var(--fs-scale));
+  --fs-xs: calc(0.875rem * var(--fs-scale));
+  --fs-sm: calc(0.9375rem * var(--fs-scale));
+  --fs-md: calc(1rem * var(--fs-scale));
+  --fs-lg: calc(1.125rem * var(--fs-scale));
+  --fs-xl: calc(1.25rem * var(--fs-scale));
+  --fs-2xl: calc(1.375rem * var(--fs-scale));
+  --fs-3xl: calc(1.5rem * var(--fs-scale));
+
   position: sticky;
   top: 0;
   z-index: 40;
@@ -20,6 +41,9 @@
   border-bottom: 1px solid var(--header-border);
   -webkit-backdrop-filter: blur(16px) saturate(140%);
   backdrop-filter: blur(16px) saturate(140%);
+  /* ขนาดฐานของ header เอง — .brand__title ฯลฯ อ้าง --fs-* ที่ประกาศใหม่ข้างบนอยู่แล้ว
+   * บรรทัดนี้คุมข้อความที่ไม่มีคลาสกำกับ (เช่นข้อความในปุ่มที่ inherit มา) */
+  font-size: var(--fs-md);
 }
 
 .site-header__inner {
@@ -47,14 +71,14 @@
 }
 
 .brand__title {
-  font-size: 17px;
+  font-size: var(--fs-lg);
   font-weight: 700;
   letter-spacing: 0.01em;
   line-height: 1.2;
 }
 
 .brand__sub {
-  font-size: 12px;
+  font-size: var(--fs-2xs);
   color: var(--ink-mute);
 }
 
@@ -62,7 +86,7 @@
  * ถ้าไม่มีบรรทัดนี้ ผู้ใช้จะไม่มีทางรู้ว่ากำลังอยู่หน้าไหนโดยไม่เปิดเมนู */
 .brand__crumb {
   display: none;
-  font-size: 12px;
+  font-size: var(--fs-2xs);
   font-weight: 600;
   color: var(--accent);
   white-space: nowrap;
@@ -77,11 +101,13 @@
   flex-wrap: wrap;
 }
 
-/* ── KPI strip ── */
+/* ── KPI strip ──
+ * ระยะระหว่างการ์ดต้องมากกว่าระยะในการ์ด ไม่งั้นอ่านเป็นแผ่นเดียว
+ * (ในการ์ดคือ padding 16 กับช่องไฟ 8 — ระหว่างการ์ดจึงต้องอย่างน้อย 16) */
 .kpi-strip {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  gap: var(--sp-3);
+  gap: var(--sp-4);
   margin-bottom: var(--sp-5);
 }
 
@@ -89,7 +115,9 @@
 .card-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: var(--sp-4);
+  /* 24px ระหว่างการ์ด เทียบกับ padding 24 ในการ์ด — เดิม 16 ซึ่งน้อยกว่าระยะในการ์ดเอง
+   * ทำให้การ์ดดูติดกันทั้งที่ข้างในโปร่ง (ผู้ใช้ทักว่า "ชิดกัน") */
+  gap: var(--sp-5);
   align-items: start;
 }
 
@@ -102,7 +130,7 @@
   margin-top: var(--sp-6);
   padding-top: var(--sp-4);
   border-top: 1px solid var(--glass-border-soft);
-  font-size: 12.5px;
+  font-size: var(--fs-2xs);
   color: var(--ink-mute);
   display: flex;
   gap: var(--sp-4);

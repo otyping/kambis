@@ -69,7 +69,10 @@ export function render(ctx) {
 
   let filters = readSupplyFilters(params);
 
+  /* .stack ให้ระยะห่างระหว่างแผงเท่ากับหน้าอื่น — กล่องนี้เป็น div เปล่าที่หน้าวาดใหม่เอง
+   * แผงข้างในจึงไม่ได้ gap ของ .page (เป็นหลานไม่ใช่ลูก) แล้วดูติดกันไปหมด */
   const dataHost = document.createElement('div');
+  dataHost.className = 'stack';
 
   const bar = supplyFilterBar({
     filters,
@@ -112,7 +115,8 @@ export function render(ctx) {
     renderReorder(dataHost, reorder, kpi);
     renderAnomalies(dataHost, kpi.usageAnomalies, match);
     renderUsage(dataHost, usage, monthsWithUsage, filters, options);
-    renderOrderTable(dataHost, orderItems);
+    // ตารางสต๊อกใช้แถวจากแท็บ log (ยอดคงเหลือจริง) ไม่ใช่ orderItems ที่เป็นแผนสั่งซื้อ
+    renderStockTable(dataHost, shownItems);
   };
 
   draw();
@@ -164,9 +168,10 @@ function renderUsage(host, usage, monthsWithUsage, filters, options) {
 
   body.appendChild(
     sortableTable(
+      /* หน่วยอยู่ท้ายสุด ต่อจากคอลัมน์รวม — คอลัมน์เดือนคือของที่ต้องกวาดตาเทียบกัน
+       * แทรกคอลัมน์ข้อความคั่นระหว่างชื่อรายการกับตัวเลขทำให้สายตาสะดุดทุกแถว */
       [
         { label: t('supply.item'), get: (r) => r.item },
-        { label: t('supply.unit'), get: (r) => r.unit ?? '' },
         ...shown.map((m) => ({
           label: m,
           align: 'n',
@@ -180,55 +185,70 @@ function renderUsage(host, usage, monthsWithUsage, filters, options) {
           get: totalOf,
           render: (r) => `<b>${n(totalOf(r))}</b>`,
         },
+        { label: t('supply.unit'), get: (r) => r.unit ?? '' },
       ],
       usage,
-      { sortIndex: 2 + shown.length, sortDir: 'desc' }
+      // เรียงตามคอลัมน์รวม ซึ่งตอนนี้อยู่ถัดจากคอลัมน์เดือนสุดท้าย (ชื่อรายการ + เดือน)
+      { sortIndex: 1 + shown.length, sortDir: 'desc' }
     )
   );
 }
 
-/** ④ ตารางมูลค่าการสั่งซื้อ — ข้อมูลราคาชุดเดียวที่มีในระบบ */
-function renderOrderTable(host, items) {
-  const body = panel(host, t('supply.orderTable'), t('supply.orderTableNote'), { wide: true });
+/**
+ * ④ รายการสต๊อกปัจจุบัน
+ *
+ * แถวมาจาก **แท็บ log ของแต่ละรายการ** ไม่ใช่ตารางสั่งซื้อรายเดือน
+ * "คงเหลือ" จึงเป็นยอดจริง ณ วันนี้ (แถวล่าสุดที่วันที่ ≤ วันนี้ — ชีตมีแถวลงวันที่
+ * ล่วงหน้าที่ยอดถูก carry forward ไว้ ถ้าอ่านแถวสุดท้ายของแท็บจะได้ยอดของอนาคต)
+ *
+ * ราคาถูก join มาจากตารางสั่งซื้อซึ่งมีแค่ 60 รายการจาก 138 แท็บ ที่จับคู่ไม่ได้
+ * ต้องขึ้นว่า "ยังไม่ใส่ราคา" ให้เห็นชัด **ห้ามเดาราคาหรือคิดเป็น 0**
+ * ไม่งั้นมูลค่ารวมของสต๊อกจะต่ำกว่าความจริงโดยไม่มีอะไรบอก
+ */
+function renderStockTable(host, items) {
+  const body = panel(host, t('supply.stockTable'), t('supply.stockTableNote'), { wide: true });
   if (!items.length) {
     emptyNote(body);
     return;
   }
+
+  // มูลค่าคิดได้เฉพาะรายการที่มีทั้งยอดคงเหลือและราคา
+  const valueOf = (r) =>
+    r.balance !== null && r.unitPrice !== null ? r.balance * r.unitPrice : null;
+
   body.appendChild(
     sortableTable(
       [
         { label: t('supply.item'), get: (r) => r.item },
-        { label: t('supply.unit'), get: (r) => r.unit ?? '' },
         {
           label: t('supply.balance'),
           align: 'n',
           get: (r) => r.balance,
           render: (r) => (r.balance === null ? `<span class="muted">${DASH}</span>` : n(r.balance)),
         },
-        {
-          label: t('supply.orderQty'),
-          align: 'n',
-          get: (r) => r.qty,
-          render: (r) => (r.qty === null ? `<span class="muted">${DASH}</span>` : n(r.qty)),
-        },
+        { label: t('supply.unit'), get: (r) => r.unit ?? '' },
         {
           label: t('supply.unitPrice'),
           align: 'n',
           get: (r) => r.unitPrice,
           render: (r) =>
-            r.unitPrice === null ? `<span class="muted">${DASH}</span>` : n(r.unitPrice, 2),
+            r.unitPrice === null
+              ? `<span class="cell-missing">${esc(t('supply.noPrice'))}</span>`
+              : n(r.unitPrice, 2),
         },
         {
           label: t('supply.amount'),
           align: 'n',
-          get: (r) => r.amount,
-          render: (r) =>
-            r.amount === null ? `<span class="muted">${DASH}</span>` : `<b>${n(r.amount, 2)}</b>`,
+          get: valueOf,
+          render: (r) => {
+            const v = valueOf(r);
+            return v === null ? `<span class="muted">${DASH}</span>` : `<b>${n(v, 2)}</b>`;
+          },
         },
         { label: t('supply.lifetime'), get: (r) => r.lifetimeText ?? '' },
       ],
       items,
-      { sortIndex: 5, sortDir: 'desc' }
+      { sortIndex: 4, sortDir: 'desc' }
     )
   );
 }

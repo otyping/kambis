@@ -19,8 +19,14 @@
 
 /* ── มือถือ ── */
 @media (max-width: 767px) {
+  /* ย่อทั้งสเกลลงเล็กน้อยแทนการไล่ตั้ง font-size ทีละคลาส
+   * ลำดับตัวอักษรจึงเหมือนจอใหญ่เป๊ะ ๆ แค่ทั้งชุดเล็กลงตามที่ว่างที่น้อยกว่า */
+  :root {
+    --fs-scale: 1.1;
+  }
+
   body {
-    font-size: 14.5px;
+    font-size: var(--fs-md);
   }
 
   .shell {
@@ -56,7 +62,7 @@
   }
 
   .brand__title {
-    font-size: 14px;
+    font-size: var(--fs-sm);
   }
 
   .brand__sub {
@@ -72,9 +78,10 @@
     gap: var(--sp-1);
   }
 
+  /* จอเล็กก็ยังต้องรักษาลำดับ "ระหว่างการ์ด > ในการ์ด" ไว้ (ในการ์ดคือ padding 12) */
   .kpi-strip {
     grid-template-columns: repeat(2, 1fr);
-    gap: var(--sp-2);
+    gap: var(--sp-3);
   }
 
   .kpi {
@@ -94,7 +101,7 @@
   }
 
   .mini-bar {
-    grid-template-columns: 68px 1fr auto;
+    grid-template-columns: minmax(68px, max-content) 1fr auto;
     gap: var(--sp-2);
   }
 
@@ -142,7 +149,7 @@
   }
 
   .modal__title {
-    font-size: 17px;
+    font-size: var(--fs-lg);
   }
 
   .panel-grid {
@@ -180,23 +187,34 @@
   }
 }
 
-/* ── จอกว้างมาก ── */
-@media (min-width: 1800px) {
-  .card-grid {
-    grid-template-columns: repeat(4, 1fr);
-  }
-
-  .card--wide {
-    grid-column: span 2;
-  }
-}
+/* จอกว้างมากเคยแบ่งการ์ดเป็น 4 คอลัมน์ — เอาออกแล้ว
+ * .shell ถูกจำกัดที่ --max-w (1560px) อยู่แล้ว การ์ดจึงเหลือใบละ ~375px
+ * ซึ่งแคบเกินกว่าจะวางตัวเลขพาดหัวกับกราฟย่อในใบเดียวกันได้สบาย
+ * 3 คอลัมน์เท่ากันทุกความกว้างตั้งแต่ 1280px ขึ้นไป = การ์ดกว้าง ~500px */
 
 /* ── อุปกรณ์สัมผัส: touch target ต้องใหญ่พอ ── */
 @media (hover: none) {
+  /* ช่องกรอกกับ select ก็เป็นเป้ากดเหมือนปุ่ม — เดิมกฎนี้ครอบแค่ .btn
+   * แล้ว .ctl-select (30px) · .supply-search (32px) · .filter-year (32px) ตกเกณฑ์มาตลอด */
   .btn,
   .seg button,
-  .lang-toggle button {
+  .lang-toggle button,
+  .ctl-select,
+  .supply-search,
+  .filter-year,
+  .filter-year__select,
+  .filter-date,
+  .filter-pick,
+  .qty-input {
     min-height: 44px;
+  }
+
+  /* ช่องติ๊กเลือกรายการในใบขอซื้อ — ค่า default ของเบราว์เซอร์คือ 13×13px
+   * นิ้วโป้งกดพลาดแทบทุกครั้ง ขยายเฉพาะอุปกรณ์สัมผัสเพื่อไม่ให้จอ PC ดูเทอะทะ */
+  .col-check input[type='checkbox'],
+  table.data input[type='checkbox'] {
+    width: 24px;
+    height: 24px;
   }
 
   .glass--interactive:hover {
