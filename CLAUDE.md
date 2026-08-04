@@ -195,6 +195,9 @@ finding **ไม่บล็อกการแสดงผล** ข้อมู�
 
 นิยามอยู่ใน `.claude/agents/` เรียกใช้ผ่าน Task tool หรือพิมพ์ชื่อ agent
 
+แต่ละ agent มี skill ประจำที่ต้องอ่านก่อนเริ่มงาน:
+`data-analyst` → `.claude/skills/data-analysis/` · `ux-ui-designer` → `.claude/skills/responsive-ui/`
+
 **การทำงานร่วมกัน:** `data-analyst` กำหนดว่าตัวเลขไหนเชื่อถือได้และแปลว่าอะไร →
 `ux-ui-designer` กำหนดว่ามันหน้าตาอย่างไร → `backend-dev` กำหนดว่ามันเดินทางถึงเบราว์เซอร์อย่างไร
 ห้าม agent หนึ่งแก้ไฟล์ของอีก agent โดยไม่แจ้ง
@@ -245,6 +248,7 @@ kambis/
 ├── แบบฟอร์มรายงาน Kambis.txt      ← แหล่งความจริงของลิงก์ (คนแก้เท่านั้น)
 ├── .claude/agents/               ← นิยาม agent 3 ตัว
 ├── .claude/skills/responsive-ui/ ← มาตรฐาน mobile/PC + เกณฑ์งานออกแบบ
+├── .claude/skills/data-analysis/ ← มาตรฐานการอ่านไฟล์ดิบ + กฎการคำนวณ (+ scripts/read-any.mjs)
 ├── config/sources.json           ← GENERATED — ห้ามแก้มือ
 ├── config/users.json             ← ผู้ใช้ + hash รหัสผ่าน (gitignored, ห้าม commit)
 ├── .env                          ← API key (gitignored, ห้าม commit)
