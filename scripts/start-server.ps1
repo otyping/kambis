@@ -29,6 +29,24 @@ function Write-Sup([string]$msg) {
 
 Write-Sup 'เริ่มตัวคุมเซิร์ฟเวอร์'
 
+<#
+  เก็บ log ของรอบที่เพิ่งตายไว้เป็นไฟล์ .crash ก่อนเปิดรอบใหม่
+
+  Start-Process เขียนทับไฟล์ปลายทางเสมอ ต่อท้ายไม่ได้ ถ้าไม่ย้ายเก็บก่อน
+  หลักฐานว่าทำไมรอบก่อนถึงตายจะถูกลบทิ้งทุกครั้งที่เปิดใหม่ — ซึ่งเคยทำให้
+  หาสาเหตุไม่เจอมาแล้ว เพราะเห็นแต่ log ของรอบล่าสุดที่ยังไม่ตาย
+#>
+function Save-CrashLog {
+    if ((Test-Path $ErrLog) -and ((Get-Item $ErrLog).Length -gt 0)) {
+        $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+        Copy-Item $ErrLog (Join-Path $LogDir "crash-$stamp.log") -Force
+        # เก็บไว้ 10 ไฟล์ล่าสุดพอ
+        Get-ChildItem $LogDir -Filter 'crash-*.log' |
+            Sort-Object LastWriteTime -Descending | Select-Object -Skip 10 |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+    }
+}
+
 # วนคุมไว้: ถ้า node ดับด้วยเหตุใดก็ตาม รอแล้วเปิดใหม่
 $fails = 0
 while ($true) {
@@ -40,16 +58,27 @@ while ($true) {
         -WindowStyle Hidden -PassThru
 
     Write-Sup "เปิดเซิร์ฟเวอร์ PID $($proc.Id)"
-    $proc.WaitForExit()
+
+    <#
+      ไม่ใช้ WaitForExit() เพราะเคยเจอว่ามันค้างไม่คืนค่าแม้โปรเซสหายไปแล้ว
+      ทำให้ตัวคุมนอนรอตลอดกาลและไม่เปิดเซิร์ฟเวอร์ใหม่ให้เลย
+      ถามสถานะเองทุก 5 วินาทีแทน ซึ่งเชื่อถือได้กว่าและยังเบามาก
+    #>
+    while (-not (Get-Process -Id $proc.Id -ErrorAction SilentlyContinue).HasExited) {
+        if (-not (Get-Process -Id $proc.Id -ErrorAction SilentlyContinue)) { break }
+        Start-Sleep -Seconds 5
+    }
 
     $alive = (Get-Date) - $started
-    Write-Sup "หยุดทำงาน (exit $($proc.ExitCode)) หลังรันมา $([math]::Round($alive.TotalMinutes,1)) นาที"
+    $code = try { $proc.ExitCode } catch { 'ไม่ทราบ' }
+    Write-Sup "หยุดทำงาน (exit $code) หลังรันมา $([math]::Round($alive.TotalMinutes,1)) นาที"
+    Save-CrashLog
 
     # ถ้าดับเร็วติดกันหลายครั้ง แปลว่าเปิดไม่ขึ้นจริง ๆ (เช่นพอร์ตถูกใช้ หรือ config พัง)
     # การวนเปิดรัว ๆ มีแต่จะถมดิสก์ด้วย log จึงถอยให้ห่างขึ้นเรื่อย ๆ
     if ($alive.TotalSeconds -lt 30) { $fails++ } else { $fails = 0 }
     $wait = [math]::Min(10 * [math]::Pow(2, $fails), 300)
-    if ($fails -ge 5) { Write-Sup "เปิดไม่ขึ้น $fails ครั้งติด — ตรวจ server-err.log" }
+    if ($fails -ge 5) { Write-Sup "เปิดไม่ขึ้น $fails ครั้งติด — ตรวจไฟล์ crash-*.log" }
 
     Start-Sleep -Seconds $wait
 }
