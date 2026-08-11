@@ -6,9 +6,45 @@
  * `setupCanvas()` คืน null เมื่อกล่องยังกว้าง 0 แล้วกราฟจะ bail เงียบ ๆ
  * และ onResize ข้าม width === 0 จึงไม่มีวันแก้ตัวเองตอนแสดงผลทีหลัง
  */
-import { t } from '../i18n.js';
+import { t, getLang } from '../i18n.js';
 import { esc, grams, n, valueLen, DASH } from '../format.js';
 import { qualityCard } from '../ui/cards.js';
+
+/** ชื่อเดือนแบบสั้นโดยไม่มีปี — `2026-07` → `ก.ค.` / `Jul` */
+function shortMonth(ym) {
+  const d = new Date(`${ym}-01T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return ym;
+  return d.toLocaleDateString(getLang() === 'en' ? 'en-GB' : 'th-TH', {
+    month: 'short',
+    timeZone: 'UTC',
+  });
+}
+
+/**
+ * ช่วงเวลาที่ยอดในงบต้นทุนครอบคลุมจริง — `2026-01` + `2026-07` → `ม.ค.–ก.ค. 2026`
+ *
+ * **ป้ายบนการ์ดต้องบอกช่วงเวลาจริง ห้ามเขียนแค่ปี** (CLAUDE.md §6)
+ * ชีตกรอกค่าเสื่อมราคากับค่าใช้จ่าย Office ไว้ล่วงหน้าครบ 12 เดือน แต่รายได้มีถึงมิถุนายน
+ * `totals` จึงถูกตัดที่ `lastActiveMonth` — ถ้าเขียนว่า "(2026)" ผู้บริหารจะอ่านว่าเป็น
+ * ผลทั้งปี แล้วเข้าใจว่าขาดทุนมากกว่าความจริง
+ *
+ * **ปีเขียนเป็น ค.ศ. ไม่ใช่ พ.ศ.** ต่างจาก `format.month()` ที่ใช้ locale ไทยแล้วได้ "ก.ค. 69"
+ * เพราะป้ายนี้อยู่ใต้แถบตัวกรองที่เขียนว่า "2026" ถ้าสองที่ใช้คนละศักราช
+ * ผู้ใช้จะไม่แน่ใจว่ากำลังดูปีไหนอยู่ — และปีเขียนครั้งเดียวท้ายช่วงก็สั้นกว่าด้วย
+ *
+ * อยู่ที่นี่เพราะทั้งหน้าภาพรวมและหน้าต้นทุนต้องได้ข้อความเดียวกันเป๊ะ
+ */
+export function costSpan(cost, fallback = '') {
+  const cov = cost?.coverage;
+  if (!cov) return cost?.year ?? cost?.requestedYear ?? fallback;
+
+  const fromYear = cov.from.slice(0, 4);
+  const toYear = cov.to.slice(0, 4);
+  // ช่วงข้ามปีต้องบอกปีทั้งสองฝั่ง ไม่งั้นจะอ่านเป็นช่วงในปีเดียว
+  return fromYear === toYear
+    ? `${shortMonth(cov.from)}–${shortMonth(cov.to)} ${fromYear}`
+    : `${shortMonth(cov.from)} ${fromYear}–${shortMonth(cov.to)} ${toYear}`;
+}
 
 /** กล่องหัวข้อของหน้า */
 export function pageHeader(host, { title, sub }) {
@@ -92,7 +128,10 @@ export function tiles(host, items) {
         }
       }
       const cls = item.awaiting ? ' kpi--awaiting' : '';
-      const hint = item.awaiting ? t('awaiting.badge') : (item.hint ?? '');
+      /* ช่องที่รอข้อมูลก็ยังบอกเหตุผลได้ ถ้าผู้เรียกส่ง hint มา
+       * เดิมทับด้วย "รอข้อมูล" เสมอ ข้อความอย่าง "ชีตต้นทุนไม่มีข้อมูลปี 2025"
+       * จึงไม่มีวันขึ้นจอ — ผู้ใช้เห็นแต่ "—" โดยไม่รู้ว่าทำไม */
+      const hint = item.awaiting ? item.hint || t('awaiting.badge') : (item.hint ?? '');
       // ช่องที่ประกาศ tone: 'signed' และมีค่าจริงเท่านั้น — "—" ต้องเป็นสีเทาเหมือนเดิม
       const signed = item.tone === 'signed' && !item.awaiting && Number.isFinite(item.value);
       const tone = signed ? ` ${item.value < 0 ? 'money-neg' : 'money-pos'}` : '';

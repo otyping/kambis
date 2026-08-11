@@ -11,13 +11,13 @@ import { t, pick } from '../i18n.js';
 import { n } from '../format.js';
 import { renderCards } from '../ui/cards.js';
 import { awaitingCard } from '../ui/placeholder.js';
-import { pageHeader, tiles, lossHint, grid, appendQualityCard } from './shared.js';
+import { pageHeader, tiles, lossHint, grid, appendQualityCard, costSpan } from './shared.js';
 import { monthlySeries, sum, comparePeriod } from '../shared/agg-core.js';
 
 export const meta = { report: 'dryflower', page: 'overview' };
 
 export function render(ctx) {
-  const { host, payload, sources, onOpen, drawLater } = ctx;
+  const { host, payload, sources, filters, onOpen, drawLater } = ctx;
 
   pageHeader(host, { title: t('page.overview.title'), sub: t('page.overview.sub') });
 
@@ -47,12 +47,23 @@ export function render(ctx) {
   const huaHin = inventory.filter((r) => /หัวหิน|hua\s*hin/i.test(r.location ?? ''));
   const bangkok = inventory.filter((r) => !/หัวหิน|hua\s*hin/i.test(r.location ?? ''));
 
-  // ต้นทุนวัสดุสิ้นเปลือง — คนละขอบเขตกับงบต้นทุนการปลูก ห้ามเอาไปบวกกัน
-  const supplyCost = ctx.supply?.kpi?.order?.totalAmount ?? null;
-
-  // งบรายรับ-รายจ่ายจากชีต "แบบฟอร์มต้นทุน" (ลิงก์ที่ 8)
+  /* งบรายรับ-รายจ่ายจากชีต "แบบฟอร์มต้นทุน" (ลิงก์ที่ 8)
+   *
+   * ยอดถูกตัดที่เดือนล่าสุดที่มีความเคลื่อนไหวจริง (ค่าเสื่อมกับ Office ถูกกรอกล่วงหน้า
+   * ครบ 12 เดือน) ป้ายจึงต้องบอกช่วงเวลาจริง ห้ามเขียนแค่ปี — ใช้ตัวสร้างข้อความ
+   * ตัวเดียวกับหน้าต้นทุน ไม่งั้นสองหน้าจะบอกช่วงไม่ตรงกัน */
   const fin = payload.kpi?.cost;
+  const finSpan = costSpan(fin, filters?.resolvedYear ?? t('label.byYear'));
 
+  /* ชีตปกติดี แต่ปีที่เลือกไม่มีข้อมูล — คนละเรื่องกับชีตล่ม ต้องบอกให้ตรง
+   * ไม่งั้นผู้ใช้จะเห็น "—" แล้วเข้าใจว่าระบบพัง หรือแย่กว่านั้นคือไปแก้ชีตที่ไม่ได้ผิด */
+  const noCostYear = Boolean(fin?.sheetAvailable && !fin.available);
+  const finHint = noCostYear
+    ? t('exec.noCostYear', { year: fin.requestedYear ?? '' })
+    : t('exec.fromCostSheet');
+
+  /* ลำดับตามที่ผู้ใช้กำหนด: ผลผลิต → สต็อก → ประสิทธิภาพ → เงิน
+   * (ตรงกับลำดับหน้าย่อยในเมนู) */
   tiles(host, [
     {
       label: `${t('exec.produced')} (${lastYear ? lastYear.year : t('label.byYear')})`,
@@ -65,49 +76,6 @@ export function render(ctx) {
       value: lastMonth?.flower ?? null,
       unit: 'g',
       hint: t('exec.fromDailyTrim'),
-    },
-    /* รายได้กับต้นทุนมาจากชีต "แบบฟอร์มต้นทุน" ที่เพิ่งเพิ่มเข้ามาเป็นลิงก์ที่ 8
-     * ก่อนหน้านี้เป็นช่อง "รอข้อมูล" ถาวรเพราะไม่มีชีตไหนมีตัวเลขเงินเลย
-     * ยังต้องรองรับกรณีชีตโหลดไม่ได้อยู่ — null แล้วขึ้นรอข้อมูลเหมือนเดิม */
-    {
-      label: `${t('exec.revenue')} (${fin?.year ?? t('label.byYear')})`,
-      value: fin?.revenueByYear ?? null,
-      unit: '฿',
-      hint: t('exec.fromCostSheet'),
-      awaiting: !fin?.available,
-    },
-    {
-      label: `${t('exec.revenue')} (${fin?.lastActiveMonth ?? t('label.byMonth')})`,
-      value: fin?.revenueByMonth ?? null,
-      unit: '฿',
-      hint: t('exec.fromCostSheet'),
-      awaiting: !fin?.available,
-    },
-    {
-      label: `${t('exec.cost')} (${fin?.year ?? t('label.byYear')})`,
-      value: fin?.costByYear ?? null,
-      unit: '฿',
-      hint: t('cost.growingOnly'),
-      awaiting: !fin?.available,
-    },
-    {
-      label: t('exec.grossProfit'),
-      value: fin?.totals?.grossProfit ?? null,
-      unit: '฿',
-      // ติดลบ = ขาดทุนจริง ย้อมสีตามเครื่องหมายพร้อมคำกำกับ (ดู tiles() ใน pages/shared.js)
-      tone: 'signed',
-      /* ตอนขาดทุนเขียนแค่ "ขาดทุน" ไม่ต่อท้ายสูตร — ช่อง hint เป็นบรรทัดเดียวตัดท้ายด้วย …
-       * บนจอ 375px ข้อความรวมยาวเกินช่อง 15px แล้วสูตรจะโดนตัดกลางคำอยู่ดี
-       * คำว่าขาดทุนสำคัญกว่าสูตร ส่วนสูตรยังอยู่ครบบนหน้าต้นทุน */
-      hint: lossHint(fin?.totals?.grossProfit) || t('exec.grossProfitHint'),
-      awaiting: !fin?.available,
-    },
-    {
-      label: t('exec.supplyCost'),
-      value: supplyCost,
-      unit: '฿',
-      hint: supplyCost === null ? t('exec.supplyCostPending') : t('exec.supplyCostHint'),
-      awaiting: supplyCost === null,
     },
     {
       label: t('exec.stockHuaHin'),
@@ -128,6 +96,38 @@ export function render(ctx) {
       decimals: 1,
       hint: lastYear ? `${n(lastYear.plants)} ${t('label.plants')}` : '',
     },
+    /* รายได้กับต้นทุนมาจากชีต "แบบฟอร์มต้นทุน" ที่เพิ่งเพิ่มเข้ามาเป็นลิงก์ที่ 8
+     * ก่อนหน้านี้เป็นช่อง "รอข้อมูล" ถาวรเพราะไม่มีชีตไหนมีตัวเลขเงินเลย
+     * ยังต้องรองรับทั้งกรณีชีตโหลดไม่ได้และกรณีปีที่เลือกไม่มีข้อมูล — null ทั้งคู่
+     * แต่ข้อความกำกับต่างกัน (ดู finHint) */
+    {
+      label: `${t('exec.revenue')} (${finSpan})`,
+      value: fin?.revenueByYear ?? null,
+      unit: '฿',
+      hint: finHint,
+      awaiting: !fin?.available,
+    },
+    {
+      label: `${t('exec.cost')} (${finSpan})`,
+      value: fin?.costByYear ?? null,
+      unit: '฿',
+      hint: noCostYear ? finHint : t('cost.growingOnly'),
+      awaiting: !fin?.available,
+    },
+    {
+      label: `${t('exec.grossProfit')} (${finSpan})`,
+      value: fin?.totals?.grossProfit ?? null,
+      unit: '฿',
+      // ติดลบ = ขาดทุนจริง ย้อมสีตามเครื่องหมายพร้อมคำกำกับ (ดู tiles() ใน pages/shared.js)
+      tone: 'signed',
+      /* ตอนขาดทุนเขียนแค่ "ขาดทุน" ไม่ต่อท้ายสูตร — ช่อง hint เป็นบรรทัดเดียวตัดท้ายด้วย …
+       * บนจอ 375px ข้อความรวมยาวเกินช่อง 15px แล้วสูตรจะโดนตัดกลางคำอยู่ดี
+       * คำว่าขาดทุนสำคัญกว่าสูตร ส่วนสูตรยังอยู่ครบบนหน้าต้นทุน */
+      hint:
+        lossHint(fin?.totals?.grossProfit) ||
+        (noCostYear ? finHint : t('exec.grossProfitHint')),
+      awaiting: !fin?.available,
+    },
   ]);
 
   // การ์ดภาพรวมของทั้งระบบ (การ์ดคุณภาพข้อมูลอยู่ท้ายหน้า ไม่ใช่ตรงนี้)
@@ -143,7 +143,9 @@ export function render(ctx) {
   const sheetOf = (key) => payload.meta.sources.find((s) => s.key === key) ?? {};
   const salesSheet = sheetOf('sales');
 
-  if (!payload.kpi?.cost?.available) {
+  /* ดู sheetAvailable ไม่ใช่ available — available ผูกกับปีที่เลือกอยู่แล้ว
+   * ถ้าใช้ตัวนั้น เลือกปีที่ชีตไม่มีข้อมูลจะขึ้นการ์ด "ไปแก้แท็บสรุป" ทั้งที่ชีตปกติดี */
+  if (!payload.kpi?.cost?.sheetAvailable) {
     // ชีตต้นทุนโหลดไม่สำเร็จ — ต้องบอกว่าตัวเลขเงินหายไปเพราะอะไร
     const gaps = grid(host, { cols: 1 });
     gaps.appendChild(

@@ -406,8 +406,12 @@ const STRINGS = {
   ],
   'supply.noPrice': ['*ยังไม่ใส่ราคา', '*price not set'],
   'exec.fromCostSheet': ['จากชีตต้นทุน', 'From the cost sheet'],
-  'exec.grossProfit': ['กำไรขั้นต้น (ทั้งปี)', 'Gross profit (year)'],
+  /* เดิมเขียนว่า "กำไรขั้นต้น (ทั้งปี)" — ผิดสองชั้น
+   * ยอดถูกตัดที่เดือนล่าสุดที่มีความเคลื่อนไหวจริง (ไม่ใช่ทั้งปี) และตอนนี้ยังผูกกับ
+   * ปีที่เลือกบนแถบตัวกรองด้วย ช่วงเวลาจริงจึงต่อท้ายป้ายจาก costSpan() แทน */
+  'exec.grossProfit': ['กำไรขั้นต้น', 'Gross profit'],
   'exec.grossProfitHint': ['รายได้ − ต้นทุนการปลูก', 'Revenue − growing cost'],
+  'exec.noCostYear': ['ชีตต้นทุนไม่มีข้อมูลปี {year}', 'No cost data for {year}'],
   // ── หน้าต้นทุน: งบรายรับ-รายจ่ายจากชีต "แบบฟอร์มต้นทุน" ──
   'cost.revenue': ['รายได้', 'Revenue'],
   'cost.totalCost': ['ต้นทุนการปลูก', 'Growing cost'],
@@ -433,7 +437,12 @@ const STRINGS = {
     'The figures above cover {span} only — the sheet pre-fills depreciation and office costs to year end. Summing all 12 months gives EBIT {full}, which offsets actual revenue against months that have not happened yet',
   ],
   'cost.split': ['สัดส่วนต้นทุน', 'Cost split'],
-  'cost.splitNote': ['ทั้งปีตามงบสรุป', 'Full year, per the summary tab'],
+  /* เดิมเขียนว่า "ทั้งปีตามงบสรุป" — ยอดตัดที่เดือนล่าสุดที่มีความเคลื่อนไหว
+   * และผูกกับปีที่เลือกบนแถบตัวกรอง จึงไม่ใช่ทั้งปีทั้งสองความหมาย */
+  'cost.splitNote': [
+    'ตามงบสรุป · ถึงเดือนล่าสุดที่มีความเคลื่อนไหว',
+    'Per the summary tab · through the last month with activity',
+  ],
   'cost.monthTable': ['งบรายเดือน', 'Monthly P&L'],
   'cost.monthTableNote': [
     'กำไรขั้นต้นคำนวณใหม่จาก รายได้ − ต้นทุน ไม่ได้อ่านจากช่องในชีต',
@@ -448,9 +457,10 @@ const STRINGS = {
     'ยังดึงข้อมูลจากชีต "แบบฟอร์มต้นทุน" ไม่สำเร็จ — ดูรายละเอียดที่การ์ดคุณภาพข้อมูลท้ายหน้า',
     'Could not read the cost sheet — see the data quality card at the bottom of this page',
   ],
+  // {has} เป็นรายการปีคั่นด้วยจุลภาค — ชีตมีได้มากกว่าหนึ่งปี
   'cost.otherYear': [
-    'ชีตต้นทุนมีข้อมูลเฉพาะปี {has} ตอนนี้เลือกดูปี {year} อยู่',
-    'The cost sheet only covers {has}; you are viewing {year}',
+    'ชีตต้นทุนมีข้อมูลปี {has} · ตอนนี้เลือกดูปี {year} อยู่',
+    'The cost sheet covers {has}; you are viewing {year}',
   ],
   // ── การ์ดรอข้อมูล ──
   'awaiting.badge': ['รอข้อมูล', 'Awaiting data'],

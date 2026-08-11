@@ -192,17 +192,44 @@ function buildSupply(source) {
  * รายละเอียดใช้ทำ "อันดับรายการที่ใช้เงินมากสุด" อย่างเดียว ส่วนความไม่ตรงกัน
  * ถูกรายงานเป็น finding `finance.summaryMismatch` ให้ไปแก้ที่ต้นทาง
  */
-function buildCost(source) {
+/* ชื่อพารามิเตอร์ต้องไม่ใช่ `year` เพราะท้ายฟังก์ชันมี `const year` ของตัวเอง
+ * (ปีที่อ่านได้จากข้อมูลจริง) ถ้าชนกันจะได้ ReferenceError จาก TDZ ตอน inYear ทำงาน */
+function buildCost(source, yearFilter = null) {
   const rows = source?.rows ?? [];
-  const summary = rows.filter((r) => r.kind === 'summary');
-  const detail = rows.filter((r) => r.kind === 'expense');
+  const allSummary = rows.filter((r) => r.kind === 'summary');
+
+  /* ปีที่ชีตนี้มีข้อมูลจริง — ต้องรู้ก่อนกรอง เพื่อบอกผู้ใช้ได้ว่า "มีปีไหนให้ดูบ้าง"
+   * ตอนที่เขาเลือกปีที่ชีตไม่มี */
+  const years = [...new Set(allSummary.map((r) => String(r.month).slice(0, 4)))].sort();
+
+  /* ตัวกรองปีของ Dashboard ส่งมาที่นี่ตรง ๆ ไม่ได้ผ่าน applyFilters()
+   *
+   * แถวงบมี `date` (parsers/cost.js ใส่ `${month}-01` ให้) จึงผ่านตัวกรองปีได้อยู่แล้ว
+   * แต่ตัวกรองสายพันธุ์/ครอป/ขนาดดอกจะลบมันเกลี้ยงทั้งชีต (ไม่มีฟิลด์พวกนั้นเลย)
+   * filterSources() จึงยกรายงานที่ kind !== 'flower' ออกทั้งก้อน แล้วส่ง
+   * **ปีอย่างเดียว** มาที่นี่ — ซึ่งเป็นมิติเดียวที่มีความหมายกับงบรายเดือน */
+  const inYear = (r) => !yearFilter || String(r.month).slice(0, 4) === yearFilter;
+  const summary = allSummary.filter(inYear);
+  const detail = rows.filter((r) => r.kind === 'expense' && inYear(r));
 
   if (!summary.length) {
     return {
       available: false,
+      /* "ชีตอ่านได้ไหม" เป็นคนละคำถามกับ "ปีที่เลือกมีข้อมูลไหม"
+       * ถ้าไม่แยกสองอย่างนี้ หน้าจะบอกว่าดึงชีตไม่สำเร็จทั้งที่ชีตปกติดี
+       * แล้วคนจะไปไล่แก้ชีตที่ไม่ได้ผิด */
+      sheetAvailable: allSummary.length > 0,
+      requestedYear: yearFilter,
+      years,
+      year: null,
       months: [],
       byMonth: [],
       totals: {},
+      totalsFullYear: {},
+      lastActiveMonth: null,
+      lastRevenueMonth: null,
+      coverage: null,
+      monthsWithValue: {},
       revenueByYear: null,
       revenueByMonth: null,
       costByYear: null,
@@ -327,6 +354,10 @@ function buildCost(source) {
 
   return {
     available: true,
+    sheetAvailable: true,
+    // ปีที่ถูกขอ (null = ไม่ได้กรอง) และปีที่ชีตมีทั้งหมด — UI ใช้ทั้งคู่ตอนเลือกปีที่ไม่มีข้อมูล
+    requestedYear: yearFilter,
+    years,
     year,
     months,
     lastActiveMonth: lastActive,
@@ -465,10 +496,17 @@ export function findUsageAnomalies(usage, months, asOf) {
 
 /**
  * สร้าง KPI และชุดข้อมูลกราฟทั้งหมดที่ front-end ต้องใช้
+ *
+ * เบราว์เซอร์เรียกฟังก์ชันนี้ซ้ำทุกครั้งที่ตัวกรองเปลี่ยน โดยส่ง `sources` ที่กรองแล้วเข้ามา
+ * (ดู viewKpi() ใน main.js) ตัวเลขบนการ์ดจึงตรงกับกราฟข้าง ๆ เสมอ
+ *
  * @param {Record<string, object>} sources
  * @param {object} analysis
+ * @param {{year?: string|null}} [options] ปีที่เลือกจากแถบตัวกรองกลาง — ส่งต่อให้ buildCost()
+ *   เพราะรายงานการเงินไม่ผ่าน applyFilters() (ดูเหตุผลใน buildCost)
+ *   **ฝั่ง server ไม่ส่ง options → ผลลัพธ์เหมือนเดิมทุกตัวอักษร**
  */
-export function buildKpi(sources, analysis) {
+export function buildKpi(sources, analysis, options = {}) {
   const rowsOf = (key) => sources[key]?.rows ?? [];
 
   const daily = rowsOf('dailyTrim');
@@ -481,7 +519,7 @@ export function buildKpi(sources, analysis) {
   const harvested = perCrop.filter((r) => r.hasYield);
   const planned = perCrop.filter((r) => !r.hasYield);
 
-  const cost = buildCost(sources.cost);
+  const cost = buildCost(sources.cost, options.year ?? null);
 
   const totalYield = sum(harvested.map((r) => r.flowerTotal));
   const totalPlants = sum(harvested.map((r) => r.plants));

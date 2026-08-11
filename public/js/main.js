@@ -31,6 +31,7 @@ import {
   closeFilterPopup,
   isFiltered,
 } from './ui/filters.js';
+import { buildKpi } from './shared/kpi.js';
 import { releaseCharts } from './charts/core.js';
 
 const el = {
@@ -73,6 +74,27 @@ let strainScale = null;
  * ถ้าคิดใหม่จากข้อมูลที่กรองแล้ว พอเลือกปี 2026 รายการปีอื่นจะหายจากช่องเลือกทันที
  * แล้วผู้ใช้จะกลับไปปีเก่าไม่ได้อีกเลย */
 let filterChoices = { strains: [], crops: [], years: [], minDate: null, maxDate: null };
+
+/* KPI ของสิ่งที่กำลังดูอยู่ — คิดใหม่จากแถวที่กรองแล้ว ไม่ใช่ก้อนที่ server รวมมาจากทั้งชีต
+ *
+ * buildKpi() ถูกเรียกซ้ำทุกครั้งที่วาดหน้า (เปลี่ยนตัวกรอง · สลับหน้า · สลับธีม/ภาษา ·
+ * ชีตวัสดุโหลดเสร็จ) ทั้งที่ผลลัพธ์ขึ้นกับ payload กับตัวกรองเท่านั้น จึงจำคำตอบล่าสุดไว้
+ *
+ * key ใช้ route.params ดิบ ๆ ไม่ใช่ตัว filters ที่ serialize แล้ว เพราะ filters มี Set
+ * ซึ่งลำดับไม่แน่นอน — และ filters ก็ derive มาจาก route.params กับ filterChoices.years
+ * ล้วน ๆ โดยมี resolvedYear เป็นที่เดียวที่ตัวหลังโผล่ */
+let kpiMemo = { key: null, value: null };
+
+function viewKpi(sources, route, filters) {
+  const key = `${payload.meta.fetchedAt}|${route.params}|${filters.resolvedYear ?? ''}`;
+  if (kpiMemo.key !== key) {
+    kpiMemo = {
+      key,
+      value: buildKpi(sources, payload.analysis, { year: filters.resolvedYear }),
+    };
+  }
+  return kpiMemo.value;
+}
 
 /** ─── header ─── */
 function renderHeader() {
@@ -166,9 +188,13 @@ async function requestSupply({ force = false, quiet = false } = {}) {
   }
 }
 
-/** หน้านี้ใช้ข้อมูลวัสดุสิ้นเปลืองไหม */
+/** หน้านี้ใช้ข้อมูลวัสดุสิ้นเปลืองไหม
+ *
+ * หน้าภาพรวมเคยอยู่ในลิสต์นี้เพราะมีช่อง "ต้นทุนวัสดุสิ้นเปลือง" — ช่องนั้นถูกเอาออกแล้ว
+ * ถ้ายังนับอยู่ หน้าภาพรวมจะถูกวาดใหม่ทุกครั้งที่ชีตวัสดุโหลดเสร็จโดยไม่มีอะไรบนจอเปลี่ยน
+ * ซึ่งเป็นอาการที่ quiet: true มีไว้กันพอดี */
 function usesSupply(route) {
-  return route.report === 'supply' || route.page === 'cost' || route.page === 'overview';
+  return route.report === 'supply' || route.page === 'cost';
 }
 
 /** ─── วาดทั้งหน้า ─── */
@@ -276,14 +302,30 @@ function renderActivePage(route) {
   /* ปีที่ยังไม่ได้เลือกเองจะกลายเป็นปีล่าสุดที่มีข้อมูลตรงนี้
    * ต้อง resolve จาก filterChoices ซึ่งมาจากข้อมูลทั้งชุด ไม่ใช่จากข้อมูลที่กรองแล้ว */
   const filters = resolveFilters(readFilters(route.params), filterChoices);
-  const sources =
-    route.report === 'dryflower' ? filterSources(payload.sources, filters) : payload.sources;
+  const dry = route.report === 'dryflower';
+  const sources = dry ? filterSources(payload.sources, filters) : payload.sources;
+
+  /* ── payload ที่ทุกหน้า ทุกการ์ด และทุก modal เห็น ──
+   *
+   * `kpi` ต้องคิดใหม่จาก rows ที่กรองแล้ว ไม่ใช่ก้อนที่ server รวมมาจากทั้งชีต
+   * (shared/kpi.js ถูกวางไว้ใน public/ ตั้งแต่แรกเพื่อการนี้ — ดูหัวไฟล์)
+   *
+   * เดิม renderCards() destructure แค่ { kpi, analysis, meta } แล้วไม่เคยอ่าน sources เลย
+   * การ์ดทุกใบจึงเป็นยอดตลอดกาลนั่งอยู่ใต้กราฟที่กรองปีแล้ว — ช่อง "ผลผลิตดอกแห้ง 2026"
+   * ขึ้น 673 kg ส่วนการ์ดใบล่างขึ้น 1,530 kg ในหน้าจอเดียวกัน
+   *
+   * **ทำที่นี่ที่เดียว** แล้วส่ง view แทน payload ให้ทุกหน้า ถ้าปล่อยให้แต่ละหน้าคิดเอง
+   * จะมีหน้าที่ลืม แล้วการ์ดใบเดียวกันจะได้เลขคนละชุดในแต่ละหน้า
+   *
+   * `analysis` กับ `meta` ส่งของเดิมไปตรง ๆ — คุณภาพข้อมูลเป็นเรื่องของ "ทั้งชีต"
+   * ไม่ใช่ของสิ่งที่กรองไว้ (กฎเดียวกับการ์ดคุณภาพข้อมูลบนหน้า Supply) */
+  const view = dry ? { ...payload, sources, kpi: viewKpi(sources, route, filters) } : payload;
 
   const page = getPage(route.report, route.page);
   try {
     page.render({
       host,
-      payload,
+      payload: view,
       sources,
       filters,
       // พารามิเตอร์ดิบใน hash — หน้าที่มีตัวกรองของตัวเอง (Supply) อ่านเอง
@@ -298,7 +340,7 @@ function renderActivePage(route) {
       setParams,
       /* หน้าที่มี payload ของตัวเอง (เช่น Supply ที่โหลดแยก) ส่ง payload มาแทนได้
        * ไม่งั้น modal คุณภาพข้อมูลของ Supply จะไปแสดงผลวิเคราะห์ของรายงาน Dryflower */
-      onOpen: (key, trigger, override) => openCard(key, override ?? { ...payload, sources }, trigger),
+      onOpen: (key, trigger, override) => openCard(key, override ?? view, trigger),
     });
   } catch (err) {
     // หน้าหนึ่งพังต้องไม่ทำให้ทั้ง Dashboard ขาว

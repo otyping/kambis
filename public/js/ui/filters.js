@@ -192,11 +192,41 @@ export function applyFilters(rows, filters, sourceKey) {
   return out;
 }
 
-/** กรองทุกรายงานในทีเดียว — คืน object รูปเดียวกับ payload.sources */
+/**
+ * กรองทุกรายงานในทีเดียว — คืน object รูปเดียวกับ payload.sources
+ *
+ * **ตัวกรองชุดนี้เป็นเรื่องของดอกไม้ทั้งหมด** (ขนาด · สายพันธุ์ · ครอป · สถานที่)
+ * รายงานที่ไม่ใช่ข้อมูลดอก (`kind: 'finance' | 'supply'`) จึงต้องผ่านไปทั้งก้อน
+ *
+ * ถ้าปล่อยให้ผ่าน applyFilters แถวงบการเงินจะถูกลบเกลี้ยงเงียบ ๆ:
+ * ตัวกรองสายพันธุ์เทียบ `strains.has('')` ได้ false ทุกแถว และตัวกรองขนาดตัดทิ้ง
+ * ทุกแถวที่ flowerTotal เป็น null — ซึ่งคือ **ทุกแถวของชีตต้นทุน**
+ * แล้วงบทั้งหน้าต้นทุนจะกลายเป็นศูนย์โดยไม่มีอะไรฟ้อง
+ *
+ * ปีเป็นมิติเดียวที่มีความหมายกับงบรายเดือน จึงส่งให้ buildCost() ตรง ๆ
+ * ผ่าน `buildKpi(…, { year })` แทนที่จะให้ไหลผ่านแถบตัวกรอง
+ *
+ * ใช้ `kind` เพราะเป็นมาร์กมาตรฐานอยู่แล้วว่ารายงานนี้ใช้ชุดกฎไหน (analysis.js ก็ดูตัวนี้)
+ * ไม่ใช่ลิสต์ชื่อรายงานตัวที่สองข้าง ๆ SOURCE_LOCATION ที่ต้องไปเติมเองทุกครั้งที่มีชีตใหม่
+ */
 export function filterSources(sources, filters) {
   const out = {};
   for (const [key, source] of Object.entries(sources ?? {})) {
-    out[key] = { ...source, rows: applyFilters(source.rows, filters, key) };
+    // ไม่มี kind = payload เก่าจากแคช → ถือว่าเป็นข้อมูลดอกไว้ก่อน
+    if ((source.kind ?? 'flower') !== 'flower') {
+      out[key] = source;
+      continue;
+    }
+    const rows = applyFilters(source.rows, filters, key);
+    /* rowCount ต้องเดินตามแถวที่กรองแล้ว ไม่งั้นหัว modal จะบอกจำนวนแถวทั้งชีต
+     * อยู่เหนือตารางที่กรองแล้ว (และขัดกับตัวนับของ filteredTable ในกล่องเดียวกัน)
+     * ยอดทั้งชีตยังจำเป็นอยู่ จึงเก็บไว้ที่ rowCountAll */
+    out[key] = {
+      ...source,
+      rows,
+      rowCount: rows.length,
+      rowCountAll: source.rowCount ?? source.rows?.length ?? 0,
+    };
   }
   return out;
 }
@@ -210,6 +240,13 @@ export function filterOptions(sources) {
   let maxDate = null;
 
   for (const source of Object.values(sources ?? {})) {
+    /* ตัวเลือกบนแถบต้องมาจากข้อมูลดอกเท่านั้น
+     *
+     * ชีตต้นทุนกรอกค่าเสื่อมกับค่าใช้จ่าย Office ล่วงหน้าถึงสิ้นปีเสมอ และแต่ละแถวมี
+     * `date` ของตัวเอง ถ้านับเข้ามาด้วย วันที่มีคนตั้งงบปีหน้าไว้ล่วงหน้า **ปีเริ่มต้น
+     * จะเด้งไปปีนั้นทันที** (resolveYear คืนปีล่าสุด) แล้ว Dashboard ทั้งอันจะเปิดมาว่างเปล่า
+     * เพราะยังไม่มีผลผลิตของปีนั้นสักแถว */
+    if ((source.kind ?? 'flower') !== 'flower') continue;
     for (const rec of source.rows ?? []) {
       if (rec.strain) strains.add(rec.strain);
       if (rec.crop) crops.add(rec.crop);

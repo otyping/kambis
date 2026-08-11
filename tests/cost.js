@@ -16,21 +16,24 @@ import { parse } from '../server/lib/parsers/cost.js';
 import { analyze } from '../server/lib/analysis.js';
 import { buildKpi } from '../server/lib/aggregate.js';
 
-/** หัวตารางแบบเดียวกับของจริง — ช่องเดือนที่หกเป็นชื่อรายงานที่ merge ทับ Jun-26 */
-const head = (leadCols) => [
+/**
+ * หัวตารางแบบเดียวกับของจริง — ช่องเดือนที่หกเป็นชื่อรายงานที่ merge ทับ Jun
+ * `yy` มีไว้สร้างแท็บของอีกปีตอนทดสอบชีตที่ข้ามปี (ค่าเริ่มต้นคือปีเดียวกับของจริง)
+ */
+const head = (leadCols, yy = '26') => [
   ...Array(leadCols).fill(''),
-  'Jan-26',
-  'Feb-26',
-  'Mar-26',
-  'Apr-26',
-  'May-26',
-  'รายงานค่าใช้จ่าย ปี 2569 Jun',
-  'Jul-26',
-  'Aug-26',
-  'Sep-26',
-  'Oct-26',
-  'Nov-26',
-  'Dec-26',
+  `Jan-${yy}`,
+  `Feb-${yy}`,
+  `Mar-${yy}`,
+  `Apr-${yy}`,
+  `May-${yy}`,
+  `รายงานค่าใช้จ่าย ปี 25${Number(yy) + 43} Jun`,
+  `Jul-${yy}`,
+  `Aug-${yy}`,
+  `Sep-${yy}`,
+  `Oct-${yy}`,
+  `Nov-${yy}`,
+  `Dec-${yy}`,
   'Total',
 ];
 
@@ -322,9 +325,95 @@ describe('KPI และกฎตรวจของงบต้นทุน', () 
   test('ชีตอ่านไม่ได้ต้องได้ available:false และ null ไม่ใช่ 0', () => {
     const kpi = buildKpi({}, { findings: [] });
     assert.equal(kpi.cost.available, false);
+    // ชีตอ่านไม่ได้จริง ๆ — ต่างจาก "ปีที่เลือกไม่มีข้อมูล" ที่ sheetAvailable ยังเป็น true
+    assert.equal(kpi.cost.sheetAvailable, false);
     assert.equal(kpi.cost.revenueByYear, null);
     assert.equal(kpi.cost.costByYear, null);
     assert.equal(kpi.exec.revenueByYear, null);
+  });
+
+  /* ── ตัวกรองปีของ Dashboard ──
+   *
+   * แถวงบไม่ผ่าน applyFilters (ตัวกรองสายพันธุ์/ขนาดจะลบมันเกลี้ยง — ดู filterSources)
+   * เบราว์เซอร์จึงส่งปีมาที่ buildKpi โดยตรง ส่วน server ไม่ส่ง = พฤติกรรมเดิม
+   */
+  describe('กรองงบตามปีที่เลือก', () => {
+    /** แท็บสรุปของปี 2025 — ชื่อขึ้นต้นด้วย "สรุป" จึงถูกจัดเป็นแท็บสรุปเหมือนกัน */
+    const SUMMARY_2025 = {
+      gid: '30',
+      name: 'สรุป 2025',
+      rows: [
+        head(1, '25'),
+        row(['Revenue'], [50, 50, null, null, null, null, null, null, null, null, null, null], '100'),
+        row(['ต้นทุนวัตถุดิบ'], [20, 20, null, null, null, null, null, null, null, null, null, null], '40'),
+      ],
+    };
+    const OFFICE_2025 = {
+      gid: '31',
+      name: 'Office',
+      rows: [
+        head(3, '25'),
+        row(
+          ['ค่าใช้จ่าย - Office', '- Consumable', 'ค่าเช่าโกดังปี 2025'],
+          [7, 7, null, null, null, null, null, null, null, null, null, null],
+          '14'
+        ),
+      ],
+    };
+    const twoYears = () => sourcesOf([SUMMARY_2025, SUMMARY_TAB, OFFICE_TAB, OFFICE_2025]);
+
+    test('ไม่ส่งปี = พฤติกรรมเดิมเป๊ะ (สัญญาฝั่ง server)', () => {
+      const s = sourcesOf([SUMMARY_TAB, OFFICE_TAB]);
+      const a = { findings: [] };
+      assert.deepEqual(buildKpi(s, a), buildKpi(s, a, {}));
+      assert.deepEqual(buildKpi(s, a), buildKpi(s, a, { year: null }));
+    });
+
+    test('ชีตข้ามปี — เลือกปีไหนต้องได้ยอดของปีนั้นเท่านั้น', () => {
+      const a = { findings: [] };
+
+      const c25 = buildKpi(twoYears(), a, { year: '2025' }).cost;
+      assert.equal(c25.available, true);
+      assert.equal(c25.year, '2025');
+      assert.equal(c25.totals.revenue, 100, 'ต้องไม่ปนรายได้ของปี 2026');
+      assert.deepEqual(c25.coverage, { from: '2025-01', to: '2025-02' });
+      assert.ok(c25.months.every((m) => m.startsWith('2025')));
+
+      /* ปี 2026 ต้องได้ตัวเลขเท่ากับตอนที่ชีตมีปีเดียว — ถ้าไม่เท่า แปลว่าการ slice
+       * ไปกระทบยอดของปีที่มีข้อมูลอยู่แล้ว ซึ่งอันตรายกว่าบั๊กเดิม */
+      const c26 = buildKpi(twoYears(), a, { year: '2026' }).cost;
+      assert.equal(c26.year, '2026');
+      assert.equal(c26.totals.revenue, 600);
+      assert.equal(c26.totals.cost, 195);
+      assert.equal(c26.totals.grossProfit, 405);
+      assert.equal(c26.lastActiveMonth, '2026-03');
+    });
+
+    test('ปีเดินทางไปถึงบล็อก exec ที่หน้าภาพรวมอ่านด้วย', () => {
+      const kpi = buildKpi(twoYears(), { findings: [] }, { year: '2025' });
+      assert.equal(kpi.exec.revenueByYear, 100);
+      assert.equal(kpi.exec.costByYear, kpi.cost.totals.cost);
+    });
+
+    test('แถวรายละเอียดถูกตัดตามปีไปพร้อมแถวสรุป', () => {
+      /* ถ้าลืมตัด แถวของอีกปีจะไปโผล่ในกราฟ "อันดับรายการที่ใช้เงินสูงสุด"
+       * แล้วกราฟจะขัดกับช่องตัวเลขที่อยู่เหนือมันในหน้าเดียวกัน */
+      const c25 = buildKpi(twoYears(), { findings: [] }, { year: '2025' }).cost;
+      const items = c25.topItems.map((i) => i.item);
+      assert.ok(items.includes('ค่าเช่าโกดังปี 2025'));
+      assert.ok(!items.includes('InterNet'), 'รายการของปี 2026 ต้องไม่หลุดมา');
+    });
+
+    test('ปีที่ชีตไม่มีข้อมูล ≠ ชีตล่ม', () => {
+      const c = buildKpi(twoYears(), { findings: [] }, { year: '2024' }).cost;
+      assert.equal(c.available, false, 'ไม่มีตัวเลขให้แสดง');
+      assert.equal(c.sheetAvailable, true, 'แต่ชีตปกติดี — ห้ามบอกผู้ใช้ว่าชีตล่ม');
+      assert.equal(c.requestedYear, '2024');
+      assert.deepEqual(c.years, ['2025', '2026'], 'ต้องบอกได้ว่ามีปีไหนให้ดูบ้าง');
+      // ไม่มีข้อมูลต้องเป็น null ไม่ใช่ 0 — 0 แปลว่า "ขายไม่ได้เลย" ซึ่งคนละความหมาย
+      assert.equal(c.revenueByYear, null);
+      assert.equal(c.costByYear, null);
+    });
   });
 
   test('งบสรุปไม่ตรงกับผลรวมรายการ → finding ระดับ critical', () => {

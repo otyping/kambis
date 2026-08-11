@@ -165,8 +165,11 @@ function detailOf(id, payload) {
   const kpi = payload.kpi ?? {};
 
   /* ชีตต้นทุนโหลดไม่ได้ = ตัวเลขเงินหายทั้งกระดาน ซึ่งเป็นคนละเรื่องกับ "ยังไม่มีข้อมูล"
-   * ต้องบอกด้วยข้อความคนละแบบ ไม่งั้นผู้ใช้จะไปตามแก้ชีตทั้งที่ชีตไม่ได้ผิด */
-  if (id === 'costPerGram' && kpi.cost && !kpi.cost.available) {
+   * ต้องบอกด้วยข้อความคนละแบบ ไม่งั้นผู้ใช้จะไปตามแก้ชีตทั้งที่ชีตไม่ได้ผิด
+   *
+   * ต้องดู sheetAvailable ไม่ใช่ available เพราะ available ผูกกับ **ปีที่เลือกอยู่** แล้ว
+   * เลือกปีที่ชีตไม่มีข้อมูลจะทำให้การ์ดนี้กล่าวหาว่าชีตล่มทั้งที่ชีตปกติดี */
+  if (id === 'costPerGram' && kpi.cost && !kpi.cost.sheetAvailable) {
     return t('gap.detail.costSheetDown');
   }
 

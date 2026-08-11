@@ -17,6 +17,7 @@ import {
   resolveYear,
   resolveFilters,
   applyFilters,
+  filterSources,
   filterOptions,
 } from '../public/js/ui/filters.js';
 import { dataGaps } from '../public/js/ui/gaps.js';
@@ -99,6 +100,103 @@ describe('ตัวกรองปี — ค่าเริ่มต้นต�
     const out = applyFilters(rows, f, 'dailyTrim');
     assert.equal(out.length, 1);
     assert.equal(out[0].date, '2026-07-01');
+  });
+});
+
+describe('แถบตัวกรองกลางกับรายงานที่ไม่ใช่ข้อมูลดอก', () => {
+  /* แถวงบการเงินไม่มี strain / crop / sizes เลย ถ้าปล่อยให้ผ่าน applyFilters
+   * ตัวกรองสายพันธุ์จะเทียบ has('') ได้ false และตัวกรองขนาดจะตัดทิ้งเพราะ
+   * flowerTotal เป็น null — ทั้งชีตหายเกลี้ยงโดยไม่มีอะไรฟ้อง แล้วงบทั้งหน้า
+   * ต้นทุนจะกลายเป็นศูนย์ นี่คือ regression ที่ราคาแพงที่สุดของงานนี้ */
+  const financeRow = {
+    date: '2026-01-01',
+    month: '2026-01',
+    kind: 'summary',
+    line: 'revenue',
+    amount: 100,
+    strain: null,
+    crop: null,
+    sizes: {},
+    nonFlower: {},
+    flowerTotal: null,
+  };
+
+  /** ตัวกรองที่ "ควรจะ" ลบแถวงบทิ้งทั้งหมดถ้าไม่มีการ์ดกัน */
+  const harshFilters = () =>
+    resolveFilters(
+      {
+        ...readFilters(new URLSearchParams('')),
+        strains: new Set(['Gelato']),
+        sizes: new Set(['XXL']),
+      },
+      { years: ['2026'] }
+    );
+
+  const build = (kind) => ({
+    dailyTrim: {
+      kind: 'flower',
+      rowCount: 1,
+      rows: [rec({ date: '2026-07-01', strain: 'Shogun', sizes: { L: 100 } })],
+    },
+    cost: { kind, rowCount: 1, rows: [financeRow] },
+  });
+
+  test('แถวการเงินรอดจากตัวกรองที่ควรจะลบมันเกลี้ยง — และเป็น object เดิม', () => {
+    const src = build('finance');
+    const out = filterSources(src, harshFilters());
+
+    assert.equal(out.dailyTrim.rows.length, 0, 'ฝั่งดอกต้องถูกกรองตามปกติ');
+    assert.equal(out.cost.rows.length, 1, 'ฝั่งการเงินต้องไม่ถูกแตะ');
+    // identity — พิสูจน์ว่าไม่ได้ก๊อปแล้วคำนวณใหม่ และไม่ได้แก้ของเดิม
+    assert.equal(out.cost, src.cost);
+    assert.equal(out.cost.rows[0], src.cost.rows[0]);
+  });
+
+  test('รายงานวัสดุสิ้นเปลืองก็ผ่านไปทั้งก้อนเหมือนกัน', () => {
+    const out = filterSources(build('supply'), harshFilters());
+    assert.equal(out.cost.rows.length, 1);
+  });
+
+  test('source ที่ไม่มี kind ยังถูกกรอง (กัน payload เก่าจากแคช)', () => {
+    const src = { dailyTrim: { rowCount: 2, rows: [rec({ date: '2026-07-01', strain: 'Shogun' })] } };
+    const out = filterSources(src, harshFilters());
+    assert.equal(out.dailyTrim.rows.length, 0);
+  });
+
+  test('rowCount เดินตามแถวที่กรองแล้ว ส่วนยอดทั้งชีตอยู่ที่ rowCountAll', () => {
+    const src = {
+      dailyTrim: {
+        kind: 'flower',
+        rowCount: 3,
+        rows: [
+          rec({ date: '2026-07-01', strain: 'Shogun' }),
+          rec({ date: '2025-07-01', strain: 'Shogun' }),
+          rec({ date: '2025-08-01', strain: 'Shogun' }),
+        ],
+      },
+      cost: { kind: 'finance', rowCount: 9, rows: [financeRow] },
+    };
+    const f = resolveFilters(readFilters(new URLSearchParams('year=2026')), { years: ['2026', '2025'] });
+    const out = filterSources(src, f);
+
+    assert.equal(out.dailyTrim.rows.length, 1);
+    assert.equal(out.dailyTrim.rowCount, 1, 'ต้องเป็นจำนวนแถวที่เห็นจริง');
+    assert.equal(out.dailyTrim.rowCountAll, 3, 'ยอดทั้งชีตต้องยังอ่านได้');
+    // รายงานที่ถูกข้ามต้องไม่ถูกแตะเลย แม้แต่ฟิลด์นับแถว
+    assert.equal(out.cost.rowCount, 9);
+    assert.equal(out.cost.rowCountAll, undefined);
+  });
+
+  test('ปีเริ่มต้นต้องมาจากผลผลิตจริง ไม่ใช่จากงบที่ตั้งไว้ล่วงหน้า', () => {
+    /* ชีตต้นทุนกรอกค่าเสื่อมกับ Office ล่วงหน้าถึงสิ้นปีเสมอ วันที่มีคนตั้งงบปีหน้า
+     * ถ้านับปีจากชีตนั้นด้วย ปีเริ่มต้นจะเด้งไปปีที่ยังไม่มีผลผลิตสักแถว
+     * แล้ว Dashboard ทั้งอันจะเปิดมาว่างเปล่า */
+    const options = filterOptions({
+      perCrop: { kind: 'flower', rows: [rec({ quarter: "Q2'2025" })] },
+      cost: { kind: 'finance', rows: [rec({ date: '2027-01-01' })] },
+    });
+    assert.deepEqual(options.years, ['2025']);
+    assert.equal(resolveYear({ year: '' }, options.years), '2025');
   });
 });
 

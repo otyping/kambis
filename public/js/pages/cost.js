@@ -13,20 +13,27 @@
  * จึงแยกแผงไว้ท้ายหน้า ห้ามเอาไปบวกกับต้นทุนการปลูก
  */
 import { t } from '../i18n.js';
-import { n, esc, DASH, month as monthName } from '../format.js';
+import { n, esc, DASH } from '../format.js';
 import * as charts from '../charts/index.js';
 import { sortableTable } from '../ui/table.js';
 import { awaitingCard } from '../ui/placeholder.js';
-import { pageHeader, panel, well, grid, tiles, lossHint, emptyNote, appendQualityCard } from './shared.js';
+import {
+  pageHeader,
+  panel,
+  well,
+  grid,
+  tiles,
+  lossHint,
+  emptyNote,
+  appendQualityCard,
+  costSpan,
+} from './shared.js';
 
 export const meta = { report: 'dryflower', page: 'cost' };
 
 /** จำนวนเงิน — ใช้ทศนิยม 0 เพราะหลักล้านที่มีสตางค์อ่านยากและไม่ช่วยตัดสินใจ */
 const baht = (v) => (v === null || v === undefined || !Number.isFinite(v) ? DASH : n(v, 0));
 const fmtBaht = (v) => `${baht(v)} ฿`;
-
-/** `2026-06` → `มิ.ย. 2026` (ใช้ตัวแปลงเดือนตัวเดียวกับกราฟ) */
-const monthLabel = (m) => (m ? monthName(m) : '');
 
 /** ตัวเลขเงินในตารางที่ติดลบแล้วมีความหมาย (กำไร/EBIT) — ห้ามใช้กับรายจ่ายที่เก็บเป็นเลขบวก */
 const signedBaht = (v) =>
@@ -35,17 +42,25 @@ const signedBaht = (v) =>
     : `<b class="${v < 0 ? 'money-neg' : 'money-pos'}">${baht(v)}</b>`;
 
 export function render(ctx) {
-  const { host, payload, supply, drawLater, requestSupply, onOpen, filters } = ctx;
+  const { host, payload, supply, drawLater, requestSupply, onOpen } = ctx;
 
   pageHeader(host, { title: t('page.cost.title'), sub: t('page.cost.sub') });
 
   const cost = payload.kpi?.cost;
 
-  if (!cost?.available) {
+  /* สามสถานะ ไม่ใช่สอง — "ชีตล่ม" กับ "ปีที่เลือกไม่มีข้อมูล" ต้องบอกคนละแบบ
+   * ไม่งั้นผู้ใช้จะไปไล่แก้ชีตที่ไม่ได้ผิด */
+  if (!cost?.sheetAvailable) {
     const box = panel(host, t('cost.noSheet'), null, { wide: true });
     emptyNote(box, t('cost.noSheetNote'));
+  } else if (!cost.available) {
+    const box = panel(host, t('cost.pnlTitle'), null, { wide: true });
+    emptyNote(
+      box,
+      t('cost.otherYear', { year: cost.requestedYear ?? DASH, has: cost.years.join(', ') })
+    );
   } else {
-    renderFinance(host, cost, filters, drawLater);
+    renderFinance(host, cost, drawLater);
   }
 
   // ── ต้นทุนวัสดุสิ้นเปลือง — คนละขอบเขต โหลดคนละก้อน ──
@@ -54,17 +69,14 @@ export function render(ctx) {
   appendQualityCard(host, { ...payload, report: 'dryflower' }, onOpen, drawLater);
 }
 
-/** งบรายรับ-รายจ่ายจากชีตต้นทุน */
-function renderFinance(host, cost, filters, drawLater) {
-  /* ตัวกรองปีใช้ร่วมกับทั้งรายงาน — ชีตต้นทุนตอนนี้มีปีเดียว
-   * ถ้าผู้ใช้เลือกปีอื่นต้องบอกตรง ๆ ว่าไม่มีข้อมูลปีนั้น ไม่ใช่โชว์ปีที่มีแล้วให้เข้าใจผิด */
-  const wantYear = filters?.resolvedYear ?? null;
-  if (wantYear && cost.year && wantYear !== cost.year) {
-    const box = panel(host, t('cost.pnlTitle'), null, { wide: true });
-    emptyNote(box, t('cost.otherYear').replace('{year}', wantYear).replace('{has}', cost.year));
-    return;
-  }
-
+/**
+ * งบรายรับ-รายจ่ายจากชีตต้นทุน
+ *
+ * ไม่ต้องเช็คปีที่นี่แล้ว — `buildCost()` ตัดข้อมูลตามปีที่เลือกให้ตั้งแต่ต้นทาง
+ * (ประตูเดิมที่เทียบ `filters.resolvedYear !== cost.year` เป็นการปิด/เปิดทั้งหน้า
+ * ไม่ใช่การกรอง และพังทันทีที่ชีตข้ามปี เพราะ cost.year คือปีของเดือนแรกเท่านั้น)
+ */
+function renderFinance(host, cost, drawLater) {
   const { totals } = cost;
   const margin = totals.revenue > 0 ? (totals.grossProfit / totals.revenue) * 100 : null;
 
@@ -73,9 +85,7 @@ function renderFinance(host, cost, filters, drawLater) {
    * ชีตกรอกค่าเสื่อมราคากับค่าใช้จ่าย Office ไว้ล่วงหน้าครบ 12 เดือน แต่รายได้มีถึงมิถุนายน
    * ถ้าเขียนว่า "(2026)" ผู้บริหารจะอ่านว่าเป็นผลทั้งปี แล้วเข้าใจว่าขาดทุนมากกว่าความจริง
    * ยอด 12 เดือนตามที่ชีตบอกยังดูได้ในตารางรายเดือนด้านล่าง ไม่ได้ซ่อน */
-  const span = cost.coverage
-    ? `${monthLabel(cost.coverage.from)}–${monthLabel(cost.coverage.to)}`
-    : cost.year;
+  const span = costSpan(cost);
 
   tiles(host, [
     { label: `${t('cost.revenue')} (${span})`, value: totals.revenue, unit: '฿' },

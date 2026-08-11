@@ -355,6 +355,20 @@ function filteredTable(parent, rows, columns, { filterKey = 'crop', filterLabel 
 }
 
 // ─────────────────────────────────────────────────────────────
+/**
+ * จำนวนแถวที่กำลังดูอยู่ — บอก "N / ทั้งหมด" เมื่อแถบตัวกรองตัดบางแถวออก
+ *
+ * `rowCount` เดินตามแถวที่กรองแล้ว (ดู filterSources) ส่วนยอดทั้งชีตอยู่ที่ rowCountAll
+ * ถ้าโชว์แต่ยอดทั้งชีต ตัวเลขนี้จะขัดกับตัวนับของ filteredTable ที่อยู่ใต้มันในกล่องเดียวกัน
+ */
+function rowCountText(source) {
+  const shown = source.rowCount ?? source.rows?.length ?? 0;
+  const all = source.rowCountAll ?? shown;
+  return all > shown
+    ? `${n(shown)} / ${n(all)} ${t('meta.rows')}`
+    : `${n(shown)} ${t('meta.rows')}`;
+}
+
 /** เปิด modal ของการ์ดที่กด */
 export function openCard(key, payload, trigger) {
   const { kpi, analysis, meta, sources } = payload;
@@ -371,7 +385,7 @@ export function openCard(key, payload, trigger) {
   if (!source) return;
 
   const title = pick(sourceMeta, 'title') || key;
-  const sub = `${n(source.rowCount)} ${t('meta.rows')} · ${n(sourceMeta.tabsOk)} ${t(
+  const sub = `${rowCountText(source)} · ${n(sourceMeta.tabsOk)} ${t(
     'meta.of'
   )} ${n(sourceMeta.tabCount)} ${t('meta.tabs')}`;
 
@@ -483,7 +497,7 @@ export function openCard(key, payload, trigger) {
       });
     }
 
-    const tablePanel = panel(body, t('label.records'), `${n(source.rowCount)} ${t('meta.rows')}`);
+    const tablePanel = panel(body, t('label.records'), rowCountText(source));
     filteredTable(
       tablePanel,
       source.rows,
