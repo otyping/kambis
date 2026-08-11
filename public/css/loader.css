@@ -149,6 +149,12 @@
   background: var(--tint-warning);
 }
 
+/* รายงานที่ตั้งใจโหลดทีหลัง (Log Stock) — จางกว่าแถวที่กำลังรอคิว
+ * เพื่อให้อ่านออกว่าไม่ได้อยู่ในรอบนี้ ไม่ใช่ค้างอยู่ */
+.loader__source[data-state='deferred'] {
+  opacity: 0.62;
+}
+
 .loader__icon {
   display: grid;
   place-items: center;
@@ -157,6 +163,9 @@
 
 .loader__source[data-state='pending'] .loader__icon::before {
   content: '○';
+}
+.loader__source[data-state='deferred'] .loader__icon::before {
+  content: '⋯';
 }
 .loader__source[data-state='loading'] .loader__icon::before {
   content: '◐';

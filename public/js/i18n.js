@@ -112,6 +112,8 @@ const STRINGS = {
   'loader.analysing': ['กำลังวิเคราะห์ความถูกต้องของข้อมูล…', 'Validating data accuracy…'],
   'loader.analysed': ['วิเคราะห์ข้อมูลเสร็จแล้ว', 'Data validation complete'],
   'loader.done': ['เสร็จสิ้น', 'Done'],
+  // รายงานที่ตั้งใจดึงทีหลัง (Log Stock 139 แท็บ) — ต้องบอก ไม่งั้นดูเหมือนโหลดค้าง
+  'loader.deferred': ['โหลดเบื้องหลัง', 'loads in background'],
   'loader.failed': ['โหลดข้อมูลไม่สำเร็จ', 'Failed to load data'],
   'loader.retry': ['ลองใหม่', 'Retry'],
 

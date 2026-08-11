@@ -562,6 +562,32 @@ async function handleApi(req, res, url, user) {
     res.write(`data: ${JSON.stringify({ type: 'connected' })}\n\n`);
     progressClients.add(res);
 
+    /* ส่งรายชื่อรายงานให้ทันทีที่ต่อติด — ไม่ต้องรอ event 'start'
+     *
+     * 'start' ถูกยิงตอน loadAll() เริ่มทำงาน ซึ่งเบราว์เซอร์สั่งทันทีหลัง subscribe
+     * ถ้าตอนนั้น EventSource ยังต่อไม่เสร็จ event แรกจะหายไปเลย แล้วหน้าจอโหลด
+     * ต้องใช้ลิสต์สำรองที่ฮาร์ดโค้ดไว้ ซึ่งเป็น key ภาษาอังกฤษและตกรายงานใหม่ ๆ
+     * (เจอจริง: ขึ้น dailyTrim/perCrop/… และไม่มี cost)
+     *
+     * ชื่อมาจาก config/sources.json ซึ่งสืบมาจากไฟล์ .txt ตามกฎข้อ 1
+     * อ่านไม่ได้ก็ข้ามไป หน้าจอโหลดยังมีลิสต์สำรองของตัวเองอยู่ */
+    loadConfig()
+      .then((config) => {
+        /* ส่งครบทุกรายงานตามไฟล์ .txt รวมรายงานที่โหลดแบบ lazy ด้วย
+         * ผู้ใช้นับจากลิงก์ในไฟล์ ถ้าหน้าจอโหลดโชว์ไม่ครบจะดูเหมือนมีรายงานหาย
+         * ติดธง lazy ไปด้วยเพื่อให้หน้าจอบอกได้ว่าอันนั้นโหลดเบื้องหลัง ไม่ใช่ค้าง */
+        const sources = config.sources.map((s) => ({
+          key: s.key,
+          titleTh: s.titleTh,
+          titleEn: s.titleEn,
+          lazy: Boolean(s.lazy),
+        }));
+        if (!res.writableEnded) {
+          res.write(`data: ${JSON.stringify({ type: 'sources', sources })}\n\n`);
+        }
+      })
+      .catch(() => {});
+
     const ping = setInterval(() => {
       try {
         res.write(': ping\n\n');
