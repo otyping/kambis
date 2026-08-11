@@ -735,6 +735,23 @@ function checkFinance(source, out) {
     if (!stated && !actual) continue;
     const delta = Number((actual - stated).toFixed(2));
     if (Math.abs(delta) <= MONEY_TOL) continue;
+
+    /* ส่วนต่างเท่ากับยอดของรายการเดียวพอดี = สูตรผลรวมในชีตไม่ครอบแถวนั้น
+     *
+     * บอกชื่อรายการไปเลย ไม่งั้น finding บอกได้แค่ "ต่างกัน 26,672 บาท"
+     * แล้วคนต้องไปไล่บวกเองทีละแถวเพื่อหาว่าแถวไหนตกไป
+     * ต้องตรงกันแค่รายการเดียวถึงจะฟันธง — เจอหลายรายการที่ยอดเท่ากันแปลว่าเดาไม่ได้ */
+    const suspects = [...new Set(detail.filter((r) => r.group === group).map((r) => r.item))]
+      .map((item) => ({
+        item,
+        amount: detail
+          .filter((r) => r.group === group && r.item === item)
+          .reduce((a, r) => a + (r.amount ?? 0), 0),
+      }))
+      .filter((x) => Math.abs(Math.abs(x.amount) - Math.abs(delta)) <= MONEY_TOL);
+    const culpritTh = suspects.length === 1 ? ` — ตรงกับยอดของรายการ "${suspects[0].item}" พอดี` : '';
+    const culpritEn = suspects.length === 1 ? ` — exactly the amount of “${suspects[0].item}”` : '';
+
     out.push(
       finding('finance.summaryMismatch', 'critical', {
         source: source.key,
@@ -745,10 +762,10 @@ function checkFinance(source, out) {
         delta,
         messageTh:
           `${labelTh}: งบสรุปบอก ${money(stated)} บาท แต่รวมรายการจริงในแท็บรายละเอียดได้ ` +
-          `${money(actual)} บาท (ต่างกัน ${money(Math.abs(delta))} บาท)`,
+          `${money(actual)} บาท (ต่างกัน ${money(Math.abs(delta))} บาท)${culpritTh}`,
         messageEn:
           `${labelEn}: the summary says ${money(stated)} THB but the detail rows add up to ` +
-          `${money(actual)} THB (off by ${money(Math.abs(delta))} THB)`,
+          `${money(actual)} THB (off by ${money(Math.abs(delta))} THB)${culpritEn}`,
       })
     );
   }

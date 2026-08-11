@@ -9,14 +9,13 @@
  * ถ้าเอาผลรวมรายการมาโชว์ ตัวเลขจะไม่ตรงกับงบที่ผู้บริหารถืออยู่ในมือ
  * ความไม่ตรงกันถูกรายงานเป็น finding `finance.summaryMismatch` แทน
  *
- * ต้นทุนวัสดุสิ้นเปลือง (ชีต Log Stock) เป็นคนละก้อนและคนละขอบเขต
- * จึงแยกแผงไว้ท้ายหน้า ห้ามเอาไปบวกกับต้นทุนการปลูก
+ * ต้นทุนวัสดุสิ้นเปลือง (ชีต Log Stock) เป็นคนละก้อนและคนละขอบเขต ไม่อยู่บนหน้านี้
+ * ดูได้ที่หน้า Supply ซึ่งเป็นเจ้าของข้อมูลชุดนั้น — ห้ามเอาไปบวกกับต้นทุนการปลูก
  */
 import { t } from '../i18n.js';
 import { n, esc, DASH } from '../format.js';
 import * as charts from '../charts/index.js';
 import { sortableTable } from '../ui/table.js';
-import { awaitingCard } from '../ui/placeholder.js';
 import {
   pageHeader,
   panel,
@@ -42,7 +41,7 @@ const signedBaht = (v) =>
     : `<b class="${v < 0 ? 'money-neg' : 'money-pos'}">${baht(v)}</b>`;
 
 export function render(ctx) {
-  const { host, payload, supply, drawLater, requestSupply, onOpen } = ctx;
+  const { host, payload, drawLater, onOpen } = ctx;
 
   pageHeader(host, { title: t('page.cost.title'), sub: t('page.cost.sub') });
 
@@ -63,9 +62,13 @@ export function render(ctx) {
     renderFinance(host, cost, drawLater);
   }
 
-  // ── ต้นทุนวัสดุสิ้นเปลือง — คนละขอบเขต โหลดคนละก้อน ──
-  renderSupplyCost(host, supply, requestSupply, drawLater);
-
+  /* แผง "มูลค่าวัสดุตามตารางสั่งซื้อ" ถูกเอาออกจากหน้านี้ตามคำสั่งผู้ใช้
+   *
+   * เป็นของคนละชีตและคนละขอบเขตกับงบด้านบน (วัสดุสิ้นเปลืองในฟาร์ม ห้ามเอาไปบวก
+   * กับต้นทุนการปลูก) ดูได้ที่หน้า Supply ซึ่งเป็นเจ้าของข้อมูลชุดนั้นอยู่แล้ว
+   *
+   * ข้อ "ต้นทุนต่อกรัม" ที่เคยอยู่ในแผงนั้นไม่ได้หายไป — ยังอยู่ในทะเบียน
+   * ข้อมูลที่ยังขาด (`gaps.js`) ซึ่งแสดงบนการ์ดคุณภาพข้อมูลท้ายหน้า */
   appendQualityCard(host, { ...payload, report: 'dryflower' }, onOpen, drawLater);
 }
 
@@ -164,30 +167,10 @@ function renderFinance(host, cost, drawLater) {
     }
   }
 
+  /* ต้นทุนการปลูกกับเบ็ดเตล็ดต้องอยู่แถวเดียวกัน — เป็นคู่ที่มีไว้เทียบกัน
+   * ถ้าปล่อยให้โดนัทแทรกอยู่ข้างหน้า แผงเบ็ดเตล็ดจะตกไปอยู่แถวถัดไปตัวเดียว
+   * แล้วสองกราฟที่ควรมองพร้อมกันจะอยู่คนละแถว */
   const g = grid(host, { cols: 2 });
-
-  // ── สัดส่วนต้นทุน ──
-  {
-    const body = panel(g, t('cost.split'), t('cost.splitNote'));
-    const labels = {
-      materialCost: t('cost.material'),
-      farmExpense: t('cost.farm'),
-      officeExpense: t('cost.office'),
-    };
-    const mix = {};
-    for (const gp of cost.byGroup) mix[labels[gp.key]] = gp.amount;
-    const order = cost.byGroup.map((gp) => labels[gp.key]);
-    if (!order.length) {
-      emptyNote(body);
-    } else {
-      const box = well(body);
-      drawLater.push({
-        node: box,
-        // unit: '฿' จำเป็น ไม่งั้นยอด 17.3 ล้านบาทจะขึ้นกลางโดนัทว่า "17,299 kg"
-        run: () => charts.donut(box, mix, { order, ramp: 'cat', height: 220, unit: '฿' }),
-      });
-    }
-  }
 
   /* ── ต้นทุนการปลูก แยกเป็นหัวข้อ ──
    *
@@ -210,29 +193,51 @@ function renderFinance(host, cost, drawLater) {
   }
 
   /* ── ต้นทุนเบ็ดเตล็ด ──
-   * รวมกันแค่ ~13% ของต้นทุนวัตถุดิบ ถ้าเอาไปเรียงแท่งปนกับหัวข้อหลักจะกินที่โดยเปล่า
-   * แต่ต้องเห็นครบทุกรายการ จึงเป็นตารางที่กดเรียงได้แทน */
+   *
+   * กราฟชนิดเดียวกับแผงบน เพื่อให้สองแผงอ่านเทียบกันได้ด้วยภาษาภาพเดียวกัน
+   * ช่วงตัวเลขกว้างถึง 1,021 เท่า (ค่าเช่า 1.7 ล้าน ↔ ค่าเติมน้ำยาแอร์ 1,700)
+   * แต่ barH ตรึงความกว้างขั้นต่ำไว้ 2px และพิมพ์ตัวเลขไว้ข้างแท่งเสมอ
+   * รายการเล็กจึงยังอ่านค่าได้ ไม่หายไปจากกราฟ
+   *
+   * ส่ง max เท่าจำนวนรายการจริง ไม่ใช้ค่าเริ่มต้น 8 — ไม่งั้นรายการท้าย ๆ
+   * จะถูกตัดทิ้งเงียบ ๆ ทั้งที่ยอดรวมบนหัวแผงนับมันไปแล้ว */
   {
     const bd = cost.breakdown ?? { misc: [] };
     const body = panel(g, t('cost.miscItems'), `${fmtBaht(bd.miscTotal ?? 0)} · ${span}`);
-    if (!bd.misc.length) {
+    const rows = bd.misc.map((x) => ({ key: x.label, flower: x.amount }));
+    if (!rows.length) {
       emptyNote(body);
     } else {
-      body.appendChild(
-        sortableTable(
-          [
-            { label: t('cost.item'), get: (r) => r.label },
-            {
-              label: t('cost.amount'),
-              align: 'n',
-              get: (r) => r.amount,
-              render: (r) => `<b>${baht(r.amount)}</b>`,
-            },
-          ],
-          bd.misc,
-          { sortIndex: 1, sortDir: 'desc' }
-        )
-      );
+      const box = well(body);
+      drawLater.push({
+        node: box,
+        run: () => charts.barH(box, rows, { max: rows.length, unit: '฿' }),
+      });
+    }
+  }
+
+  /* ── สัดส่วนต้นทุน ──
+   * คนละคำถามกับสองแผงบน: อันนั้นถามว่าเงินหมดไปกับอะไร อันนี้ถามว่าอยู่ในงบก้อนไหน
+   * (วัตถุดิบ / Farm / Office) จึงวางท้ายกริด ไม่แทรกกลางคู่ที่ต้องเทียบกัน */
+  {
+    const body = panel(g, t('cost.split'), t('cost.splitNote'));
+    const labels = {
+      materialCost: t('cost.material'),
+      farmExpense: t('cost.farm'),
+      officeExpense: t('cost.office'),
+    };
+    const mix = {};
+    for (const gp of cost.byGroup) mix[labels[gp.key]] = gp.amount;
+    const order = cost.byGroup.map((gp) => labels[gp.key]);
+    if (!order.length) {
+      emptyNote(body);
+    } else {
+      const box = well(body);
+      drawLater.push({
+        node: box,
+        // unit: '฿' จำเป็น ไม่งั้นยอด 17.3 ล้านบาทจะขึ้นกลางโดนัทว่า "17,299 kg"
+        run: () => charts.donut(box, mix, { order, ramp: 'cat', height: 220, unit: '฿' }),
+      });
     }
   }
 
@@ -279,42 +284,4 @@ function renderFinance(host, cost, drawLater) {
       )
     );
   }
-}
-
-/** ต้นทุนวัสดุสิ้นเปลือง — คนละชีต คนละขอบเขต ห้ามเอาไปบวกกับต้นทุนการปลูก */
-function renderSupplyCost(host, supply, requestSupply, drawLater) {
-  const body = panel(host, t('cost.supplyTotal'), t('cost.supplyScopeNote'), { wide: true });
-
-  if (!supply) {
-    emptyNote(body, t('supply.loading'));
-    requestSupply();
-    return;
-  }
-
-  const order = supply.kpi?.order;
-  const items = (order?.items ?? []).filter((i) => Number.isFinite(i.amount) && i.amount > 0);
-  if (!items.length) {
-    emptyNote(body);
-    return;
-  }
-
-  const note = document.createElement('p');
-  note.className = 'supply-warn';
-  note.textContent = `${t('cost.supplyTotal')}: ${baht(order.totalAmount)} ฿ · ${n(items.length)} ${t('cost.itemsWithPrice')}`;
-  body.appendChild(note);
-
-  const box = well(body);
-  const rows = items.map((i) => ({ key: i.item, flower: i.amount })).sort((a, b) => b.flower - a.flower);
-  drawLater.push({ node: box, run: () => charts.barH(box, rows, { max: 10, unit: '฿' }) });
-
-  // ยังขาดต้นทุนบางส่วนอยู่ — ต้องบอกไว้ ไม่ให้เข้าใจว่าตัวเลขข้างบนคือทั้งหมด
-  const gaps = grid(body, { cols: 1 });
-  gaps.appendChild(
-    awaitingCard({
-      title: t('awaiting.costPerGram.title'),
-      why: t('awaiting.costPerGram.why'),
-      wide: true,
-      needs: [{ sheet: t('awaiting.costPerGram.sheet'), columns: [t('awaiting.col.gramsPerMonth')] }],
-    })
-  );
 }

@@ -77,16 +77,25 @@ export function barH(container, rows, opts = {}) {
   if (!data.length) return drawEmpty(ctx, w, h);
 
   const p = palette();
+  ctx.font = FONT_SM();
+  ctx.textBaseline = 'middle';
+
   const labelW = Math.min(150, Math.max(80, w * 0.32));
-  const valueW = 76;
+
+  /* ช่องตัวเลขทางขวาต้องกว้างตามข้อความจริง ไม่ใช่ค่าตายตัว
+   *
+   * ของเดิมจองไว้ 76px ซึ่งพอสำหรับ "400 kg" แต่ยอดเงินหลักล้าน ("6,079,796 ฿")
+   * กว้างเกินนั้น สัญลักษณ์ ฿ ตัวสุดท้ายจึงถูกตัดครึ่งหายไปนอกผืนผ้าใบ
+   * วัดทุกค่าก่อนแล้วเผื่อ 8px หน้า-หลัง เพดาน 160px กันไม่ให้แท่งถูกบีบจนอ่านไม่ออก */
+  const valueTexts = data.map((r) => fmtValue(r[valueKey], unit));
+  const valueW = Math.min(160, Math.max(60, ...valueTexts.map((s) => ctx.measureText(s).width)) + 16);
+
   const box = { x: labelW, y: 8, w: Math.max(20, w - labelW - valueW), h: h - 16 };
   const max = Math.max(...data.map((r) => r[valueKey]));
   const rowH = box.h / data.length;
   const barH_ = Math.min(18, rowH - GAP * 2);
 
   const hits = [];
-  ctx.font = FONT_SM();
-  ctx.textBaseline = 'middle';
 
   // ตัดป้ายชื่อตามความกว้างที่วัดได้จริง ไม่ใช่ตามจำนวนตัวอักษร
   // (ชื่อลูกค้าภาษาไทย/อังกฤษกว้างไม่เท่ากัน ตัดตามตัวอักษรทำให้ล้นขอบซ้าย)
@@ -110,8 +119,7 @@ export function barH(container, rows, opts = {}) {
 
     ctx.textAlign = 'left';
     ctx.fillStyle = p.ink;
-    const label = fmtValue(row[valueKey], unit);
-    ctx.fillText(label, box.x + box.w + 8, y + barH_ / 2);
+    ctx.fillText(valueTexts[i], box.x + box.w + 8, y + barH_ / 2);
 
     // แถบรับเมาส์กินเต็มความสูงของแถว ไม่เว้นช่องว่างระหว่างแท่ง
     // ไม่งั้นเลื่อนเมาส์ผ่านรอยต่อแล้ว tooltip จะสะดุด
