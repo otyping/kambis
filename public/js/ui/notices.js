@@ -27,8 +27,15 @@ export function collectNotices(meta, { scope = null } = {}) {
   // ── ดึงสดไม่ได้เลย กำลังเสิร์ฟชุดที่ดีล่าสุด ──
   if (meta.degraded) out.push(tag + t('notice.servedLastGood'));
 
-  if (meta.failedSources?.length) {
-    out.push(`${tag}${t('notice.partialSources')} (${meta.failedSources.join(', ')})`);
+  /* ── รายงานบางอันอ่านข้อมูลไม่ได้เลย ──
+   *
+   * `failedSources` ถูกตั้งเฉพาะตอน degraded (เสิร์ฟชุดสำรอง) แต่ยังมีอีกกรณีที่
+   * เงียบกว่านั้น: health เป็น `partial` คือดึงสดสำเร็จ แต่มีรายงานที่ได้ 0 แถว
+   * ถ้าไม่บอก ผู้ใช้จะเห็นแค่ยอด 0 แล้วเข้าใจว่าเป็นคำตอบจริง
+   * (เคยเกิดกับสต็อกหัวหิน/กรุงเทพ ที่หายไปทั้งรายงานเพราะชีตเปลี่ยนชื่อแท็บ) */
+  const failed = meta.failedSources?.length ? meta.failedSources : (meta.health?.failed ?? []);
+  if (failed.length) {
+    out.push(`${tag}${t('notice.partialSources')} (${failed.join(', ')})`);
   }
 
   if (meta.sources?.some((s) => s.status === 'stale')) out.push(tag + t('notice.stale'));

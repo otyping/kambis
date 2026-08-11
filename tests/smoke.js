@@ -20,6 +20,7 @@ import {
   comparePeriod,
 } from '../server/lib/normalize.js';
 import { analyze, verifyPresentation } from '../server/lib/analysis.js';
+import { STOCK_TAB_RE } from '../server/lib/parsers/inventory.js';
 import { parseCsv } from '../server/lib/csv.js';
 
 let payload;
@@ -380,6 +381,41 @@ describe('การตรวจรายแท็บ', () => {
       assert.ok(f.tab, 'finding รายแท็บต้องระบุชื่อแท็บ');
       // gid ถูกเติมตอนท้าย analyze() — ถ้าเป็น null แปลว่าลิงก์เปิดไปแท็บนั้นไม่ได้
       assert.notEqual(f.gid, null, `finding ของ "${f.tab}" ไม่มี gid จึงทำลิงก์ไม่ได้`);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+describe('การคัดแท็บของสินค้าคงเหลือ', () => {
+  /* เคสจริง ส.ค. 69: มีคนเติมเลขลำดับเอกสารหน้าชื่อแท็บ (`9.58 Stock หัวหิน`)
+   * ตามธรรมเนียมที่ชีต Log Stock ใช้อยู่แล้ว (`1.Rockwool`) แล้วสต็อกหายทั้งรายงาน
+   * เทสต์นี้เป็น unit test ของ regex ตรง ๆ จึงจับได้แม้ snapshot จะเป็นของเก่า */
+  test('รับชื่อแท็บที่มีเลขลำดับนำหน้า', () => {
+    for (const name of [
+      'Stock หัวหิน',
+      'Stock กรุงเทพ',
+      '9.58 Stock หัวหิน',
+      '9.59 Stock กรุงเทพ',
+      '10) Stock เชียงใหม่',
+      'stock ภูเก็ต',
+    ]) {
+      assert.ok(STOCK_TAB_RE.test(name.trim()), `ควรรับ "${name}" แต่ถูกข้าม`);
+    }
+  });
+
+  test('ยังต้องปฏิเสธแท็บที่มีคำว่า Stock อยู่กลางประโยค', () => {
+    /* "ส่งของให้ ลค.  Stock กรุงเทพ" คือของที่ส่งออกไปแล้ว ไม่ใช่ของคงเหลือ
+     * ถ้าผ่อน regex เป็น /stock/i เฉย ๆ แท็บนี้จะหลุดเข้ามาแล้วสต็อกเกินจริง */
+    for (const name of ['ส่งของให้ ลค.  Stock กรุงเทพ', 'ยอดส่ง Stock', 'สรุป Stock รายเดือน']) {
+      assert.ok(!STOCK_TAB_RE.test(name.trim()), `ควรข้าม "${name}" แต่กลับรับเข้ามา`);
+    }
+  });
+
+  test('แท็บสต็อกทุกอันที่อ่านได้ต้องมีชื่อคลังที่ไม่ติดเลขลำดับมาด้วย', () => {
+    const locations = [...new Set(payload.sources.inventory.rows.map((r) => r.location))];
+    assert.ok(locations.length > 0, 'ไม่มีข้อมูลคลังเลย');
+    for (const loc of locations) {
+      assert.ok(!/^\s*\d/.test(String(loc)), `ชื่อคลัง "${loc}" ยังติดเลขลำดับมาด้วย`);
     }
   });
 });

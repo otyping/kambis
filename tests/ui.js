@@ -233,6 +233,24 @@ describe('แถบแจ้งเตือนบนหัวเว็บ', () =
     assert.deepEqual(collectNotices(null), []);
   });
 
+  /* เคสจริง: สต็อกหัวหิน/กรุงเทพ หายทั้งรายงานเพราะชีตเปลี่ยนชื่อแท็บ
+   * health เป็น partial (ดึงสดสำเร็จแต่ได้ 0 แถว) ซึ่งไม่ได้ตั้ง failedSources
+   * เดิมจึงไม่มีแถบเตือนเลย ผู้ใช้เห็นแค่สต็อก 0 kg แล้วเข้าใจว่าเป็นคำตอบจริง */
+  test('รายงานที่อ่านไม่ได้เลยต้องขึ้นแถบเตือน แม้ยังไม่ถึงขั้นเสิร์ฟชุดสำรอง', () => {
+    const out = collectNotices({
+      sources: [src()],
+      health: { level: 'partial', reason: 'source-failed', failed: ['inventory'] },
+    });
+    assert.equal(out.length, 1, 'ต้องมีคำเตือนหนึ่งข้อ');
+    assert.match(out[0], /inventory/);
+
+    // health ปกติต้องไม่เตือน
+    assert.deepEqual(
+      collectNotices({ sources: [src()], health: { level: 'good', failed: [] } }),
+      []
+    );
+  });
+
   /* ค่านี้ server ส่งมาตั้งแต่แรกแล้วแต่ไม่เคยมีใครอ่าน — แท็บใหม่จึงถูกมองข้ามเงียบ */
   test('ค้นรายชื่อแท็บสดไม่สำเร็จ ต้องเตือนพร้อมบอกว่าชีตไหน', () => {
     const out = collectNotices({

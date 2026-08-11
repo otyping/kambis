@@ -35,6 +35,20 @@ const COL = {
 
 const TOTAL_RE = /^\s*(total|รวม|ผลรวม)/i;
 
+/**
+ * แท็บไหนคือ "ภาพสต็อกคงเหลือ"
+ *
+ * ยอมให้มีเลขลำดับเอกสารคั่นหน้าได้ (`9.58 Stock หัวหิน`) เพราะบริษัทใช้ระบบเลข
+ * นำหน้าชื่อแท็บอยู่แล้ว — ชีต Log Stock ก็ตั้งชื่อแบบ `1.Rockwool` มาตลอด
+ * ของเดิมบังคับให้ขึ้นต้นด้วย "stock" เป๊ะ ๆ พอมีคนเติมเลขตามธรรมเนียมเมื่อ ส.ค. 69
+ * สต็อกทั้งสองคลังจึงถูกข้ามหมด เหลือ 0 แถว โดยที่หน้าเว็บยังโชว์ 0 kg เฉย ๆ
+ *
+ * **ห้ามผ่อนเป็น /stock/i เด็ดขาด** เพราะแท็บ "ส่งของให้ ลค.  Stock กรุงเทพ"
+ * ก็มีคำว่า Stock อยู่ แต่เป็นยอดที่ส่งออกไปให้ลูกค้าแล้ว ไม่ใช่ของที่เหลืออยู่
+ * ถ้ารับเข้ามานับด้วยจะทำให้สต็อกเกินจริง — อนุญาตเฉพาะเลข/วงเล็บ/ขีด นำหน้าเท่านั้น
+ */
+export const STOCK_TAB_RE = /^[\d.\s()[\]:-]*stock\b/i;
+
 /** หาชื่อคลังและวันที่อัปเดตจากสองแถวบนสุด */
 function readLocationHeader(rows) {
   for (let r = 0; r < Math.min(rows.length, 5); r++) {
@@ -56,14 +70,18 @@ export function parse({ tabs, sourceKey = 'inventory' }) {
   for (const tab of tabs) {
     const rows = tab.rows || [];
 
-    // tab ที่ไม่ใช่ภาพสต็อก (เช่น "ส่งของให้ ลค.") ใช้คนละโครง — ข้ามแต่บันทึกไว้
-    if (!/^stock/i.test(String(tab.name).trim())) {
+    // tab ที่ไม่ใช่ภาพสต็อก (เช่น "ส่งของให้ ลค.") ใช้คนละความหมาย — ข้ามแต่บันทึกไว้
+    if (!STOCK_TAB_RE.test(String(tab.name).trim())) {
       tabSummaries.push({ gid: tab.gid, name: tab.name, skipped: 'not-a-stock-tab', rowCount: 0 });
       continue;
     }
 
+    /* ชื่อคลังอ่านจากเนื้อในชีตเป็นหลัก (แถวที่ 2) ซึ่งเชื่อถือได้กว่าชื่อแท็บ
+     * ที่คนเปลี่ยนเมื่อไหร่ก็ได้ — ชื่อแท็บใช้เป็นทางสำรองเท่านั้น
+     * และต้องตัดเลขลำดับหน้าออกด้วย ไม่งั้นจะได้คลังชื่อ "9.58 หัวหิน" */
     const { location, updatedText } = readLocationHeader(rows);
-    const locationName = location || String(tab.name).replace(/^stock\s*/i, '').trim();
+    const locationName =
+      location || String(tab.name).replace(/^[\d.\s()[\]:-]*stock\s*/i, '').trim();
 
     let statedTotalRow = null;
     let rowCount = 0;
