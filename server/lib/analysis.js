@@ -9,6 +9,7 @@
  *   3. finding ไม่บล็อกการแสดงผล ข้อมูลยังขึ้นตามปกติแต่ติดธงกำกับ
  */
 import { SIZE_KEYS, NON_FLOWER_KEYS, sum, periodOrder } from './normalize.js';
+import { buildCostBreakdown } from '../../public/js/shared/kpi.js';
 
 const TOLERANCE_G = 0.5; // ยอมรับความคลาดเคลื่อนจากการปัดเศษ
 const PCT_TOLERANCE = 0.6; // % ที่ชีตคำนวณมักปัดทศนิยม
@@ -691,12 +692,22 @@ const MONEY_TOL = 1;
 function checkFinance(source, out) {
   const summary = source.rows.filter((r) => r.kind === 'summary');
   const detail = source.rows.filter((r) => r.kind === 'expense');
+  // ใช้ตัวแยกกลุ่มตัวเดียวกับที่ Dashboard ใช้ จะได้ไม่มีสองนิยามของคำว่า "แถวยอดรวม"
+  const { subtotalItems } = buildCostBreakdown(detail);
 
   /** ยอดรวมทั้งปีของบรรทัดหนึ่งในงบสรุป */
   const lineTotal = (line) =>
     summary.filter((r) => r.line === line).reduce((a, r) => a + (r.amount ?? 0), 0);
+  /* ผลรวมรายการจริงของกลุ่มหนึ่ง — **ห้ามนับแถวยอดรวมซ้ำกับลูกของมัน**
+   *
+   * แท็บ "ต้นทุน" มีแถวยอดรวมที่ขึ้นต้นด้วยเลขข้อ (`1) รวม ค่าบุคลากร`) วางอยู่ใต้ลูก
+   * ของตัวเอง กฎตัดแถวยอดรวมของ parser จับไม่ได้เพราะไม่ได้ขึ้นต้นด้วยคำว่า "รวม"
+   * ถ้านับซ้ำ finding จะรายงานว่างบต่างจากรายการ 6.88 ล้าน ทั้งที่ความจริงต่างแค่ 26,672
+   * แล้วคนจะไปไล่หาเงินก้อนที่ไม่มีอยู่จริง */
   const groupTotal = (group) =>
-    detail.filter((r) => r.group === group).reduce((a, r) => a + (r.amount ?? 0), 0);
+    detail
+      .filter((r) => r.group === group && !subtotalItems.has(r.item))
+      .reduce((a, r) => a + (r.amount ?? 0), 0);
 
   if (!summary.length) {
     out.push(

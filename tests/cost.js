@@ -15,6 +15,7 @@ import assert from 'node:assert/strict';
 import { parse } from '../server/lib/parsers/cost.js';
 import { analyze } from '../server/lib/analysis.js';
 import { buildKpi } from '../server/lib/aggregate.js';
+import { buildCostBreakdown } from '../public/js/shared/kpi.js';
 
 /**
  * หัวตารางแบบเดียวกับของจริง — ช่องเดือนที่หกเป็นชื่อรายงานที่ merge ทับ Jun
@@ -320,6 +321,97 @@ describe('KPI และกฎตรวจของงบต้นทุน', () 
       analyze(sourcesOf([even])).findings.filter((f) => f.id === 'finance.coverageMismatch').length,
       0
     );
+  });
+
+  /* ── แยกต้นทุนการปลูก / เบ็ดเตล็ด ตามโครงของชีต ──
+   *
+   * แท็บ "ต้นทุน" วางแถวยอดรวมไว้ **ใต้** ลูกของมัน และขึ้นต้นด้วยเลขข้อ
+   * (`1) รวม ค่าบุคลากร`) กฎตัดแถวยอดรวมของ parser จับไม่ได้เพราะไม่ได้ขึ้นต้นด้วย "รวม"
+   * ถ้าไม่กันไว้ กราฟจะเอายอดรวมไปเรียงแข่งกับลูกของมันเอง แล้วยอดเกินจริงเท่าตัว
+   */
+  describe('แยกกลุ่มรายการในแท็บต้นทุน', () => {
+    const TAB = {
+      gid: '40',
+      name: 'ต้นทุน',
+      rows: [
+        head(2),
+        row(['', '- เงินเดือน'], [100, 100, null, null, null, null, null, null, null, null, null, null], '200'),
+        row(['', '- Grower'], [50, 50, null, null, null, null, null, null, null, null, null, null], '100'),
+        // ยอดรวมของสองแถวบน — อยู่ใต้ลูก และมีเลขข้อนำ
+        row(['', '1) รวม ค่าบุคลากร'], [150, 150, null, null, null, null, null, null, null, null, null, null], '300'),
+        // หัวข้อที่ไม่มีลูก ต้องยังถูกนับตามปกติ
+        row(['', '2) ค่าไฟฟ้า'], [200, 200, null, null, null, null, null, null, null, null, null, null], '400'),
+        row(['', '3) Co2'], [10, 10, null, null, null, null, null, null, null, null, null, null], '20'),
+        // ไม่มีเลขข้อ และอยู่หลังหัวข้อสุดท้าย = เบ็ดเตล็ด
+        row(['', 'ค่าเช่า'], [80, 80, null, null, null, null, null, null, null, null, null, null], '160'),
+        row(['', 'ค่าน้ำประปา'], [5, 5, null, null, null, null, null, null, null, null, null, null], '10'),
+      ],
+    };
+
+    /* งบสรุปบอกต้นทุนวัตถุดิบ 890 = เท่ากับผลบวกรายการจริงพอดี
+     * (200+100 ลูก + 400+20 หัวข้อไม่มีลูก + 160+10 เบ็ดเตล็ด)
+     * ถ้ายังนับแถวยอดรวมซ้ำจะได้ 1,190 แล้วฟ้องผิดว่าต่างกัน 300 */
+    const SUMMARY = {
+      gid: '41',
+      name: 'สรุป',
+      rows: [
+        head(1),
+        row(['ต้นทุนวัตถุดิบ'], [445, 445, null, null, null, null, null, null, null, null, null, null], '890'),
+      ],
+    };
+
+    const breakdownOf = () => buildCostBreakdown(build([TAB]).rows.filter((r) => r.kind === 'expense'));
+
+    test('แถวยอดรวมที่มีเลขข้อไม่ถูกเรียงแข่งกับลูกของมัน', () => {
+      const bd = breakdownOf();
+      const staff = bd.growing.find((x) => x.label === 'ค่าบุคลากร');
+      assert.ok(staff, 'ต้องมีหัวข้อค่าบุคลากร');
+      assert.equal(staff.amount, 300);
+      assert.deepEqual(
+        staff.children.map((c) => c.item).sort(),
+        ['- Grower', '- เงินเดือน'],
+        'ลูกทั้งสองต้องอยู่ใต้หัวข้อ ไม่ใช่เป็นหัวข้อเอง'
+      );
+      assert.ok(bd.subtotalItems.has('1) รวม ค่าบุคลากร'));
+      // ยอดหัวข้อต้องเท่าผลบวกลูก ไม่งั้นแปลว่าชีตขัดกันเอง
+      assert.equal(staff.children.reduce((a, c) => a + c.amount, 0), staff.amount);
+    });
+
+    test('หัวข้อที่ไม่มีลูกยังถูกนับ และไม่ถูกมองว่าเป็นยอดรวม', () => {
+      const bd = breakdownOf();
+      const power = bd.growing.find((x) => x.label === 'ค่าไฟฟ้า');
+      assert.equal(power.amount, 400);
+      assert.equal(power.children.length, 0);
+      assert.ok(!bd.subtotalItems.has('2) ค่าไฟฟ้า'));
+    });
+
+    test('รายการที่ไม่มีเลขข้อและอยู่หลังหัวข้อสุดท้าย = เบ็ดเตล็ด', () => {
+      const bd = breakdownOf();
+      assert.deepEqual(bd.misc.map((x) => x.item), ['ค่าเช่า', 'ค่าน้ำประปา']);
+      assert.equal(bd.miscTotal, 170);
+    });
+
+    test('ชื่อหัวข้อตัดเลขข้อกับคำว่า "รวม" ออก แล้วเติม "ค่า" ให้', () => {
+      const labels = breakdownOf().growing.map((x) => x.label);
+      assert.ok(labels.includes('ค่าบุคลากร'), '1) รวม ค่าบุคลากร → ค่าบุคลากร');
+      assert.ok(labels.includes('ค่า Co2'), '3) Co2 → ค่า Co2 (เว้นวรรคหน้าอักษรอังกฤษ)');
+      assert.ok(!labels.some((l) => /^\d|รวม/.test(l)), `ยังมีเลขข้อหรือคำว่ารวมค้างอยู่: ${labels}`);
+    });
+
+    test('ยอดรายการต่อกลุ่มไม่นับแถวยอดรวมซ้ำ', () => {
+      const kpi = buildKpi(sourcesOf([SUMMARY, TAB]), { findings: [] });
+      // 200 + 100 (ลูก) + 400 + 20 (หัวข้อไม่มีลูก) + 160 + 10 (เบ็ดเตล็ด)
+      assert.equal(kpi.cost.detailTotals.growing, 890);
+      const bd = kpi.cost.breakdown;
+      assert.equal(bd.growingTotal + bd.miscTotal, 890, 'สองกลุ่มบวกกันต้องเท่ายอดรายการจริง');
+    });
+
+    test('finding เทียบงบสรุปกับรายการจริง ไม่ใช่ยอดที่นับซ้ำ', () => {
+      const hits = analyze(sourcesOf([SUMMARY, TAB])).findings.filter(
+        (f) => f.id === 'finance.summaryMismatch' && f.field === 'materialCost'
+      );
+      assert.equal(hits.length, 0, `ไม่ควรมี finding แต่ได้ ${JSON.stringify(hits[0]?.delta)}`);
+    });
   });
 
   test('ชีตอ่านไม่ได้ต้องได้ available:false และ null ไม่ใช่ 0', () => {

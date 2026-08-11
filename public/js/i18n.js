@@ -345,6 +345,12 @@ const STRINGS = {
   'cost.utilities': ['ค่าน้ำค่าไฟ', 'Utilities'],
   'cost.nutrients': ['ปุ๋ยและสารเคมี', 'Nutrients & chemicals'],
   'cost.logistics': ['ค่าขนส่ง', 'Logistics'],
+  /* แท็บ "ต้นทุน" แยกสองกลุ่มตามโครงของชีต — หัวข้อที่มีเลขข้อคือต้นทุนการปลูก
+   * ที่เหลือเป็นเบ็ดเตล็ด (ดู buildCostBreakdown ใน shared/kpi.js) */
+  'cost.growingItems': ['ต้นทุนการปลูก แยกตามหัวข้อ', 'Growing cost by category'],
+  'cost.miscItems': ['ต้นทุนเบ็ดเตล็ด', 'Miscellaneous cost'],
+  'cost.item': ['รายการ', 'Item'],
+  'cost.amount': ['จำนวนเงิน', 'Amount'],
   'cost.topItems': ['วัสดุที่มีมูลค่าสูงสุด', 'Highest-value supplies'],
   'cost.topItemsNote': ['หน่วยเป็นบาท', 'In baht'],
   'cost.table': ['รายการวัสดุทั้งหมด', 'All supply items'],

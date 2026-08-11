@@ -179,6 +179,95 @@ function buildSupply(source) {
   };
 }
 
+/** หัวข้อต้นทุนการปลูกในแท็บรายละเอียด ขึ้นต้นด้วยเลขข้อเสมอ — `1)` `4.1)` `5)` */
+const COST_HEADING_RE = /^\s*\d+(?:\.\d+)?\)\s*/;
+
+/**
+ * ชื่อที่เอาไปขึ้นจอ — ตัดเลขข้อกับคำว่า "รวม" ออก แล้วเติม "ค่า" ถ้ายังไม่มี
+ *
+ * `1) รวม ค่าบุคลากร` → `ค่าบุคลากร` · `4.2) Golden Green Coco` → `ค่า Golden Green Coco`
+ * เป็นกฎ ไม่ใช่รายชื่อที่ฮาร์ดโค้ด หัวข้อใหม่ที่คนเพิ่มในชีตจึงได้ชื่อที่อ่านรู้เรื่องเอง
+ */
+function costHeadingLabel(item) {
+  const bare = String(item).replace(COST_HEADING_RE, '').replace(/^รวม\s*/, '').trim();
+  if (bare.startsWith('ค่า')) return bare;
+  // เว้นวรรคเมื่อคำถัดไปไม่ใช่อักษรไทย ไม่งั้นได้ "ค่าCo2" ติดกันจนอ่านสะดุด
+  return /^[฀-๿]/.test(bare) ? `ค่า${bare}` : `ค่า ${bare}`;
+}
+
+/**
+ * แยกรายการในแท็บ "ต้นทุน" เป็นต้นทุนการปลูก กับ ต้นทุนเบ็ดเตล็ด
+ *
+ * โครงของชีต (ตรวจกับข้อมูลจริงแล้ว) เรียงแบบนี้:
+ *
+ *   แถวลูก 4 แถว …            ← เงินเดือน · Grower · Trimmer · Over Time
+ *   1) รวม ค่าบุคลากร          ← **ยอดรวมอยู่ใต้ลูกของมัน**
+ *   แถวลูก 8 แถว …            ← ปุ๋ยอะธีน่าแต่ละตัว
+ *   2) รวมปุ๋ย อะธีน่า
+ *   3) ค่าไฟฟ้า · 4.1) ดิน Coco Coir · 4.2) Golden Green Coco · 5) Co2   ← ไม่มีลูก
+ *   ค่าเช่า · ค่าน้ำประปา · …   ← เบ็ดเตล็ด ไม่มีเลขข้อ
+ *
+ * กฎที่ได้: **แถวที่มีเลขข้อ = หัวข้อต้นทุนการปลูก** · แถวไม่มีเลขที่อยู่ *ก่อน* หัวข้อ
+ * = ลูกของหัวข้อนั้น · แถวไม่มีเลขที่อยู่ *หลัง* หัวข้อสุดท้าย = ต้นทุนเบ็ดเตล็ด
+ *
+ * อ่านจากโครงของชีตเอง ไม่ฮาร์ดโค้ดรายชื่อ — เพิ่ม `6)` ในชีตแล้วขึ้นเองอัตโนมัติ
+ * และ **ห้ามเอาแถวยอดรวมไปเรียงแข่งกับลูกของมัน** ไม่งั้นกราฟจะนับซ้ำ 6.85 ล้าน
+ * (เคยเป็นแบบนั้นจริง — `1) รวม ค่าบุคลากร` โผล่อยู่ข้าง `- เงินเดือน` ในกราฟเดียวกัน)
+ *
+ * @param {Array} detail แถว kind==='expense' ที่ตัดช่วงเดือนมาแล้ว
+ */
+export function buildCostBreakdown(detail) {
+  const rows = (detail ?? []).filter((r) => r.group === 'growing');
+  const empty = { growing: [], misc: [], growingTotal: 0, miscTotal: 0, subtotalItems: new Set() };
+  if (!rows.length) return empty;
+
+  // รวมยอดรายเดือนเป็นรายการเดียว แต่จำลำดับแถวแรกที่เจอไว้ เพราะกฎแยกกลุ่มใช้ลำดับ
+  const byItem = new Map();
+  for (const r of rows) {
+    const e = byItem.get(r.item) ?? { item: r.item, order: r.rowIndex ?? 0, amount: 0 };
+    e.amount += r.amount ?? 0;
+    e.order = Math.min(e.order, r.rowIndex ?? 0);
+    byItem.set(r.item, e);
+  }
+  const ordered = [...byItem.values()].sort((a, b) => a.order - b.order);
+  const lastHeading = ordered.reduce((last, e, i) => (COST_HEADING_RE.test(e.item) ? i : last), -1);
+
+  const growing = [];
+  const misc = [];
+  const subtotalItems = new Set();
+  let pending = [];
+
+  ordered.forEach((e, i) => {
+    if (COST_HEADING_RE.test(e.item)) {
+      // มีลูก = แถวนี้เป็นยอดรวมของลูก ห้ามนับซ้ำตอนบวกยอดรายการ
+      if (pending.length) subtotalItems.add(e.item);
+      growing.push({
+        item: e.item,
+        label: costHeadingLabel(e.item),
+        amount: e.amount,
+        children: pending.sort((a, b) => b.amount - a.amount),
+      });
+      pending = [];
+    } else if (i < lastHeading) {
+      pending.push({ item: e.item, label: e.item, amount: e.amount });
+    } else {
+      misc.push({ item: e.item, label: e.item, amount: e.amount });
+    }
+  });
+
+  /* แถวไม่มีเลขที่ค้างอยู่หลังหัวข้อสุดท้ายไม่มีทางเกิด (lastHeading คุมไว้แล้ว)
+   * แต่ถ้าชีตเปลี่ยนโครงจนเกิดขึ้น ต้องไม่ปล่อยหาย — ยกไปเป็นเบ็ดเตล็ด */
+  for (const p of pending) misc.push(p);
+
+  return {
+    growing: growing.sort((a, b) => b.amount - a.amount),
+    misc: misc.sort((a, b) => b.amount - a.amount),
+    growingTotal: growing.reduce((a, x) => a + x.amount, 0),
+    miscTotal: misc.reduce((a, x) => a + x.amount, 0),
+    subtotalItems,
+  };
+}
+
 /**
  * สรุปงบรายรับ-รายจ่ายจากชีต "แบบฟอร์มต้นทุน"
  *
@@ -236,6 +325,7 @@ function buildCost(source, yearFilter = null) {
       costByMonth: null,
       topItems: [],
       byGroup: [],
+      breakdown: { growing: [], misc: [], growingTotal: 0, miscTotal: 0, subtotalItems: new Set() },
       detailTotals: {},
     };
   }
@@ -326,9 +416,17 @@ function buildCost(source, yearFilter = null) {
     LINES.map((l) => [l, summary.filter((r) => r.line === l && (r.amount ?? 0) !== 0).length])
   );
 
-  // ── อันดับรายการที่ใช้เงินมากสุด (จากแท็บรายละเอียด) ──
+  /* ── รายการย่อยต้องตัดที่เดือนเดียวกับยอดรวมด้านบน ──
+   *
+   * ช่องตัวเลขเขียนว่า "ต้นทุน (ม.ค.–ก.ค. 2026)" เพราะ totals ตัดที่ lastActiveMonth
+   * ถ้ากราฟรายการย่อยใต้ช่องนั้นบวกครบ 12 เดือน สองตัวเลขบนหน้าจอเดียวกันจะคนละช่วง
+   * (ตอนนี้ต่างกัน 154,500 บาท — ค่ารักษาความปลอดภัย Office ที่ตั้งไว้ล่วงหน้า ส.ค.–ธ.ค.) */
+  const detailInRange = detail.filter((r) => within(r.month));
+
+  const breakdown = buildCostBreakdown(detailInRange);
+
   const byItem = new Map();
-  for (const r of detail) {
+  for (const r of detailInRange) {
     const key = `${r.group}|${r.item}`;
     const e = byItem.get(key) ?? {
       item: r.item,
@@ -341,8 +439,13 @@ function buildCost(source, yearFilter = null) {
   }
   const topItems = [...byItem.values()].sort((a, b) => b.amount - a.amount).slice(0, 20);
 
+  /* ยอดรายการต่อกลุ่ม — ต้องไม่นับแถวยอดรวมซ้ำกับลูกของมัน
+   * ไม่งั้นกลุ่ม growing จะได้ 22.7 ล้าน ทั้งที่รายการจริงรวมกันแค่ 15.8 ล้าน */
   const detailTotals = {};
-  for (const r of detail) detailTotals[r.group] = (detailTotals[r.group] ?? 0) + (r.amount ?? 0);
+  for (const r of detailInRange) {
+    if (breakdown.subtotalItems.has(r.item)) continue;
+    detailTotals[r.group] = (detailTotals[r.group] ?? 0) + (r.amount ?? 0);
+  }
 
   const byGroup = [
     { key: 'materialCost', amount: totals.materialCost },
@@ -369,6 +472,8 @@ function buildCost(source, yearFilter = null) {
     totalsFullYear,
     byGroup,
     topItems,
+    // รายการย่อยแยกเป็นต้นทุนการปลูก (มีเลขข้อ) กับเบ็ดเตล็ด — ดู buildCostBreakdown()
+    breakdown,
     detailTotals,
     // ช่องที่หน้าภาพรวมใช้ตรง ๆ — เดิมเป็น null เพราะยังไม่มีชีตไหนมีตัวเลขเงิน
     revenueByYear: totals.revenue,

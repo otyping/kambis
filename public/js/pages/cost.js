@@ -189,15 +189,50 @@ function renderFinance(host, cost, drawLater) {
     }
   }
 
-  // ── รายการที่ใช้เงินสูงสุด ──
+  /* ── ต้นทุนการปลูก แยกเป็นหัวข้อ ──
+   *
+   * ของเดิมเป็นกราฟเรียงรายการทั้งหมดปนกัน ซึ่งเอาแถวยอดรวม (`1) รวม ค่าบุคลากร`)
+   * ไปเรียงแข่งกับลูกของมันเอง (`- เงินเดือน`) ยอดจึงเกินจริง 6.85 ล้าน
+   * ตอนนี้แยกตามโครงของชีต: หัวข้อที่มีเลขข้อ = ต้นทุนการปลูก · ที่เหลือ = เบ็ดเตล็ด */
   {
-    const body = panel(g, t('cost.topItems'), t('cost.topItemsNote'));
-    const rows = cost.topItems.map((i) => ({ key: i.item, flower: i.amount }));
+    const bd = cost.breakdown ?? { growing: [], misc: [] };
+    const body = panel(g, t('cost.growingItems'), `${fmtBaht(bd.growingTotal ?? 0)} · ${span}`);
+    const rows = bd.growing.map((x) => ({ key: x.label, flower: x.amount }));
     if (!rows.length) {
       emptyNote(body);
     } else {
       const box = well(body);
-      drawLater.push({ node: box, run: () => charts.barH(box, rows, { max: 10, unit: '฿' }) });
+      drawLater.push({
+        node: box,
+        run: () => charts.barH(box, rows, { max: rows.length, unit: '฿' }),
+      });
+    }
+  }
+
+  /* ── ต้นทุนเบ็ดเตล็ด ──
+   * รวมกันแค่ ~13% ของต้นทุนวัตถุดิบ ถ้าเอาไปเรียงแท่งปนกับหัวข้อหลักจะกินที่โดยเปล่า
+   * แต่ต้องเห็นครบทุกรายการ จึงเป็นตารางที่กดเรียงได้แทน */
+  {
+    const bd = cost.breakdown ?? { misc: [] };
+    const body = panel(g, t('cost.miscItems'), `${fmtBaht(bd.miscTotal ?? 0)} · ${span}`);
+    if (!bd.misc.length) {
+      emptyNote(body);
+    } else {
+      body.appendChild(
+        sortableTable(
+          [
+            { label: t('cost.item'), get: (r) => r.label },
+            {
+              label: t('cost.amount'),
+              align: 'n',
+              get: (r) => r.amount,
+              render: (r) => `<b>${baht(r.amount)}</b>`,
+            },
+          ],
+          bd.misc,
+          { sortIndex: 1, sortDir: 'desc' }
+        )
+      );
     }
   }
 
