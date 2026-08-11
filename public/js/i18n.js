@@ -97,6 +97,8 @@ const STRINGS = {
   'label.matched': ['ตรงกัน', 'Matched'],
   'label.records': ['รายการ', 'Records'],
   'label.updatedAt': ['ข้อมูล ณ วันที่', 'Data as of'],
+  // ช่วงเวลาที่ตัวเลขบนการ์ดครอบคลุมจริง — แต่ละชีตเริ่มบันทึกไม่พร้อมกัน
+  'label.coverage': ['ช่วงข้อมูล', 'Covers'],
   'label.search': ['ค้นหา…', 'Search…'],
   'label.allCrops': ['ทุกครอป', 'All crops'],
   'label.allTabs': ['ทุกชีตย่อย', 'All tabs'],

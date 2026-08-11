@@ -64,6 +64,43 @@ export function month(ym) {
   });
 }
 
+/* ── ป้ายช่วงเวลาบนการ์ดและช่องตัวเลข ──
+ *
+ * ต่างจาก month() ข้างบนตรงที่ **เขียนปีเป็น ค.ศ. ไม่ใช่ พ.ศ.**
+ * เพราะป้ายพวกนี้อยู่ใกล้แถบตัวกรองที่เขียนว่า "2026" ถ้าใช้คนละศักราช
+ * ผู้ใช้จะไม่แน่ใจว่ากำลังดูปีไหนอยู่ ส่วน month() ยังใช้ พ.ศ. เหมือนเดิม
+ * เพราะแกนกราฟกับตารางอ้างอิงกับชีตต้นทางที่เป็น พ.ศ.
+ */
+
+/** ชื่อเดือนแบบสั้นไม่มีปี — `2026-07-15` → `ก.ค.` / `Jul` */
+export function monthShort(ym) {
+  if (!ym) return '';
+  const d = new Date(`${String(ym).slice(0, 7)}-01T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return String(ym);
+  return d.toLocaleDateString(getLang() === 'en' ? 'en-GB' : 'th-TH', {
+    month: 'short',
+    timeZone: 'UTC',
+  });
+}
+
+/** เดือนเดียวพร้อมปี — `2026-08` → `ส.ค. 2026` */
+export function monthYear(ym) {
+  if (!ym) return '';
+  return `${monthShort(ym)} ${String(ym).slice(0, 4)}`;
+}
+
+/**
+ * ช่วงเดือน — `2026-03-10` + `2026-08-07` → `มี.ค.–ส.ค. 2026`
+ * ช่วงข้ามปีบอกปีทั้งสองฝั่ง ไม่งั้นจะอ่านเป็นช่วงในปีเดียว
+ */
+export function monthSpan(from, to) {
+  if (!from || !to) return '';
+  const fromYear = String(from).slice(0, 4);
+  return fromYear === String(to).slice(0, 4)
+    ? `${monthShort(from)}–${monthShort(to)} ${fromYear}`
+    : `${monthYear(from)}–${monthYear(to)}`;
+}
+
 /** วันและเวลา จาก ISO timestamp */
 export function dateTime(iso) {
   if (!iso) return DASH;

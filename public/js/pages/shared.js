@@ -6,30 +6,9 @@
  * `setupCanvas()` คืน null เมื่อกล่องยังกว้าง 0 แล้วกราฟจะ bail เงียบ ๆ
  * และ onResize ข้าม width === 0 จึงไม่มีวันแก้ตัวเองตอนแสดงผลทีหลัง
  */
-import { t, getLang } from '../i18n.js';
-import { esc, grams, n, valueLen, DASH } from '../format.js';
+import { t } from '../i18n.js';
+import { esc, grams, n, valueLen, DASH, monthSpan } from '../format.js';
 import { qualityCard } from '../ui/cards.js';
-
-/** ชื่อเดือนแบบสั้นโดยไม่มีปี — `2026-07` → `ก.ค.` / `Jul` */
-function shortMonth(ym) {
-  const d = new Date(`${ym}-01T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return ym;
-  return d.toLocaleDateString(getLang() === 'en' ? 'en-GB' : 'th-TH', {
-    month: 'short',
-    timeZone: 'UTC',
-  });
-}
-
-/**
- * เดือนเดียวพร้อมปี — `2026-08` → `ส.ค. 2026` / `Aug 2026`
- *
- * ป้ายบนหน้าเว็บห้ามโชว์สตริงดิบ `2026-08` และ **ปีเป็น ค.ศ. เหมือน `costSpan()`**
- * ด้วยเหตุผลเดียวกัน (แถบตัวกรองเขียนว่า 2026 ถ้าป้ายเขียน 69 จะงงว่าดูปีไหน)
- */
-export function monthYear(ym) {
-  if (!ym) return '';
-  return `${shortMonth(ym)} ${String(ym).slice(0, 4)}`;
-}
 
 /**
  * ช่วงเวลาที่ยอดในงบต้นทุนครอบคลุมจริง — `2026-01` + `2026-07` → `ม.ค.–ก.ค. 2026`
@@ -39,21 +18,13 @@ export function monthYear(ym) {
  * `totals` จึงถูกตัดที่ `lastActiveMonth` — ถ้าเขียนว่า "(2026)" ผู้บริหารจะอ่านว่าเป็น
  * ผลทั้งปี แล้วเข้าใจว่าขาดทุนมากกว่าความจริง
  *
- * **ปีเขียนเป็น ค.ศ. ไม่ใช่ พ.ศ.** ต่างจาก `format.month()` ที่ใช้ locale ไทยแล้วได้ "ก.ค. 69"
- * เพราะป้ายนี้อยู่ใต้แถบตัวกรองที่เขียนว่า "2026" ถ้าสองที่ใช้คนละศักราช
- * ผู้ใช้จะไม่แน่ใจว่ากำลังดูปีไหนอยู่ — และปีเขียนครั้งเดียวท้ายช่วงก็สั้นกว่าด้วย
- *
- * อยู่ที่นี่เพราะทั้งหน้าภาพรวมและหน้าต้นทุนต้องได้ข้อความเดียวกันเป๊ะ
+ * รูปแบบข้อความมาจาก `monthSpan()` ใน format.js ตัวเดียวกับที่การ์ดใช้
+ * ทั้งเว็บจึงเขียนช่วงเวลาแบบเดียวกันหมด
  */
 export function costSpan(cost, fallback = '') {
   const cov = cost?.coverage;
   if (!cov) return cost?.year ?? cost?.requestedYear ?? fallback;
-
-  const fromYear = cov.from.slice(0, 4);
-  // ช่วงข้ามปีต้องบอกปีทั้งสองฝั่ง ไม่งั้นจะอ่านเป็นช่วงในปีเดียว
-  return fromYear === cov.to.slice(0, 4)
-    ? `${shortMonth(cov.from)}–${shortMonth(cov.to)} ${fromYear}`
-    : `${monthYear(cov.from)}–${monthYear(cov.to)}`;
+  return monthSpan(cov.from, cov.to);
 }
 
 /** กล่องหัวข้อของหน้า */

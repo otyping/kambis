@@ -5,7 +5,7 @@
  * ทุกการ์ดเป็น <button> จริง เพื่อให้ใช้คีย์บอร์ดและ screen reader ได้
  */
 import { t, pick } from '../i18n.js';
-import { weight, grams, n, pct, esc, valueLen, DASH } from '../format.js';
+import { weight, grams, n, pct, esc, valueLen, DASH, monthSpan } from '../format.js';
 import { icon } from './icons.js';
 import * as charts from '../charts/index.js';
 import { releaseCharts } from '../charts/core.js';
@@ -93,6 +93,23 @@ function cardShell({ key, iconName, title, sub, metric, unit, stats, chip, wide 
 }
 
 const stat = (label, value) => `<span class="card__stat">${esc(label)} <b>${value}</b></span>`;
+
+/**
+ * ช่องบอกช่วงเวลาที่ตัวเลขบนการ์ดครอบคลุมจริง
+ *
+ * ตัวเลขพาดหัวเป็นยอดรวมของแถวที่ผ่านตัวกรองแล้ว แต่การ์ดไม่เคยบอกว่ามัน
+ * ครอบคลุมช่วงไหน — ผู้ใช้จึงต้องมาถามว่า "600 kg คืออะไร มาจากไหน"
+ * (สมุดทริมรายวันเพิ่งเริ่มจด 10 มี.ค. ยอดจึงน้อยกว่าบันทึกต่อครอปโดยธรรมชาติ)
+ *
+ * อ่านจาก `series` ที่ dailySeries() เรียงตามวันที่ให้แล้ว จึงไม่ต้องคำนวณซ้ำ
+ * รายงานที่ไม่มีวันที่จริง (สินค้าคงเหลือ = ภาพนิ่งของตอนนี้) และรายงานต่อครอป
+ * (มีวันเก็บเกี่ยวไม่ครบทุกแถว) ไม่ผ่านทางนี้ — ห้ามเดาช่วงให้
+ */
+const coverageStat = (series) => {
+  if (!series?.length) return '';
+  const span = monthSpan(series[0].date, series[series.length - 1].date);
+  return span ? stat(t('label.coverage'), esc(span)) : '';
+};
 
 /**
  * ติดแถบ "มุมมอง / จัดเรียง / กรอง" ให้กราฟบนการ์ด
@@ -222,6 +239,7 @@ export function renderCards(el, payload, onOpen, opts = {}) {
       metric: g.value,
       unit: g.unit,
       stats: [
+        coverageStat(kpi.dailyTrim.series),
         stat(t('label.days'), n(kpi.dailyTrim.dayCount)),
         stat(t('label.crops'), n(kpi.dailyTrim.byCrop.length)),
         stat(t('label.nonFlower'), weight(kpi.dailyTrim.totalNonFlower)),
@@ -301,6 +319,7 @@ export function renderCards(el, payload, onOpen, opts = {}) {
       metric: g.value,
       unit: g.unit,
       stats: [
+        coverageStat(kpi.outbound.series),
         stat(t('label.shipments'), n(kpi.outbound.shipmentCount)),
         stat(t('label.nonFlower'), weight(kpi.outbound.totalNonFlower)),
       ].join(''),
@@ -345,6 +364,7 @@ export function renderCards(el, payload, onOpen, opts = {}) {
       metric: g.value,
       unit: g.unit,
       stats: [
+        coverageStat(kpi.inbound.series),
         stat(t('label.receipts'), n(kpi.inbound.receiptCount)),
         stat(t('label.matched'), `${matched}/${comparable}`),
       ].join(''),
@@ -390,6 +410,7 @@ export function renderCards(el, payload, onOpen, opts = {}) {
       metric: g.value,
       unit: g.unit,
       stats: [
+        coverageStat(kpi.sales.series),
         stat(t('label.customers'), n(kpi.sales.customerCount)),
         stat(t('label.orders'), n(kpi.sales.orderCount)),
       ].join(''),
