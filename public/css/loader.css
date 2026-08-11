@@ -105,7 +105,9 @@
   height: 100%;
   width: 0%;
   border-radius: var(--r-full);
-  background: linear-gradient(90deg, var(--series-2), var(--accent), var(--size-xl));
+  /* ปลายแถบใช้ --series-1 (โทนมะกอก) ไม่ใช่ --size-xl เพราะสีตามขนาดดอกเลิกเป็น
+   * ไล่เฉดเขียวแล้ว ถ้ายังอ้างอยู่แถบโหลดจะจบด้วยสีครามที่ไม่เข้ากับหน้าจอโหลด */
+  background: linear-gradient(90deg, var(--series-2), var(--accent), var(--series-1));
   transition: width 380ms var(--ease);
 }
 

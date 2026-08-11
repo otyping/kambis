@@ -755,10 +755,10 @@ export function cycleTimeline(container, crops, opts = {}) {
   const xAt = (iso) => box.x + ((new Date(iso).getTime() - min) / span) * box.w;
 
   const PHASES = [
-    ['clone', 'veg', p.sizes[4]],
-    ['veg', 'flower', p.sizes[3]],
-    ['flower', 'harvest', p.sizes[2]],
-    ['harvest', 'dryReady', p.sizes[1]],
+    ['clone', 'veg', p.stages[0]],
+    ['veg', 'flower', p.stages[1]],
+    ['flower', 'harvest', p.stages[2]],
+    ['harvest', 'dryReady', p.stages[3]],
   ];
 
   ctx.font = FONT_SM();
@@ -828,10 +828,10 @@ export function cycleTimeline(container, crops, opts = {}) {
 
   const legend = document.createElement('div');
   legend.innerHTML = legendHtml([
-    { label: t('label.veg'), color: p.sizes[4] },
-    { label: t('label.flowerPhase'), color: p.sizes[3] },
-    { label: t('label.harvest'), color: p.sizes[2] },
-    { label: t('label.dryReady'), color: p.sizes[1] },
+    { label: t('label.veg'), color: p.stages[0] },
+    { label: t('label.flowerPhase'), color: p.stages[1] },
+    { label: t('label.harvest'), color: p.stages[2] },
+    { label: t('label.dryReady'), color: p.stages[3] },
   ]);
   if (legend.firstElementChild) container.appendChild(legend.firstElementChild);
 

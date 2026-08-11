@@ -196,10 +196,14 @@ export function render(ctx) {
   {
     const body = panel(host, t('stock.agingTable'), t('stock.agingNote'), { wide: true });
 
+    /* ไล่ขนาดจากเล็กไปใหญ่ (XS → XXL) ตรงข้ามกับ SIZE_KEYS ที่ไล่ใหญ่ไปเล็ก
+     * ลำดับนี้เป็นลำดับเริ่มต้นของตาราง ดูหมายเหตุที่ sortableTable ด้านล่าง */
+    const SIZE_ASC = [...SIZE_KEYS].reverse();
+
     const rows = [];
     const strains = [...new Set(inventory.map((r) => r.strain).filter(Boolean))];
     for (const strain of strains) {
-      for (const size of SIZE_KEYS) {
+      for (const size of SIZE_ASC) {
         const hh = sum(huaHin.filter((r) => r.strain === strain).map((r) => r.sizes?.[size]));
         const bk = sum(bangkok.filter((r) => r.strain === strain).map((r) => r.sizes?.[size]));
         if (hh === 0 && bk === 0) continue;
@@ -214,7 +218,13 @@ export function render(ctx) {
         sortableTable(
           [
             { label: t('label.strain'), get: (r) => r.strain },
-            { label: t('label.size'), get: (r) => r.size },
+            /* เรียงตามขนาดจริง ไม่ใช่ตามตัวอักษร — get คืนอันดับเป็นตัวเลข
+             * ถ้าคืนตัวอักษรจะได้ L · M · S · XL · XS · XXL ซึ่งไม่ใช่ลำดับขนาดเลย */
+            {
+              label: t('label.size'),
+              get: (r) => SIZE_ASC.indexOf(r.size),
+              render: (r) => esc(r.size),
+            },
             { label: t('filter.huahin'), align: 'n', get: (r) => r.huaHin, render: (r) => n(r.huaHin) },
             { label: t('filter.bangkok'), align: 'n', get: (r) => r.bangkok, render: (r) => n(r.bangkok) },
             { label: t('label.total'), align: 'n', get: (r) => r.total, render: (r) => `<b>${n(r.total)}</b>` },
@@ -227,7 +237,14 @@ export function render(ctx) {
             },
           ],
           rows,
-          { sortIndex: 4, sortDir: 'desc' }
+          /* ค่าเริ่มต้น: เรียงตามสายพันธุ์ แล้วขนาดเล็กไปใหญ่ในแต่ละสายพันธุ์
+           *
+           * เรียงคีย์เดียวได้เพราะ Array.prototype.sort เสถียร (ES2019) — แถวถูกสร้าง
+           * มาเรียงตามขนาดอยู่แล้ว พอเรียงทับด้วยสายพันธุ์ ลำดับขนาดในแต่ละกลุ่มจึงคงอยู่
+           *
+           * ของเดิมเรียงตามยอดรวมมากไปน้อย ซึ่งอ่านเป็นการจัดอันดับ ไม่ใช่ตารางไว้เทียบ
+           * ว่าสายพันธุ์ไหนมีขนาดไหนเหลือเท่าไร */
+          { sortIndex: 0, sortDir: 'asc' }
         )
       );
 
