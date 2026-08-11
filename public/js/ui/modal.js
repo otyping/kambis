@@ -224,7 +224,8 @@ const SIZE_KEYS = ['XXL', 'XL', 'L', 'M', 'S', 'XS'];
 function baseColumns({ showDate = true, showCrop = true, showStrain = true, extra = [] } = {}) {
   const cols = [];
   if (showDate) {
-    cols.push({ label: t('label.date'), get: (r) => r.date, render: (r) => fmtDate(r.date) });
+    // isDate ให้ filteredTable หาคอลัมน์วันที่เจอโดยไม่ต้องเดาจากป้ายที่เปลี่ยนตามภาษา
+    cols.push({ label: t('label.date'), isDate: true, get: (r) => r.date, render: (r) => fmtDate(r.date) });
   }
   if (showCrop) cols.push({ label: t('label.crop'), get: (r) => r.crop ?? '' });
   if (showStrain) cols.push({ label: t('label.strain'), get: (r) => r.strain ?? '' });
@@ -311,7 +312,18 @@ function filteredTable(parent, rows, columns, { filterKey = 'crop', filterLabel 
   bar.append(search, reset, count);
   parent.appendChild(bar);
 
-  const table = sortableTable(columns, rows, { moreLabel: t('meta.rows') });
+  /* ค่าเริ่มต้นคือวันที่ล่าสุดอยู่บนสุด
+   *
+   * รายการดิบเป็นบันทึกประจำวัน คนเปิดดูเพื่อตรวจว่า "วันนี้/เมื่อวานลงอะไรไว้"
+   * ไม่ใช่เพื่อไล่ตั้งแต่วันแรกที่เปิดฟาร์ม ของเดิมไม่ได้เรียงเลย จึงได้ลำดับตามที่
+   * parser อ่านมา ซึ่งบังเอิญเป็นเก่า→ใหม่ แล้วต้องเลื่อนลงสุดถึงจะเห็นวันล่าสุด
+   *
+   * รายงานที่ไม่มีคอลัมน์วันที่ (สินค้าคงเหลือ เป็นภาพนิ่งของตอนนี้) ไม่ต้องเรียง */
+  const dateIndex = columns.findIndex((c) => c.isDate);
+  const table = sortableTable(columns, rows, {
+    moreLabel: t('meta.rows'),
+    ...(dateIndex >= 0 ? { sortIndex: dateIndex, sortDir: 'desc' } : {}),
+  });
   parent.appendChild(table);
 
   const apply = () => {
