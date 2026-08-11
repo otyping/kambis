@@ -21,6 +21,17 @@ function shortMonth(ym) {
 }
 
 /**
+ * เดือนเดียวพร้อมปี — `2026-08` → `ส.ค. 2026` / `Aug 2026`
+ *
+ * ป้ายบนหน้าเว็บห้ามโชว์สตริงดิบ `2026-08` และ **ปีเป็น ค.ศ. เหมือน `costSpan()`**
+ * ด้วยเหตุผลเดียวกัน (แถบตัวกรองเขียนว่า 2026 ถ้าป้ายเขียน 69 จะงงว่าดูปีไหน)
+ */
+export function monthYear(ym) {
+  if (!ym) return '';
+  return `${shortMonth(ym)} ${String(ym).slice(0, 4)}`;
+}
+
+/**
  * ช่วงเวลาที่ยอดในงบต้นทุนครอบคลุมจริง — `2026-01` + `2026-07` → `ม.ค.–ก.ค. 2026`
  *
  * **ป้ายบนการ์ดต้องบอกช่วงเวลาจริง ห้ามเขียนแค่ปี** (CLAUDE.md §6)
@@ -39,11 +50,10 @@ export function costSpan(cost, fallback = '') {
   if (!cov) return cost?.year ?? cost?.requestedYear ?? fallback;
 
   const fromYear = cov.from.slice(0, 4);
-  const toYear = cov.to.slice(0, 4);
   // ช่วงข้ามปีต้องบอกปีทั้งสองฝั่ง ไม่งั้นจะอ่านเป็นช่วงในปีเดียว
-  return fromYear === toYear
+  return fromYear === cov.to.slice(0, 4)
     ? `${shortMonth(cov.from)}–${shortMonth(cov.to)} ${fromYear}`
-    : `${shortMonth(cov.from)} ${fromYear}–${shortMonth(cov.to)} ${toYear}`;
+    : `${monthYear(cov.from)}–${monthYear(cov.to)}`;
 }
 
 /** กล่องหัวข้อของหน้า */

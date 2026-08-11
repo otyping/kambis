@@ -11,7 +11,7 @@ import { t, pick } from '../i18n.js';
 import { n } from '../format.js';
 import { renderCards } from '../ui/cards.js';
 import { awaitingCard } from '../ui/placeholder.js';
-import { pageHeader, tiles, lossHint, grid, appendQualityCard, costSpan } from './shared.js';
+import { pageHeader, tiles, lossHint, grid, appendQualityCard, costSpan, monthYear } from './shared.js';
 import { monthlySeries, sum, comparePeriod } from '../shared/agg-core.js';
 
 export const meta = { report: 'dryflower', page: 'overview' };
@@ -72,7 +72,11 @@ export function render(ctx) {
       hint: t('exec.fromPerCrop'),
     },
     {
-      label: `${t('exec.produced')} (${lastMonth ? lastMonth.month : t('label.byMonth')})`,
+      /* ป้ายรายปีคงเป็น "(2026)" เฉย ๆ ตามที่ผู้ใช้เลือกไว้ — ไม่เขียนเป็นช่วงเดือน
+       * เพราะ perCrop บางปีมีวันเก็บเกี่ยวไม่ครบ (2025 มีแค่ 28% ของน้ำหนัก ที่เหลือมีแต่ไตรมาส)
+       * ช่วงเดือนที่คำนวณได้จึงจะบังผลผลิตที่ไม่มีวันที่หายไปโดยไม่มีอะไรบอก
+       * ส่วนช่องรายเดือนมาจาก dailyTrim ซึ่งมีวันที่จริงทุกแถว เขียนเป็นชื่อเดือนได้ */
+      label: `${t('exec.produced')} (${lastMonth ? monthYear(lastMonth.month) : t('label.byMonth')})`,
       value: lastMonth?.flower ?? null,
       unit: 'g',
       hint: t('exec.fromDailyTrim'),
