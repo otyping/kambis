@@ -917,6 +917,20 @@ body.has-nav-open {
   margin-bottom: var(--sp-4);
 }
 
+/* ช่อง "ดูสต๊อก ณ วันที่" — ใช้กรอบเดียวกับช่องเลือกอื่นบนแถบนี้
+ * min-height ไม่ใช่ height ตายตัว ไม่งั้นตัวอักษรจะล้นกรอบตอน --fs-scale ใหญ่ขึ้น */
+.filter-asof .filter-date {
+  min-height: 38px;
+  border-radius: var(--r-full);
+  background: var(--glass-fill);
+  border-color: var(--glass-border-soft);
+}
+
+.filter-asof .filter-date:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .supply-search {
   flex: 1 1 12rem;
   min-width: 8rem;

@@ -16,11 +16,18 @@ import {
   normalizeItemName,
   parseLeadTimeDays,
 } from '../server/lib/parsers/supplyLog.js';
-import { analyze } from '../server/lib/analysis.js';
+import { analyze, verifyPresentation } from '../server/lib/analysis.js';
 import { buildKpi } from '../server/lib/aggregate.js';
 import { comparePeriod, parseSheetDate } from '../server/lib/normalize.js';
 import { buildXlsx, columnLetter, escapeXml } from '../server/lib/xlsx.js';
-import { validateItems, splitByForm } from '../server/lib/purchase-request.js';
+import { validateItems, splitByForm, requestFilePath } from '../server/lib/purchase-request.js';
+import { recentRequests } from '../server/lib/loader.js';
+import { stockAt } from '../public/js/shared/kpi.js';
+import {
+  readSupplyFilters,
+  supplyFilterParams,
+  isSupplyFiltered,
+} from '../public/js/ui/supply-filters.js';
 
 /** แท็บรายการจำลอง — หัวตาราง 1 แถว แล้วตามด้วยข้อมูล */
 const ITEM_TAB = {
@@ -392,6 +399,390 @@ describe('สถานะใบขอซื้อที่รอของอย�
     assert.equal(row.leadTimeDays, 5);
     assert.equal(row.pending.daysAgo, 15);
     assert.equal(row.pending.overdue, true, 'ขอมา 15 วันแต่ Lead Time 5 วัน = เลยกำหนดแล้ว');
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   ดาวน์โหลดใบขอซื้อเดิมกลับมา
+
+   เลขที่เอกสารรันต่อไปเรื่อย ๆ ไม่เคยใช้ซ้ำ (เลขหนึ่งเลข = กระดาษหนึ่งใบ
+   ที่อาจส่งไปให้เซ็นแล้ว) "ทำไฟล์หาย" จึงต้องแก้ด้วยการโหลดสำเนาเดิม
+   ═══════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════
+   ราคา/หน่วย มาจากคอลัมน์ H ของแท็บรายการเอง
+
+   ผู้ใช้ย้ายราคามาไว้ที่หัวตารางของแต่ละแท็บ และเลิกใช้ช่องราคา
+   ในแท็บ "สั่งของรายเดือน" แล้ว — เลขที่ค้างอยู่ตรงนั้นไม่ตรงกับของจริง
+   (ใบมีดผ่าตัด 750 vs 7.5 · แผ่นกาวดักแมลง 65 vs 6.5)
+   ═══════════════════════════════════════════════════════════════ */
+describe('ราคาจากคอลัมน์ H ของแท็บรายการ', () => {
+  /** แท็บรายการพร้อมคอลัมน์ H — head[] คือค่าที่จะใส่ในคอลัมน์ H ของแถวหัวตาราง */
+  const tabWithPrice = (h1, h2, bodyH = []) => ({
+    gid: '200',
+    name: '12.ถุงมือไนไตรสีดำ Size M',
+    rows: [
+      ['แบบฟอร์ม', 'รับ', 'เบิก', 'คงเหลือ', 'หน่วย', 'ขั้นต่ำ', 'Index', h1],
+      ['01/07/2569', '0', '', '47', 'กล่อง', '16', '31', h2],
+      ['02/07/2569', '', '5', '42', 'กล่อง', '16', '26', bodyH[0] ?? ''],
+      ['03/07/2569', '', '2', '40', 'กล่อง', '16', '24', bodyH[1] ?? ''],
+    ],
+  });
+  const priceOf = (tab) =>
+    parseSupplyLog({ tabs: [tab], today: '2026-07-04' }).tabs.find((t) => t.gid === '200');
+
+  test('อ่านราคาจากใต้ป้าย "ราคา/…" ในหัวตาราง', () => {
+    const t = priceOf(tabWithPrice('ราคา/กล่อง', '126'));
+    assert.equal(t.unitPrice, 126);
+    assert.equal(t.priceUnit, 'กล่อง');
+    assert.equal(t.priceQty, null);
+  });
+
+  /* คอลัมน์ H ถูกใช้จดโน้ตในเนื้อ log ด้วย — เจอจริงในชีต: "3/2" · "1/3" · "3/1 3/3"
+   * ถ้าไล่หาตัวเลขทั้งคอลัมน์ โน้ตพวกนี้จะกลายเป็นราคาไปเงียบ ๆ
+   * กันสองชั้น: num() ไม่รับรูปแบบนี้อยู่แล้ว และค้นแค่ไม่กี่แถวใต้ป้าย */
+  test('โน้ตในเนื้อ log ไม่ถูกอ่านเป็นราคา', () => {
+    const t = priceOf(tabWithPrice('ราคา/กล่อง', '', ['3/2', '1/3']));
+    assert.equal(t.unitPrice, null, 'ป้ายมีแต่ยังไม่กรอกตัวเลข = ไม่มีราคา');
+    assert.equal(t.priceLabel, 'ราคา/กล่อง');
+  });
+
+  /* โน้ตที่อยู่ไกลลงไปในเนื้อ log ต้องไม่ถูกดึงมา ถึงจะเป็นตัวเลขล้วนก็ตาม
+   * (ในชีตจริงโน้ตอยู่แถว 38–42 ห่างจากป้ายมาก) */
+  test('ตัวเลขที่อยู่ไกลลงไปในคอลัมน์เดียวกัน ต้องไม่กลายเป็นราคา', () => {
+    const tab = {
+      gid: '200',
+      name: '12.ถุงมือไนไตรสีดำ Size M',
+      rows: [
+        ['แบบฟอร์ม', 'รับ', 'เบิก', 'คงเหลือ', 'หน่วย', 'ขั้นต่ำ', 'Index', 'ราคา/กล่อง'],
+        ...Array.from({ length: 8 }, (_, i) => [
+          `0${i + 1}/07/2569`, '', '', '40', 'กล่อง', '16', '24', i === 6 ? '250' : '',
+        ]),
+      ],
+    };
+    const t = parseSupplyLog({ tabs: [tab], today: '2026-07-10' }).tabs.find((x) => x.gid === '200');
+    assert.equal(t.unitPrice, null, '250 อยู่แถวที่ 7 ของ log ไม่ใช่ราคาในหัวตาราง');
+  });
+
+  test('ไม่มีป้ายราคา = ไม่มีราคา แม้จะมีตัวเลขอยู่ตรงนั้น', () => {
+    const t = priceOf(tabWithPrice('สั่งซื้อวันที่', '5'));
+    assert.equal(t.unitPrice, null);
+    assert.equal(t.priceLabel, null);
+  });
+
+  test('ป้ายมีแต่ช่องว่าง → null ห้ามคิดเป็น 0', () => {
+    const t = priceOf(tabWithPrice('ราคา/ถุง', ''));
+    assert.equal(t.unitPrice, null);
+    assert.notEqual(t.unitPrice, 0);
+  });
+
+  /* `ราคา/ 5 แพ็ค=5 กิโล` = 420 ในแท็บที่หน่วยนับเป็น "แพ็ค"
+   * เอา 420 ไปคูณจำนวนแพ็คจะเกินจริง 5 เท่า ส่วนการหาร 5 เองก็เป็นการเดา
+   * ความหมายจากข้อความไทยที่คนเขียนอิสระ → คืน null แล้วออก finding ให้คนไปแก้ */
+  test('ป้ายที่บอกราคาของหลายหน่วย ต้องไม่ถูกใช้เป็นราคาต่อหน่วย', () => {
+    const t = priceOf(tabWithPrice('ราคา/ 5 แพ็ค=5 กิโล', '420'));
+    assert.equal(t.unitPrice, null, 'ราคาของ 5 หน่วย เอามาเป็นราคาต่อหน่วยไม่ได้');
+    assert.equal(t.priceQty, 5);
+    assert.equal(t.priceUnit, '5 แพ็ค=5 กิโล');
+  });
+
+  test('ทศนิยมอ่านได้ และหัวตารางหลายแถวก็ยังหาเจอ', () => {
+    const tab = {
+      gid: '200',
+      name: '1.Rockwool',
+      rows: [
+        ['แบบฟอร์ม', 'รับ', 'เบิก', 'คงเหลือ', '', 'ขั้นต่ำ', 'Index', 'ราคา/แผ่น 98 หลุม'],
+        ['', '', '', '', 'หน่วย', '', '', ''],
+        ['', '', '', '', '', '', '', '196.75'],
+        ['01/07/2569', '0', '', '47', 'แผง', '16', '31', ''],
+      ],
+    };
+    const t = parseSupplyLog({ tabs: [tab], today: '2026-07-04' }).tabs.find((x) => x.gid === '200');
+    assert.equal(t.unitPrice, 196.75);
+  });
+
+  /* คอลัมน์ราคาคิดจาก "ถัดจาก Index" ไม่ได้ตรึงเป็นเลข 7 ตายตัว
+   * แท็บที่คอลัมน์ตัวเลขเลื่อนไปหนึ่งช่อง ช่องราคาต้องเลื่อนตามด้วย */
+  test('ช่องราคาเลื่อนตามเลย์เอาต์ ไม่ใช่ตรึงที่คอลัมน์ H', () => {
+    const tab = {
+      gid: '200',
+      name: '9.ของทดสอบ',
+      rows: [
+        ['แบบฟอร์ม', '', 'รับ', 'เบิก', 'คงเหลือ', 'หน่วย', 'ขั้นต่ำ', 'Index', 'ราคา/ชิ้น'],
+        ['01/07/2569', '', '0', '', '47', 'ชิ้น', '16', '31', '9.5'],
+        ['02/07/2569', '', '', '5', '42', 'ชิ้น', '16', '26', ''],
+        ['03/07/2569', '', '', '2', '40', 'ชิ้น', '16', '24', ''],
+      ],
+    };
+    const t = parseSupplyLog({ tabs: [tab], today: '2026-07-04' }).tabs.find((x) => x.gid === '200');
+    assert.equal(t.valueOffset, 2, 'คอลัมน์ตัวเลขเริ่มช้าไปหนึ่งช่อง');
+    assert.equal(t.unitPrice, 9.5, 'ช่องราคาต้องเลื่อนตามไปอยู่คอลัมน์ I');
+  });
+
+  /* ห้ามตกไปใช้ราคาเก่าจากตารางสั่งของเมื่อคอลัมน์ H ว่าง
+   * ไม่งั้นเลขชุดที่เลิกใช้แล้วจะปนกลับเข้ามาโดยไม่มีอะไรบอก */
+  test('KPI ใช้ราคาจากแท็บรายการ ไม่ใช่จากตารางสั่งของรายเดือน', () => {
+    const order = {
+      gid: '1',
+      name: 'สั่งของรายเดือน',
+      rows: [
+        ['ลำดับ', 'รายการ', 'หน่วย', 'คงเหลือ', 'จำนวนสั่งซื้อ', 'ราคา/@', 'รวม', 'วันที่'],
+        ['1', 'ถุงมือไนไตรสีดำ Size M', 'กล่อง', '2', '4', '999', '3996', '5'],
+        ['2', 'ไม้ถูพื้น', 'ด้าม', '0', '3', '149', '447', '5'],
+      ],
+    };
+    // แท็บนี้มีราคา 126 ในคอลัมน์ H ส่วนตารางสั่งของเขียนไว้ 999 (เลขเก่าที่เลิกใช้)
+    const gloves = tabWithPrice('ราคา/กล่อง', '126');
+    // แท็บนี้ไม่มีป้ายราคาเลย ต้องเป็น null ไม่ใช่ 149 จากตารางสั่งของ
+    const mop = {
+      gid: '201',
+      name: '30.ไม้ถูพื้น',
+      rows: [
+        ['แบบฟอร์ม', 'รับ', 'เบิก', 'คงเหลือ', 'หน่วย', 'ขั้นต่ำ', 'Index'],
+        ['01/07/2569', '0', '', '1', 'ด้าม', '5', '-4'],
+      ],
+    };
+    const parsed = parseSupplyLog({ tabs: [order, gloves, mop], today: '2026-07-04' });
+    const kpi = buildKpi(
+      { supplyLog: { key: 'supplyLog', kind: 'supply', status: 'ok', rows: parsed.rows, tabs: parsed.tabs } },
+      { score: null, counts: {}, total: 0, bySource: {} },
+      { today: '2026-07-04' }
+    ).supply;
+
+    const g = kpi.items.find((i) => i.item === 'ถุงมือไนไตรสีดำ Size M');
+    assert.equal(g.unitPrice, 126, 'ต้องใช้ 126 จากคอลัมน์ H ไม่ใช่ 999 จากตารางสั่งของ');
+    const m = kpi.items.find((i) => i.item === 'ไม้ถูพื้น');
+    assert.equal(m.unitPrice, null, 'คอลัมน์ H ว่าง = ไม่มีราคา ห้ามตกไปใช้ 149 ของเก่า');
+    assert.equal(m.orderQty, 3, 'จำนวนสั่งซื้อยังอ่านจากตารางสั่งของตามเดิม');
+
+    // มูลค่าตามตารางสั่งซื้อต้องตีราคาใหม่ด้วย: 4 กล่อง × 126 = 504 (ไม้ถูพื้นไม่มีราคา = ไม่นับ)
+    assert.equal(kpi.order.totalAmount, 504);
+    assert.equal(kpi.order.items.find((o) => o.item === 'ไม้ถูพื้น').amount, null);
+  });
+
+  test('ของที่ต้องสั่งซื้อแต่ไม่มีราคา ต้องออก finding ที่ชี้ไปคอลัมน์ H', () => {
+    const mop = {
+      gid: '201',
+      name: '30.ไม้ถูพื้น',
+      rows: [
+        ['แบบฟอร์ม', 'รับ', 'เบิก', 'คงเหลือ', 'หน่วย', 'ขั้นต่ำ', 'Index'],
+        ['01/07/2569', '0', '', '1', 'ด้าม', '5', '-4'],
+      ],
+    };
+    const parsed = parseSupplyLog({ tabs: [mop], today: '2026-07-04' });
+    const sources = {
+      supplyLog: { key: 'supplyLog', kind: 'supply', status: 'ok', rows: parsed.rows, tabs: parsed.tabs },
+    };
+    const analysis = analyze(sources);
+    const kpi = buildKpi(sources, analysis, { today: '2026-07-04' });
+    const f = verifyPresentation(analysis, kpi, sources).findings.find(
+      (x) => x.id === 'supply.missingPrice'
+    );
+    assert.ok(f, 'ต้องมี finding เตือนว่ายังไม่มีราคา');
+    assert.match(f.field, /คอลัมน์ H/, 'ต้องบอกว่าไปเติมที่ไหน');
+    assert.doesNotMatch(f.messageTh, /สั่งของรายเดือน/, 'ห้ามชี้ไปแท็บเก่าที่เลิกใช้ราคาแล้ว');
+  });
+
+  test('ป้ายราคาของหลายหน่วย ต้องออก finding บอกให้ไปแก้ที่ชีต', () => {
+    const bags = {
+      gid: '202',
+      name: '14.ถุงร้อนบรรจุสินค้า 18x28',
+      rows: [
+        ['แบบฟอร์ม', 'รับ', 'เบิก', 'คงเหลือ', 'หน่วย', 'ขั้นต่ำ', 'Index', 'ราคา/ 5 แพ็ค=5 กิโล'],
+        ['01/07/2569', '0', '', '9', 'แพ็ค', '5', '4', '420'],
+      ],
+    };
+    const parsed = parseSupplyLog({ tabs: [bags], today: '2026-07-04' });
+    const sources = {
+      supplyLog: { key: 'supplyLog', kind: 'supply', status: 'ok', rows: parsed.rows, tabs: parsed.tabs },
+    };
+    const analysis = analyze(sources);
+    const kpi = buildKpi(sources, analysis, { today: '2026-07-04' });
+    const f = verifyPresentation(analysis, kpi, sources).findings.find(
+      (x) => x.id === 'supply.priceNotPerUnit'
+    );
+    assert.ok(f, 'ต้องเตือนว่าราคานี้เป็นของหลายหน่วย');
+    assert.equal(f.actual, 5);
+    assert.match(f.messageTh, /แพ็ค/, 'ต้องบอกหน่วยที่ชีตเขียนไว้');
+    assert.equal(f.tab, '14.ถุงร้อนบรรจุสินค้า 18x28', 'ต้องชี้แท็บที่ต้องไปแก้');
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   ดูสต๊อกย้อนหลัง ณ วันที่ที่เลือก
+
+   คิดในเบราว์เซอร์จาก items[].log ที่ payload ส่งมาอยู่แล้ว
+   ต้องใช้กฎเดียวกับที่ parser คิด "ยอดปัจจุบัน" เป๊ะ ๆ ไม่งั้นเลือกวันนี้
+   แล้วได้เลขคนละตัวกับที่ server ส่งมา ซึ่งไม่มีทางอธิบายให้ผู้ใช้เข้าใจได้
+   ═══════════════════════════════════════════════════════════════ */
+describe('ยอดคงเหลือ ณ วันที่ที่เลือก', () => {
+  const LOG = [
+    { date: '2026-07-01', balance: 47, minimum: 16 },
+    { date: '2026-07-02', issued: 5, balance: 42, minimum: 16 },
+    { date: '2026-07-03', received: 10, balance: 52, minimum: 12 }, // ขั้นต่ำเปลี่ยนกลางทาง
+    { date: '2026-07-10', issued: 2, balance: 50, minimum: 12 },
+    { date: '2026-08-01', balance: 50, minimum: 12, future: true },
+  ];
+
+  test('เอาแถวล่าสุดที่วันที่ ≤ วันที่ที่ขอ ไม่ใช่แถวสุดท้ายของแท็บ', () => {
+    assert.deepEqual(stockAt(LOG, '2026-07-02'), {
+      date: '2026-07-02', balance: 42, minimum: 16, index: 26,
+    });
+  });
+
+  test('วันที่ไม่มีแถวพอดี ต้องยกยอดของแถวก่อนหน้ามา', () => {
+    assert.deepEqual(stockAt(LOG, '2026-07-07'), {
+      date: '2026-07-03', balance: 52, minimum: 12, index: 40,
+    });
+  });
+
+  /* ขั้นต่ำเปลี่ยนได้ระหว่างทาง (เจอจริง: COCO 85→38, Cuts 11→5)
+   * ต้องอ่านจากแถวเดียวกับที่อ่านยอด ไม่ใช่แถวแรกของแท็บ */
+  test('ขั้นต่ำต้องมาจากแถวเดียวกับยอด ไม่ใช่แถวแรก', () => {
+    assert.equal(stockAt(LOG, '2026-07-01').minimum, 16);
+    assert.equal(stockAt(LOG, '2026-07-31').minimum, 12, 'ขั้นต่ำเปลี่ยนเป็น 12 ตั้งแต่วันที่ 3');
+  });
+
+  test('ก่อนวันแรกของ log = ยังไม่มีข้อมูล ต้องเป็น null ไม่ใช่ 0', () => {
+    assert.equal(stockAt(LOG, '2026-06-30'), null);
+  });
+
+  test('Index คำนวณใหม่เสมอ และไม่มีขั้นต่ำ = Index เป็น null ห้ามเดา', () => {
+    const noMin = [{ date: '2026-07-01', balance: 9 }];
+    const at = stockAt(noMin, '2026-07-05');
+    assert.equal(at.balance, 9);
+    assert.equal(at.minimum, null);
+    assert.equal(at.index, null, 'ไม่รู้ขั้นต่ำ = บอกไม่ได้ว่าขาดหรือไม่');
+  });
+
+  test('log ว่างหรือไม่ส่งวันที่มา = null ไม่ใช่พัง', () => {
+    assert.equal(stockAt([], '2026-07-01'), null);
+    assert.equal(stockAt(null, '2026-07-01'), null);
+    assert.equal(stockAt(LOG, ''), null);
+  });
+
+  /* **เทสต์ที่สำคัญที่สุดของชุดนี้** — เลือกวันเดียวกับที่ server ใช้ ต้องได้เลขเดียวกัน
+   * ถ้าสองทางนี้แยกกันเมื่อไร ผู้ใช้จะเห็นตัวเลขเปลี่ยนตอนกดเลือกวันนี้เอง */
+  test('เลือกวันเดียวกับที่ server ใช้ ต้องได้เลขเดียวกันทุกรายการ', () => {
+    const tab = {
+      gid: '1',
+      name: '1.ถุงมือ',
+      rows: [
+        ['แบบฟอร์ม', 'รับ', 'เบิก', 'คงเหลือ', 'หน่วย', 'ขั้นต่ำ', 'Index'],
+        ['01/07/2569', '0', '', '47', 'กล่อง', '16', '31'],
+        ['02/07/2569', '', '5', '42', 'กล่อง', '16', '26'],
+        ['03/07/2569', '10', '', '52', 'กล่อง', '12', '40'],
+        ['20/07/2569', '', '2', '50', 'กล่อง', '12', '38'], // อนาคตเทียบกับ today
+      ],
+    };
+    const TODAY = '2026-07-04';
+    const parsed = parseSupplyLog({ tabs: [tab], today: TODAY });
+    const kpi = buildKpi(
+      { supplyLog: { key: 'supplyLog', kind: 'supply', status: 'ok', rows: parsed.rows, tabs: parsed.tabs } },
+      { score: null, counts: {}, total: 0, bySource: {} },
+      { today: TODAY }
+    ).supply;
+
+    const item = kpi.items[0];
+    const at = stockAt(item.log, TODAY);
+    assert.equal(at.balance, item.balance);
+    assert.equal(at.minimum, item.minimum);
+    assert.equal(at.index, item.index);
+    assert.equal(at.date, item.date);
+    assert.equal(at.balance, 52, 'แถววันที่ 20 เป็นอนาคต ต้องไม่ถูกหยิบมา');
+  });
+
+  test('แถวลงวันที่ล่วงหน้าถูกนับเมื่อเลือกวันนั้น — จึงต้องล็อกไม่ให้เลือกวันอนาคต', () => {
+    // ยืนยันพฤติกรรมของ stockAt เอง: มันไม่รู้จัก "วันนี้" การล็อกอยู่ที่ตัวช่องเลือกวัน
+    assert.equal(stockAt(LOG, '2026-08-01').date, '2026-08-01');
+    assert.equal(
+      readSupplyFilters(new URLSearchParams('asOf=2026-12-31')).asOf,
+      '2026-12-31',
+      'ตัวอ่านไม่ตัดเอง — ช่องเลือกวันเป็นคนล็อกด้วย max'
+    );
+  });
+
+  test('ค่า asOf ที่ไม่ใช่รูปแบบวันที่ ต้องถือว่าไม่ได้เลือก', () => {
+    for (const bad of ['วันนี้', '2026-13', '2026/07/01', 'null', '../etc']) {
+      assert.equal(readSupplyFilters(new URLSearchParams(`asOf=${encodeURIComponent(bad)}`)).asOf, '');
+    }
+    assert.equal(readSupplyFilters(new URLSearchParams('asOf=2026-07-31')).asOf, '2026-07-31');
+  });
+
+  test('เลือกวันแล้วนับเป็น "กรองอยู่" เพื่อให้ปุ่มล้างโผล่', () => {
+    const base = readSupplyFilters(new URLSearchParams(''));
+    assert.equal(isSupplyFiltered(base), false);
+    assert.equal(isSupplyFiltered({ ...base, asOf: '2026-07-31' }), true);
+    assert.equal(supplyFilterParams({ ...base, asOf: '2026-07-31' }).asOf, '2026-07-31');
+  });
+});
+
+describe('เอาใบขอซื้อเดิมกลับมา', () => {
+  /* **เทสต์ที่สำคัญที่สุดของชุดนี้** — เลขที่เอกสารเดินทางมาจาก URL ตรง ๆ
+   * ถ้าหลุดชั้นนี้ไปได้ จะอ่านไฟล์อะไรบนดิสก์ก็ได้ผ่าน endpoint ดาวน์โหลด */
+  test('เลขที่ที่ไม่ตรงรูปแบบต้องถูกปฏิเสธทั้งหมด', () => {
+    const bad = [
+      '../../config/users.json',
+      '../../../etc/passwd',
+      'PR-20260812-001/../../users',
+      'PR-20260812-001/../PR-20260812-002',
+      '..%2f..%2fconfig%2fusers.json',
+      'PR-2026-1',
+      'PR-20260812-1',
+      'PR-20260812-0011',
+      'pr-20260812-001',
+      'PR-20260812-001.xlsx',
+      'PR-20260812-001 ',
+      '',
+      null,
+      undefined,
+      42,
+      {},
+    ];
+    for (const docNo of bad) {
+      assert.equal(requestFilePath(docNo), null, `ต้องปฏิเสธ: ${JSON.stringify(docNo)}`);
+    }
+  });
+
+  test('เลขที่ถูกรูปแบบ → ได้พาธที่อยู่ใน data/purchase-requests เท่านั้น', () => {
+    const hit = requestFilePath('PR-20260812-003');
+    assert.equal(hit.fileName, 'PR-20260812-003.xlsx');
+    assert.ok(
+      hit.fullPath.replace(/\\/g, '/').endsWith('/data/purchase-requests/PR-20260812-003.xlsx'),
+      `พาธหลุดออกนอกโฟลเดอร์: ${hit.fullPath}`
+    );
+  });
+
+  /* ทะเบียนโตขึ้นเรื่อย ๆ ไม่มีเพดาน ถ้าส่งทั้งก้อน payload จะใหญ่ขึ้นทุกวัน */
+  test('ทะเบียนที่แนบไป payload เรียงใหม่ก่อนแล้วตัดที่ 50 ใบ', () => {
+    const many = Array.from({ length: 70 }, (_, i) => ({
+      docNo: `PR-20260101-${String(i + 1).padStart(3, '0')}`,
+      createdAt: `2026-01-01T${String(i % 24).padStart(2, '0')}:00:00.000Z`,
+      form: 'general',
+      totalAmount: i,
+      items: [{ item: 'x', qty: 1, unitPrice: 5, balanceAtRequest: 0 }],
+    }));
+    // สลับลำดับก่อน เพื่อพิสูจน์ว่าเรียงเอง ไม่ได้พึ่งลำดับที่มาในไฟล์
+    const out = recentRequests([...many].reverse());
+    assert.equal(out.length, 50);
+    for (let i = 1; i < out.length; i++) {
+      assert.ok(out[i - 1].createdAt >= out[i].createdAt, 'ต้องเรียงใหม่ก่อนเสมอ');
+    }
+    // ตัดช่องที่หน้าเว็บไม่ใช้ออก — ราคาต่อหน่วยกับยอดคงเหลือตอนขอไม่ได้ขึ้นบนแผงประวัติ
+    assert.deepEqual(Object.keys(out[0].items[0]), ['item', 'qty']);
+  });
+
+  test('ทะเบียนว่างหรืออ่านไม่ได้ = ลิสต์ว่าง ไม่ใช่พัง', () => {
+    assert.deepEqual(recentRequests([]), []);
+    assert.deepEqual(recentRequests(null), []);
+    assert.deepEqual(recentRequests(undefined), []);
+  });
+
+  test('ยอดรวมที่ไม่ใช่ตัวเลขต้องเป็น null ห้ามกลายเป็น 0', () => {
+    const [row] = recentRequests([
+      { docNo: 'PR-20260812-001', createdAt: '2026-08-12T00:00:00.000Z', totalAmount: null, items: [] },
+    ]);
+    assert.equal(row.totalAmount, null);
+    assert.equal(row.form, 'general', 'ใบเก่าที่ไม่มีช่อง form ให้ถือเป็นฟอร์มวัสดุ');
   });
 });
 

@@ -15,13 +15,20 @@ import { esc } from '../format.js';
 import { normalizeItemName } from '../shared/agg-core.js';
 
 /** อ่านตัวกรองจาก URLSearchParams */
+/** วันที่ต้องเป็น YYYY-MM-DD จริง ๆ — ค่าจาก URL เชื่อไม่ได้ */
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 export function readSupplyFilters(params) {
   const get = (key, fallback) => params?.get(key) || fallback;
+  const asOf = get('asOf', '');
   return {
     year: get('year', ''),
     q: get('q', ''),
     group: get('group', 'all'),
     price: get('price', 'all'),
+    /* วันที่ที่อยากดูสต๊อกย้อนหลัง — ว่าง = ดูยอดปัจจุบันที่ server คิดมาให้
+     * รูปแบบผิดถือว่าไม่ได้เลือก ดีกว่าเอาไปคิดแล้วได้ตารางว่างโดยไม่มีอะไรบอก */
+    asOf: ISO_DATE_RE.test(asOf) ? asOf : '',
   };
 }
 
@@ -32,11 +39,12 @@ export function supplyFilterParams(f) {
     q: f.q?.trim() || '',
     group: f.group === 'all' ? '' : f.group,
     price: f.price === 'all' ? '' : f.price,
+    asOf: f.asOf || '',
   };
 }
 
 export function isSupplyFiltered(f) {
-  return Boolean(f.q?.trim() || f.group !== 'all' || f.price !== 'all');
+  return Boolean(f.q?.trim() || f.group !== 'all' || f.price !== 'all' || f.asOf);
 }
 
 /**
@@ -200,6 +208,34 @@ export function supplyFilterBar({ filters, options, onChange }) {
     'price'
   );
 
+  /* ── ดูสต๊อก ณ วันที่ ──
+   *
+   * ตอบคำถาม "สิ้นเดือนที่แล้วเรามีของเท่าไร" ซึ่งคิดได้จาก log ที่ส่งมาอยู่แล้ว
+   * (ทุกแถวมีทั้งคงเหลือและขั้นต่ำ) โดยไม่ต้องยิงถามเซิร์ฟเวอร์เพิ่ม
+   *
+   * **ล็อกไม่ให้เลือกวันอนาคตเด็ดขาด** ชีตลงยอดล่วงหน้าไว้ถึงสิ้นปี (19,458 แถว)
+   * ซึ่งเป็นยอดยกมา ไม่ใช่ของที่นับได้จริง เลือกได้เมื่อไรก็เท่ากับโชว์ตัวเลขที่ยังไม่เกิด
+   */
+  const asOfWrap = document.createElement('label');
+  asOfWrap.className = 'filter-year filter-asof';
+  asOfWrap.innerHTML = `<span class="filter-year__label">${esc(t('supply.asOfPicker'))}</span>`;
+  const asOf = document.createElement('input');
+  asOf.type = 'date';
+  asOf.className = 'filter-date';
+  asOf.value = state.asOf ?? '';
+  if (options.minDate) asOf.min = options.minDate;
+  if (options.maxDate) asOf.max = options.maxDate;
+  asOf.setAttribute('aria-label', t('supply.asOfPicker'));
+  asOf.addEventListener('change', () => {
+    const v = asOf.value;
+    // เบราว์เซอร์บางตัวยอมให้พิมพ์เกิน max — ตัดกลับเองเสมอ ห้ามเชื่อ min/max อย่างเดียว
+    state.asOf = v && options.maxDate && v > options.maxDate ? options.maxDate : v;
+    asOf.value = state.asOf;
+    emit();
+  });
+  asOfWrap.appendChild(asOf);
+  bar.appendChild(asOfWrap);
+
   // ── ปุ่มล้าง (โผล่เฉพาะตอนกรองอยู่จริง) ──
   const reset = document.createElement('button');
   reset.type = 'button';
@@ -210,6 +246,7 @@ export function supplyFilterBar({ filters, options, onChange }) {
     state.q = '';
     state.group = 'all';
     state.price = 'all';
+    state.asOf = '';
     emit();
   });
   bar.appendChild(reset);

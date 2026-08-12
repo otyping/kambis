@@ -174,7 +174,8 @@ function detailOf(id, payload) {
   }
 
   if (id === 'supplyPrice') {
-    const items = kpi.order?.items ?? [];
+    // ราคาอยู่ที่คอลัมน์ H ของแท็บรายการแล้ว ไม่ใช่ตารางสั่งของ — นับจากรายการจริง
+    const items = kpi.items ?? [];
     const reorder = kpi.needsReorder ?? [];
     const noPrice = reorder.filter((r) => r.unitPrice === null).length;
     if (!items.length && !reorder.length) return null;

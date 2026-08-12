@@ -298,19 +298,31 @@ describe('ตัวกรองของรายงาน Supply', () => {
       q: '',
       group: 'all',
       price: 'all',
+      asOf: '',
     });
     assert.deepEqual(supplyFilterParams({ year: '', q: '  ', group: 'all', price: 'all' }), {
       year: '',
       q: '',
       group: '',
       price: '',
+      asOf: '',
     });
-    assert.deepEqual(supplyFilterParams({ year: '2025', q: ' ถุงมือ ', group: 'nutrient', price: 'with' }), {
-      year: '2025',
-      q: 'ถุงมือ',
-      group: 'nutrient',
-      price: 'with',
-    });
+    assert.deepEqual(
+      supplyFilterParams({
+        year: '2025',
+        q: ' ถุงมือ ',
+        group: 'nutrient',
+        price: 'with',
+        asOf: '2026-07-31',
+      }),
+      {
+        year: '2025',
+        q: 'ถุงมือ',
+        group: 'nutrient',
+        price: 'with',
+        asOf: '2026-07-31',
+      }
+    );
   });
 });
 

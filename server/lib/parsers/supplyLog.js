@@ -80,6 +80,98 @@ const ORDER_COL = {
   lifetime: 9,
 };
 
+/* ═══════════════════════════════════════════════════════════════
+   ราคา/หน่วย อยู่ในหัวตารางของแท็บรายการ (คอลัมน์ถัดจาก Index = H)
+   ═══════════════════════════════════════════════════════════════
+
+   ผู้ใช้ย้ายราคามาไว้ที่นี่ และเลิกใช้ช่องราคาในแท็บ "สั่งของรายเดือน" แล้ว
+   หน้าตาที่เจอจริงคือ ป้ายอยู่แถวบนสุด ตัวเลขอยู่แถวถัดมา:
+
+       H1  "ราคา/ถุง"
+       H2  4250
+
+   **สามกับดักที่ต้องกันตั้งแต่แรก**
+
+   ก. คอลัมน์ H ถูกใช้จดโน้ตในเนื้อ log ด้วย (เจอจริง: "3/2" · "1/3" · "3/1 3/3")
+      ถ้าไล่หาตัวเลขทั้งคอลัมน์จะได้โน้ตมาเป็นราคา → **อ่านเฉพาะไม่กี่แถวใต้ป้าย**
+      ไม่ใช่ทั้งคอลัมน์ (โน้ตที่เจอจริงอยู่แถว 38–42 ห่างจากป้ายมาก)
+
+      ผูกหน้าต่างค้นหาไว้กับ *แถวของป้าย* ไม่ใช่กับจุดเริ่มข้อมูล เพราะหัวตารางของ
+      ชีตนี้ยาวไม่เท่ากัน — 108 แท็บมีหัวแถวเดียว · 2 แท็บมีสองแถว · 29 แท็บมีสามแถว
+      ถ้าใช้ "ก่อนแถวข้อมูลแรก" เป็นขอบ แท็บหัวแถวเดียวที่เพิ่งเติมราคาจะอ่านไม่เจอเลย
+
+   ข. บางแท็บมีป้าย "ราคา/…" แต่ยังไม่ได้กรอกตัวเลข → ต้องเป็น null
+      **ห้ามเดา ห้ามคิดเป็น 0** ไม่งั้นมูลค่าสต๊อกจะต่ำกว่าจริงโดยไม่มีอะไรบอก
+
+   ค. ป้ายบางอันบอกราคาของ "หลายหน่วย" (`ราคา/ 5 แพ็ค=5 กิโล` = 420)
+      ทั้งที่คอลัมน์หน่วยเขียนว่า `แพ็ค` — เอา 420 ไปคูณจำนวนแพ็คจะเกินจริง 5 เท่า
+      หารเองก็เป็นการเดาความหมายจากข้อความไทยที่คนเขียนอิสระ
+      → คืน null พร้อมติดธงไว้ให้ออก finding ให้คนไปแก้ที่ชีต (ดู §7 ข้อ 15) */
+
+/** ป้ายหัวคอลัมน์ราคา — ต้องมีคำว่า "ราคา" ถึงจะยอมอ่านตัวเลขใต้มัน */
+const PRICE_LABEL_RE = /ราคา/;
+
+/** ตัวคั่นหน่วยในป้าย: "ราคา/ถุง" → "ถุง" · "ราคา/ 5 แพ็ค=5 กิโล" → "5 แพ็ค=5 กิโล" */
+const PRICE_UNIT_RE = /ราคา\s*[/:]\s*(.+)$/;
+
+/** ป้ายที่ขึ้นต้นด้วยจำนวน = ราคาของหลายหน่วย ไม่ใช่ราคาต่อหน่วย */
+const PRICE_QTY_RE = /^\s*(\d+(?:\.\d+)?)\s*\S/;
+
+/** ป้ายอยู่ในหัวตาราง ซึ่งยาวได้ถึง 3 แถว — ค้นตัวเลขไม่เกินเท่านี้ใต้ป้าย */
+const PRICE_SCAN_ROWS = 3;
+
+/**
+ * อ่านราคา/หน่วยจากหัวตารางของแท็บรายการ
+ *
+ * @param {Array<Array>} rows แถวดิบทั้งแท็บ
+ * @param {number} priceCol คอลัมน์ราคา (ถัดจาก Index — คิดจากตำแหน่ง ไม่ใช่ชื่อหัว)
+ * @param {number} headerEnd แถวแรกที่เป็นข้อมูลจริง (ใช้เป็นขอบล่างเมื่อหัวตารางยาวกว่าปกติ)
+ * @returns {{unitPrice:number|null, priceLabel:string|null, priceUnit:string|null, priceQty:number|null}}
+ */
+export function readUnitPrice(rows, priceCol, headerEnd = 0) {
+  const empty = { unitPrice: null, priceLabel: null, priceUnit: null, priceQty: null };
+  if (!Number.isInteger(priceCol) || priceCol < 0) return empty;
+
+  // ป้ายอยู่ในบล็อกหัวตาราง — เผื่อไว้ถึงแถวที่ 3 เสมอ เพราะแท็บหัวแถวเดียวก็มีป้ายได้
+  const labelLimit = Math.max(headerEnd, PRICE_SCAN_ROWS);
+  let priceLabel = null;
+  let labelRow = -1;
+  for (let r = 0; r < labelLimit; r++) {
+    const text = String(rows[r]?.[priceCol] ?? '').replace(/\s+/g, ' ').trim();
+    if (text && PRICE_LABEL_RE.test(text)) {
+      priceLabel = text;
+      labelRow = r;
+      break;
+    }
+  }
+  // ไม่มีป้ายกำกับ = ยังไม่ได้ใส่ราคาไว้ที่นี่ ตัวเลขที่บังเอิญอยู่ตรงนั้นห้ามเอามาใช้
+  if (!priceLabel) return empty;
+
+  const unitText = PRICE_UNIT_RE.exec(priceLabel)?.[1]?.trim() ?? null;
+  const qtyHit = unitText ? PRICE_QTY_RE.exec(unitText) : null;
+  const priceQty = qtyHit ? Number(qtyHit[1]) : null;
+
+  /* ค้นเฉพาะไม่กี่แถวใต้ป้าย — โน้ตในเนื้อ log อยู่ห่างลงไปมาก (แถว 38–42 ที่เจอจริง)
+   * และรูปแบบโน้ตอย่าง "3/2" ก็ผ่าน num() ไม่ได้อยู่แล้ว จึงกันได้สองชั้น */
+  const valueLimit = Math.min(rows.length, Math.max(headerEnd, labelRow + PRICE_SCAN_ROWS + 1));
+  let value = null;
+  for (let r = labelRow; r < valueLimit; r++) {
+    const v = num(rows[r]?.[priceCol]);
+    if (v !== null && v > 0) {
+      value = v;
+      break;
+    }
+  }
+
+  return {
+    // ราคาของหลายหน่วย → บอกไม่ได้ว่าหน่วยละเท่าไร ต้องให้คนไปแก้ป้ายที่ชีต
+    unitPrice: priceQty !== null && priceQty > 1 ? null : value,
+    priceLabel,
+    priceUnit: unitText,
+    priceQty: priceQty !== null && priceQty > 1 ? priceQty : null,
+  };
+}
+
 /* normalizeItemName ย้ายไปอยู่ไฟล์ร่วม เพราะทั้งฝั่ง server และเบราว์เซอร์
  * ต้องจับคู่ชื่อรายการด้วยกฎเดียวกัน */
 export { normalizeItemName } from '../../../public/js/shared/agg-core.js';
@@ -191,6 +283,10 @@ function parseItemTab(tab, sourceKey, todayIso, group) {
   const item = displayItemName(tab.name);
   const itemNo = NUMBERED_TAB_RE.exec(tab.name)?.[1] ?? null;
   const note = String(rows[0]?.[0] ?? '').replace(/\s+/g, ' ').trim() || null;
+  /* ราคาอยู่คอลัมน์ถัดจาก Index (= H ในเลย์เอาต์มาตรฐาน)
+   * คิดจากตำแหน่งเหมือนคอลัมน์อื่นทั้งหมด ไม่ได้ตรึงเป็น 7 ตายตัว
+   * แท็บที่คอลัมน์ตัวเลขเลื่อนไปหนึ่งช่อง (valueOffset 2/3) ช่องราคาก็เลื่อนตาม */
+  const price = readUnitPrice(rows, col.index + 1, probe.dataStart);
 
   const records = [];
   let unit = null;
@@ -261,6 +357,12 @@ function parseItemTab(tab, sourceKey, todayIso, group) {
       // อ่านจากหัวตารางเดียวกับ note — ชีตไม่มีคอลัมน์แยกให้
       leadTimeDays: parseLeadTimeDays(note),
       unit,
+      /* ราคา/หน่วยจากหัวตารางของแท็บนี้เอง — เลิกใช้ช่องราคาในแท็บ "สั่งของรายเดือน" แล้ว
+       * priceUnit/priceQty เก็บไว้ให้ analysis.js เทียบกับคอลัมน์หน่วยได้ */
+      unitPrice: price.unitPrice,
+      priceLabel: price.priceLabel,
+      priceUnit: price.priceUnit,
+      priceQty: price.priceQty,
       rowCount: records.length,
       // analysis.js:132 มีเช็ค structural.layoutAmbiguous (< 0.6) รออยู่แล้ว
       layoutConfidence: best.checked === 0 ? null : Number(best.confidence.toFixed(3)),

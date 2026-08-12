@@ -433,6 +433,53 @@
   background: var(--tint-critical);
 }
 
+/* ปุ่มที่หน้าตาเป็นข้อความ — ใช้กับเลขที่ใบขอซื้อที่กดโหลดไฟล์เดิมได้
+ *
+ * ต้องล้างสไตล์ปุ่มของเบราว์เซอร์ให้หมดก่อน (ฟอนต์ พื้นหลัง กรอบ) ไม่งั้น
+ * ตัวอักษรในตารางจะกลายเป็นฟอนต์ระบบเฉพาะช่องนี้ช่องเดียว */
+.link-btn {
+  font: inherit;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--accent-line);
+  border-radius: var(--r-sm);
+}
+
+.link-btn:hover {
+  text-decoration-color: currentColor;
+}
+
+.link-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* chip ที่เป็นปุ่ม — สีมาจาก data-level เหมือนเดิม เพิ่มแค่สัญญาณว่ากดได้ */
+button.quality-chip {
+  font-family: inherit;
+  font-size: var(--fs-2xs);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: transparent;
+  transition: text-decoration-color var(--dur) var(--ease);
+}
+
+button.quality-chip:hover {
+  text-decoration-color: currentColor;
+}
+
+button.quality-chip:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
 /* แถบสัดส่วน — ใช้บนการ์ดแทนกราฟเต็มรูปแบบ */
 .mini-bars {
   display: flex;
@@ -657,6 +704,22 @@ table.data tbody tr:hover {
 
 table.data .muted {
   color: var(--ink-mute);
+}
+
+/* แถวสรุปท้ายตาราง — ต้องอ่านออกว่าไม่ใช่แถวข้อมูลอีกแถวหนึ่ง
+ * ติดขอบล่างไว้ตอนเลื่อนตารางยาว ๆ เหมือนหัวตารางที่ sticky อยู่แล้ว */
+table.data tfoot td {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  background: var(--table-head-bg);
+  border-top: 2px solid var(--glass-border);
+  border-bottom: 0;
+  font-size: var(--fs-2xs);
+}
+
+table.data tfoot tr:hover {
+  background: var(--table-head-bg);
 }
 
 /* ── รายการ finding ── */

@@ -360,9 +360,36 @@ const STRINGS = {
   'supply.fromLog': ['จากชีต Log Stock', 'From the Log Stock sheet'],
   'supply.needReorder': ['ต้องสั่งซื้อ', 'Need reordering'],
   'supply.belowMinimum': ['คงเหลือถึงหรือต่ำกว่าขั้นต่ำ', 'At or below the minimum'],
-  'supply.orderValue': ['มูลค่าตามตารางสั่งซื้อ', 'Order table value'],
-  'supply.fromOrderTab': ['จากแท็บสั่งของรายเดือน', 'From the monthly order tab'],
+  /* ── ช่องตัวเลขบนหัวหน้า Supply ──
+   * เดิมมี "มูลค่าตามตารางสั่งซื้อ" ซึ่งตีราคาทั้งตารางแผนสั่งซื้อ 60 แถวรวมของที่ยังไม่ต้องสั่ง
+   * — ไม่ได้ตอบคำถามที่ใครถามจริง ๆ และช่องราคาต้นทางก็เลิกใช้ไปแล้ว
+   * แทนด้วยเงินที่จมอยู่ในคลังจริง กับของที่ขอซื้อไปแล้วยังไม่มาถึง */
+  'supply.stockValue': ['มูลค่าสต๊อกคงเหลือ', 'Stock on hand value'],
+  'supply.stockValueFrom': [
+    'คิดจาก {n} จาก {total} รายการที่ใส่ราคาแล้ว',
+    'From {n} of {total} items that have a price',
+  ],
+  'supply.waitingDelivery': ['รอของอยู่', 'Awaiting delivery'],
+  'supply.waitingHint': ['เลยกำหนด {overdue} · รอนานสุด {days} วัน', '{overdue} overdue · longest {days}d'],
+  'supply.waitingNone': ['ไม่มีใบขอซื้อค้าง', 'No outstanding requests'],
   'supply.asOf': ['ข้อมูล ณ วันที่', 'Data as of'],
+  /* ── ดูสต๊อกย้อนหลัง ──
+   * ตอบคำถาม "สิ้นเดือนที่แล้วมีของเท่าไร" ซึ่ง log ในชีตตอบได้อยู่แล้ว
+   * เลือกวันอนาคตไม่ได้ เพราะยอดที่ลงล่วงหน้าเป็นยอดยกมา ไม่ใช่ของที่นับได้จริง */
+  'supply.asOfPicker': ['ดูสต๊อก ณ วันที่', 'Stock as of'],
+  'supply.asOfBanner': [
+    'กำลังดูสต๊อกย้อนหลัง ณ {date} — ตาราง "ของที่ต้องสั่งซื้อ" ยังยึดยอดวันนี้',
+    'Viewing historical stock as of {date} — the reorder table still uses today’s balances',
+  ],
+  'supply.stockTableAsOf': ['รายการสต๊อก ณ {date}', 'Stock list as of {date}'],
+  'supply.reorderAlwaysNow': [
+    'แผงนี้ยึดยอดวันนี้เสมอ ไม่ใช่ {date} — ออกใบขอซื้อย้อนหลังไม่ได้',
+    'This panel always uses today’s balances, not {date} — you cannot raise a request for a past date',
+  ],
+  'supply.belowMinimumNow': [
+    'คงเหลือถึงหรือต่ำกว่าขั้นต่ำ ณ วันนี้',
+    'At or below the minimum as of today',
+  ],
   'supply.reorderTitle': ['ของที่ต้องสั่งซื้อ', 'Stock that needs to be reordered'],
   'supply.reorderNote': ['เรียงจากที่ขาดหนักที่สุด · แก้จำนวนได้ก่อนออกเอกสาร', 'Most depleted first · quantities are editable before issuing'],
   'supply.nothingToReorder': ['ตอนนี้ยังไม่มีของที่ต่ำกว่าขั้นต่ำ', 'Nothing is below its minimum right now'],
@@ -410,6 +437,30 @@ const STRINGS = {
     'Warning: could not record this request — the system will not remember it',
   ],
   'supply.createFailed': ['สร้างไม่สำเร็จ', 'Could not create'],
+  /* ── ทะเบียนใบขอซื้อ ──
+   * เลขที่เอกสารรันต่อไปเรื่อย ๆ ไม่เคยใช้ซ้ำ ทำไฟล์หายจึงต้องโหลดสำเนาเดิมกลับมา
+   * ไม่ใช่กดออกใบใหม่ที่จะได้เลขไม่ตรงกับใบที่ส่งไปให้เซ็นแล้ว */
+  'supply.prHistory': ['ใบขอซื้อที่เคยออก', 'Purchase requests issued'],
+  'supply.prHistoryNote': [
+    'กดที่เลขที่เอกสารเพื่อโหลดไฟล์เดิมกลับมา · เลขที่ไม่มีการใช้ซ้ำ จึงไม่ต้องออกใบใหม่เวลาทำไฟล์หาย',
+    'Click a document number to download the original file · numbers are never reused, so a lost file needs no new request',
+  ],
+  'supply.prHistoryEmpty': ['ยังไม่เคยออกใบขอซื้อ', 'No purchase requests issued yet'],
+  'supply.prDocNo': ['เลขที่', 'Document no.'],
+  'supply.prForm': ['แบบฟอร์ม', 'Form'],
+  'supply.prFormGeneral': ['วัสดุ', 'Supplies'],
+  'supply.prFormNutrient': ['ปุ๋ย', 'Nutrients'],
+  'supply.prItemCount': ['จำนวนรายการ', 'Lines'],
+  'supply.prState': ['สถานะ', 'Status'],
+  'supply.prStateWaiting': ['รอของ {n} รายการ', '{n} awaiting delivery'],
+  'supply.prStateDone': ['ไม่มีรายการค้าง', 'Nothing outstanding'],
+  'supply.prDownload': ['โหลดไฟล์เดิม', 'Download the original file'],
+  'supply.prDownloaded': ['โหลดแล้ว', 'Downloaded'],
+  'supply.prDownloadFailed': ['โหลดไม่สำเร็จ', 'Could not download'],
+  'supply.prFileMissing': [
+    'ใบ {doc} อยู่ในทะเบียน แต่ไฟล์สำเนาหายไปจากเซิร์ฟเวอร์ — ต้องออกใบใหม่',
+    'Request {doc} is in the register but its file is missing from the server — a new request is needed',
+  ],
   'supply.noPriceTip': ['ไม่มีราคาในแท็บสั่งของรายเดือน', 'No price in the monthly order tab'],
   'supply.missingPriceWarn': ['มี {n} รายการที่ยังไม่มีราคาในชีต มูลค่ารวมจึงยังไม่ครบ', '{n} items have no price in the sheet, so the total is incomplete'],
   'supply.unpricedNote': ['(ไม่รวม {n} รายการที่ไม่มีราคา)', '(excludes {n} items with no price)'],
@@ -434,11 +485,19 @@ const STRINGS = {
   'supply.hasPrice': ['เฉพาะที่มีราคา', 'Priced only'],
   'supply.noPriceOnly': ['เฉพาะที่ไม่มีราคา', 'Unpriced only'],
   'supply.stockTable': ['รายการสต๊อกปัจจุบัน', 'Current stock list'],
+  /* ราคาย้ายมาอยู่คอลัมน์ H ของแท็บรายการแล้ว (ส.ค. 2026) — ข้อความนี้ต้องชี้ที่นั่น
+   * ไม่งั้นคนจะไปตามแก้ราคาที่ตารางสั่งของรายเดือนซึ่งระบบไม่ได้อ่านแล้ว */
   'supply.stockTableNote': [
-    'คงเหลือจากแท็บ log ของแต่ละรายการ · มูลค่า = คงเหลือ × ราคา/หน่วย · ราคามาจากตารางสั่งซื้อรายเดือนซึ่งมีไม่ครบทุกรายการ',
-    'Balances from each item’s log tab · value = balance × unit price · prices come from the monthly order tab, which does not cover every item',
+    'คงเหลือจากแท็บ log ของแต่ละรายการ · มูลค่า = คงเหลือ × ราคา/หน่วย · ราคาอ่านจากคอลัมน์ H ในหัวตารางของแท็บนั้น ซึ่งยังใส่ไม่ครบทุกรายการ',
+    'Balances from each item’s log tab · value = balance × unit price · prices are read from column H of that tab’s header, which is not filled in for every item',
   ],
   'supply.noPrice': ['*ยังไม่ใส่ราคา', '*price not set'],
+  'supply.stockValueTotal': ['มูลค่าสต๊อกรวม', 'Total stock value'],
+  /* ต้องบอกว่ายอดนี้ยังไม่ครบ ไม่งั้นคนจะอ่านว่าเป็นมูลค่าสต๊อกทั้งหมด */
+  'supply.stockValueMissing': [
+    'ยังไม่รวม {n} รายการที่ไม่มีราคา',
+    'excludes {n} items with no price',
+  ],
   'exec.fromCostSheet': ['จากชีตต้นทุน', 'From the cost sheet'],
   /* เดิมเขียนว่า "กำไรขั้นต้น (ทั้งปี)" — ผิดสองชั้น
    * ยอดถูกตัดที่เดือนล่าสุดที่มีความเคลื่อนไหวจริง (ไม่ใช่ทั้งปี) และตอนนี้ยังผูกกับ
@@ -554,8 +613,8 @@ const STRINGS = {
   'awaiting.col.strain': ['สายพันธุ์', 'Strain'],
   'awaiting.supplyPrice.title': ['ราคาต่อหน่วยของทุกรายการ', 'Unit price for every item'],
   'awaiting.supplyPrice.why': [
-    'ตารางสั่งของรายเดือนมีราคาแค่ราว 60 รายการ แต่มีแท็บ log 138 รายการ ของที่เหลือจึงคิดมูลค่าไม่ได้ และยอดรวมในใบขอซื้อจะต่ำกว่าจริง',
-    'The monthly order tab prices only ~60 items while there are 138 item tabs, so the rest carry no value and purchase-request totals read lower than reality',
+    'ราคาอยู่ที่คอลัมน์ H ในหัวตารางของแต่ละแท็บ ตอนนี้เขียนไว้แล้วบางแท็บ ของที่เหลือจึงคิดมูลค่าไม่ได้ และยอดรวมในใบขอซื้อจะต่ำกว่าจริง',
+    'The price lives in column H of each tab’s header and is filled in for only some tabs, so the rest carry no value and purchase-request totals read lower than reality',
   ],
   'awaiting.supplyIssueValue.title': ['มูลค่าของที่เบิกออกไป', 'Value of stock issued'],
   'awaiting.supplyIssueValue.why': [

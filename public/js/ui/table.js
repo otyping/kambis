@@ -37,6 +37,16 @@ export function sortableTable(columns, rows, opts = {}) {
 
   const tbody = document.createElement('tbody');
   table.appendChild(tbody);
+
+  /* แถวสรุปท้ายตาราง — `opts.foot(rows)` คืนอาร์เรย์ยาวเท่าจำนวนคอลัมน์
+   *
+   * คิดใหม่ทุกครั้งที่ draw() เพราะ setRows() เปลี่ยนชุดข้อมูลได้ (ตัวกรอง)
+   * ถ้าเขียนยอดไว้ตายตัวตอนสร้างตาราง พอกรองแล้วยอดท้ายตารางจะไม่ตรงกับแถวที่เห็น
+   *
+   * **ต้องรวมจากข้อมูลทั้งชุด ไม่ใช่แค่แถวที่วาด** เพราะ draw() ตัดที่ 400 แถว */
+  const tfoot = opts.foot ? document.createElement('tfoot') : null;
+  if (tfoot) table.appendChild(tfoot);
+
   wrap.appendChild(table);
 
   let sortIndex = opts.sortIndex ?? null;
@@ -109,6 +119,13 @@ export function sortableTable(columns, rows, opts = {}) {
         opts.moreLabel ?? 'more'
       }</td>`;
       tbody.appendChild(tr);
+    }
+
+    if (tfoot) {
+      const cells = opts.foot(data) ?? [];
+      tfoot.innerHTML = `<tr>${columns
+        .map((col, i) => `<td class="${col.align === 'n' ? 'n' : ''}">${cells[i] ?? ''}</td>`)
+        .join('')}</tr>`;
     }
   };
 

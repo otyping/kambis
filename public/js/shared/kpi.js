@@ -31,6 +31,43 @@ import {
  * (ชีตมีแถวลงวันที่ล่วงหน้าที่ยอดถูก carry forward ไว้ — บวกทั้งคอลัมน์จะได้เลขมั่ว)
  */
 /**
+ * ยอดคงเหลือของรายการหนึ่ง ณ วันที่ที่กำหนด
+ *
+ * ใช้กฎเดียวกับที่ parser คิด `tab.current` เป๊ะ ๆ — **แถวล่าสุดที่วันที่ ≤ วันที่ที่ขอ
+ * และมียอดคงเหลือ** ไม่ใช่แถวสุดท้ายของแท็บ เพราะชีตมีแถวลงวันที่ล่วงหน้า
+ * ที่ยอดถูก carry forward ไว้ (19,458 จาก 25,392 แถวเป็นแถวอนาคต)
+ *
+ * `ขั้นต่ำ` ต้องมาจาก **แถวเดียวกัน** ไม่ใช่แถวแรก เพราะเปลี่ยนได้ระหว่างทาง
+ * (เจอจริง: COCO 85→38, Cuts 11→5) — นี่คือจุดที่ผิดแล้วยังดูสมเหตุสมผลที่สุด
+ *
+ * ตั้งใจให้ผลลัพธ์ตรงกับ `items[].balance/minimum/index` ที่ server ส่งมา
+ * เมื่อ `asOf` เป็นวันเดียวกับที่ server ใช้ — มี test คุมความเท่ากันนี้ไว้
+ *
+ * @param {Array<{date:string, balance?:number, minimum?:number}>} log log ย่อของรายการ
+ * @param {string} asOf วันที่ YYYY-MM-DD
+ * @returns {{date:string, balance:number, minimum:number|null, index:number|null}|null}
+ */
+export function stockAt(log, asOf) {
+  if (!Array.isArray(log) || !asOf) return null;
+  let hit = null;
+  for (const row of log) {
+    if (!row?.date || row.date > asOf) continue;
+    // log เรียงตามลำดับแถวในชีต ไม่ได้การันตีว่าเรียงวันที่ — เทียบวันที่เองทุกแถว
+    if (row.balance === null || row.balance === undefined) continue;
+    if (!hit || row.date >= hit.date) hit = row;
+  }
+  if (!hit) return null;
+  const minimum = hit.minimum ?? null;
+  return {
+    date: hit.date,
+    balance: hit.balance,
+    minimum,
+    // Index คำนวณใหม่เสมอจาก คงเหลือ − ขั้นต่ำ ไม่เชื่อช่อง Index ในชีต
+    index: minimum === null ? null : hit.balance - minimum,
+  };
+}
+
+/**
  * ติดสถานะ "ขอซื้อไปแล้ว รอของ" ให้รายการที่ต้องสั่งซื้อ
  *
  * ปัญหาที่แก้: ของที่ขอซื้อไปแล้วยังต่ำกว่าขั้นต่ำอยู่จนกว่าของจะมาถึง
@@ -138,6 +175,26 @@ function buildSupply(source, purchaseRequests = [], today = null) {
     return candidates.length === 1 ? candidates[0] : null;
   };
 
+  /* ราคาปัจจุบันของรายการหนึ่ง — มาจากหัวตารางของแท็บนั้น (คอลัมน์ H)
+   * ใช้กฎจับคู่ชื่อชุดเดียวกับ lookupOrder เพราะชื่อในตารางสั่งของกับชื่อแท็บ
+   * เขียนไม่ตรงกัน (`ป้ายแท็ก-สีน้ำเงิน` กับ `7.ป้ายแท็กสีน้ำเงิน`)
+   * และ **เข้าเค้าหลายรายการ = จับคู่ไม่ได้** เดาผิดแล้วได้ราคาผิดแย่กว่าไม่มีราคา */
+  const tabPriceByName = new Map();
+  for (const t of tabs) {
+    const key = normalizeItemName(t.item);
+    if (key && t.unitPrice !== null && t.unitPrice !== undefined) tabPriceByName.set(key, t.unitPrice);
+  }
+  const priceOfItem = (itemName) => {
+    const key = normalizeItemName(itemName);
+    if (!key) return null;
+    if (tabPriceByName.has(key)) return tabPriceByName.get(key);
+    const hits = [];
+    for (const [k, v] of tabPriceByName) {
+      if (k.length >= 4 && (k.startsWith(key) || key.startsWith(k))) hits.push(v);
+    }
+    return hits.length === 1 ? hits[0] : null;
+  };
+
   /* log รายวันแบบย่อของแต่ละรายการ
    *
    * record มาตรฐานของระบบมีช่อง sizes/nonFlower/ผลรวม 16 ช่องที่เป็น null หมด
@@ -175,7 +232,15 @@ function buildSupply(source, purchaseRequests = [], today = null) {
       /* ระยะเวลารอของ — คนเขียนแทรกไว้ในหัวตารางของแท็บ ไม่ใช่คอลัมน์
        * มีแค่ราวครึ่งหนึ่งของรายการ ที่เหลือเป็น null และต้องคง null ไว้ ห้ามเดา */
       leadTimeDays: tab.leadTimeDays ?? null,
-      unitPrice: order?.unitPrice ?? null,
+      /* ราคามาจากหัวตารางของแท็บรายการเอง (คอลัมน์ H) **ไม่ใช่แท็บ "สั่งของรายเดือน"**
+       *
+       * ผู้ใช้เลิกใช้ช่องราคาในตารางสั่งของแล้ว เลขที่ค้างอยู่ตรงนั้นไม่ตรงกับของจริง
+       * (เจอจริง: แผ่นกาวดักแมลง 65 vs 6.5 · แอลกอฮอล์ 1,318 vs 1,919.5 · Rockwool 200 vs 196.75)
+       * **ห้ามตกไปใช้ราคาเก่าเมื่อคอลัมน์ H ว่าง** เพราะจะได้ตัวเลขที่เลิกใช้แล้วมาปนเงียบ ๆ
+       * ไม่มีราคา = ขึ้น "ยังไม่ใส่ราคา" ให้คนไปเติมที่ชีต ซึ่งเป็นคำตอบที่ถูกกว่า */
+      unitPrice: tab.unitPrice ?? null,
+      priceUnit: tab.priceUnit ?? null,
+      priceQty: tab.priceQty ?? null,
       orderQty: order?.orderQty ?? null,
       lastOrderedText: order?.lastOrderedText ?? null,
       lifetimeText: order?.lifetimeText ?? null,
@@ -247,19 +312,32 @@ function buildSupply(source, purchaseRequests = [], today = null) {
     usage,
     received: matrix('received'),
     usageAnomalies: findUsageAnomalies(usage, months, asOf),
+    /* ตารางสั่งของรายเดือน — ยังใช้จำนวนที่ฝ่ายจัดซื้อวางแผนไว้ แต่ **ตีราคาใหม่**
+     * ด้วยราคาปัจจุบันจากคอลัมน์ H ของแท็บรายการ ไม่ใช่ช่องราคาที่ค้างอยู่ในตารางนี้
+     * ไม่งั้นตัวเลข "มูลค่าตามตารางสั่งซื้อ" จะเป็นราคาชุดที่เลิกใช้แล้ว
+     * และขัดกับมูลค่าสต๊อกที่อยู่บนหน้าจอเดียวกัน */
     order: {
-      items: orderRows.map((o) => ({
-        item: o.item,
-        unit: o.unit,
-        balance: o.balance,
-        qty: o.orderQty,
-        unitPrice: o.unitPrice,
-        amount: o.amount,
-        orderDay: o.orderDay,
-        lastOrderedText: o.lastOrderedText,
-        lifetimeText: o.lifetimeText,
-      })),
-      totalAmount: sum(orderRows.map((o) => o.amount)),
+      items: orderRows.map((o) => {
+        const unitPrice = priceOfItem(o.item);
+        return {
+          item: o.item,
+          unit: o.unit,
+          balance: o.balance,
+          qty: o.orderQty,
+          unitPrice,
+          // ไม่มีราคา = ไม่มีมูลค่า ห้ามคิดเป็น 0 เพราะยอดรวมจะต่ำกว่าจริงโดยไม่มีอะไรบอก
+          amount: unitPrice !== null && o.orderQty !== null ? unitPrice * o.orderQty : null,
+          orderDay: o.orderDay,
+          lastOrderedText: o.lastOrderedText,
+          lifetimeText: o.lifetimeText,
+        };
+      }),
+      totalAmount: sum(
+        orderRows.map((o) => {
+          const p = priceOfItem(o.item);
+          return p !== null && o.orderQty !== null ? p * o.orderQty : null;
+        })
+      ),
     },
   };
 }

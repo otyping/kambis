@@ -25,6 +25,28 @@ function safeFileName(name) {
   return String(name).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80);
 }
 
+/** รูปแบบเลขที่เอกสาร — ใช้เป็นด่านแรกตอนรับค่าจาก URL */
+export const DOC_NO_RE = /^PR-\d{8}-\d{3}$/;
+
+/**
+ * แปลงเลขที่เอกสาร → พาธของสำเนาที่เก็บไว้
+ *
+ * **ค่านี้มาจาก URL โดยตรง** จึงกันสามชั้น ไม่ใช่ชั้นเดียว:
+ *   1. ต้องเข้ารูปแบบ PR-YYYYMMDD-NNN เป๊ะ ๆ (ตัด `..` และอักขระแปลกทิ้งตั้งแต่ต้นทาง)
+ *   2. ยังต้องผ่าน safeFileName() ที่ตอนเขียนไฟล์ใช้อยู่ — ให้อ่านกับเขียนใช้กฎเดียวกัน
+ *   3. ผลลัพธ์ต้องอยู่ใน PR_DIR จริง ๆ เผื่อสองข้อบนถูกแก้ในอนาคตจนหลุด
+ *
+ * @returns {{fileName:string, fullPath:string}|null} null = เลขที่ใช้ไม่ได้
+ */
+export function requestFilePath(docNo) {
+  if (typeof docNo !== 'string' || !DOC_NO_RE.test(docNo)) return null;
+  const fileName = `${safeFileName(docNo)}.xlsx`;
+  if (fileName !== `${docNo}.xlsx`) return null;
+  const fullPath = path.join(PR_DIR, fileName);
+  if (path.dirname(fullPath) !== PR_DIR) return null;
+  return { fileName, fullPath };
+}
+
 /* ═══════════════════════════════════════════════════════════════
    ทะเบียนใบขอซื้อ — data/purchase-requests/index.json
    ═══════════════════════════════════════════════════════════════
@@ -254,7 +276,11 @@ function buildCompanyForm({ form, items, docNo, dateText, requestedBy, totalAmou
    *
    * ค่าทางขวาต้อง merge ให้กว้างพอเสมอ ไม่งั้นถูกคอลัมน์ถัดไปตัดหัวทิ้ง
    * (เคยได้ "2/08/2026" แทน "12/08/2026" และ "!0260812-003" แทนเลขที่เต็ม)
-   * และเขียนป้ายรวมกับค่าไว้ในเซลล์เดียวแบบชีต Cosy จะไม่มีอะไรให้ตัดตั้งแต่แรก */
+   * และเขียนป้ายรวมกับค่าไว้ในเซลล์เดียวแบบชีต Cosy จะไม่มีอะไรให้ตัดตั้งแต่แรก
+   *
+   * **ฝั่งซ้ายกับฝั่งขวาไม่ใช่ของชนิดเดียวกัน** ซ้าย (ชื่อ/Project) เป็นช่องที่คนเขียนต่อได้
+   * จึงมีเส้นใต้ ส่วนขวา (วันที่/เลขที่) ระบบเติมค่าให้แล้ว ไม่มีอะไรให้กรอก —
+   * ผู้ใช้จึงสั่งให้ตัดเส้นออกแล้วดันไปชิดขอบขวาของกระดาษ (STYLE.FIELD_R) */
   const half = 1 + Math.ceil((COLS - 1) / 2); // คอลัมน์ที่เริ่มบล็อกขวา
   const rightCol = col(half);
   const fieldRow = (label, value, rightLabel, rightValue) => {
@@ -263,7 +289,7 @@ function buildCompanyForm({ form, items, docNo, dateText, requestedBy, totalAmou
     cells[0] = { v: label, s: STYLE.LABEL };
     for (let i = 1; i < half; i++) cells[i] = { v: i === 1 ? value : '', s: STYLE.FIELD };
     for (let i = half; i < COLS; i++) {
-      cells[i] = { v: i === half ? `${rightLabel}   ${rightValue}` : '', s: STYLE.FIELD };
+      cells[i] = { v: i === half ? `${rightLabel}  ${rightValue}` : '', s: STYLE.FIELD_R };
     }
     rows.push(cells);
     merges.push(`B${r}:${col(half - 1)}${r}`, `${rightCol}${r}:${lastCol}${r}`);

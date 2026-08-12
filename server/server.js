@@ -23,7 +23,12 @@ const envLoaded = loadDotEnv();
 import { loadAll, loadFromSnapshot, loadConfig, loadLazySource } from './lib/loader.js';
 import { ask, MODELS, DEFAULT_MODEL, findModel, hasApiKey, KEY_ENV_NAME } from './lib/gemini.js';
 import { buildDataContext, SYSTEM_PROMPT } from './lib/chat-context.js';
-import { createPurchaseRequests, validateItems, readRequestIndex } from './lib/purchase-request.js';
+import {
+  createPurchaseRequests,
+  validateItems,
+  readRequestIndex,
+  requestFilePath,
+} from './lib/purchase-request.js';
 import { createRefreshGate } from './lib/refresh-gate.js';
 import {
   loadAuth,
@@ -684,6 +689,44 @@ async function handleApi(req, res, url, user) {
       indexed,
       skipped: errors,
     });
+  }
+
+  /* ── ดาวน์โหลดใบขอซื้อที่เคยออก ──
+   *
+   * เลขที่เอกสารรันต่อไปเรื่อย ๆ ไม่มีการใช้เลขซ้ำ เพราะเลขหนึ่งเลข = กระดาษหนึ่งใบ
+   * ที่อาจถูกส่งไปให้ CEO เซ็นแล้ว ถ้าออกเลขซ้ำจะแยกไม่ออกว่าอนุมัติใบไหน
+   * "ทำไฟล์หาย" จึงต้องแก้ด้วยการเอาสำเนาเดิมกลับมา ไม่ใช่กดออกใบใหม่
+   *
+   * ชื่อไฟล์มาจาก URL — ตรวจรูปแบบก่อนแตะดิสก์เสมอ (requestFilePath) */
+  const prDoc = route.match(/^\/api\/supply\/purchase-request\/(.*)$/);
+  if (prDoc) {
+    const docNo = decodeURIComponent(prDoc[1]);
+    const target = requestFilePath(docNo);
+    if (!target) return sendJson(res, 400, { error: 'เลขที่ใบขอซื้อไม่ถูกต้อง', code: 'BAD_DOC_NO' });
+
+    let buffer;
+    try {
+      buffer = await readFile(target.fullPath);
+    } catch {
+      /* แยกสองกรณีให้ชัด — "ไม่มีใบนี้" แปลว่าพิมพ์เลขผิด ส่วน "มีในทะเบียนแต่ไฟล์หาย"
+       * แปลว่าต้องออกใบใหม่จริง ๆ (ตอนออกใบ savedTo เป็น null ได้ถ้าเขียนดิสก์ไม่สำเร็จ) */
+      const index = await readRequestIndex();
+      const known = index.requests.some((r) => r.docNo === docNo);
+      return sendJson(res, 404, {
+        error: known
+          ? `ใบขอซื้อ ${docNo} อยู่ในทะเบียน แต่ไฟล์สำเนาหายไปจากเซิร์ฟเวอร์`
+          : `ไม่พบใบขอซื้อเลขที่ ${docNo}`,
+        code: known ? 'FILE_MISSING' : 'NOT_FOUND',
+      });
+    }
+
+    res.writeHead(200, {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Length': buffer.length,
+      'Content-Disposition': `attachment; filename="${target.fileName}"`,
+      'Cache-Control': 'no-store',
+    });
+    return res.end(req.method === 'HEAD' ? undefined : buffer);
   }
 
   // ── ทะเบียนใบขอซื้อที่เคยออก ──

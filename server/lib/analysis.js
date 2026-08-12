@@ -1507,8 +1507,11 @@ export function verifyPresentation(analysis, kpi, sources = null) {
 
   /* ของที่ต้องสั่งซื้อแต่ไม่มีราคา — ใบขอซื้อจะออกมาโดยไม่มีมูลค่า
    *
+   * ราคาอยู่ที่ **คอลัมน์ H ของแท็บรายการนั้นเอง** (หัวตาราง: `ราคา/ถุง` แล้วตัวเลขใต้ป้าย)
+   * ไม่ใช่แท็บ "สั่งของรายเดือน" อีกแล้ว finding จึงต้องชี้ไปที่แท็บของรายการ
+   * ไม่งั้นคนจะไปแก้ผิดที่แล้วราคาก็ยังไม่ขึ้น
+   *
    * รวมเป็นรายการเดียวไม่ใช่ทีละชิ้น เพราะปกติขาดพร้อมกันหลายสิบรายการ
-   * (ตารางสั่งของรายเดือนมีแค่ 60 รายการ แต่มีแท็บ log 138 รายการ)
    * ห้ามคิดราคาที่ขาดเป็น 0 เพราะยอดรวมในใบขอซื้อจะต่ำกว่าจริง */
   const noPrice = (kpi?.supply?.needsReorder ?? []).filter((r) => r.unitPrice === null);
   if (noPrice.length > 0) {
@@ -1519,18 +1522,50 @@ export function verifyPresentation(analysis, kpi, sources = null) {
       id: 'supply.missingPrice',
       severity: 'warning',
       source: 'supplyLog',
-      tab: 'สั่งของรายเดือน',
+      // แท็บเดียวชี้ไม่ได้เพราะขาดพร้อมกันหลายแท็บ — ระบุตำแหน่งด้วย field แทน
+      tab: null,
       gid: null,
       row: null,
-      field: 'ราคา / @',
+      field: 'คอลัมน์ H (ราคา/หน่วย) ในหัวตารางของแท็บรายการ',
       messageTh:
-        `มี ${noPrice.length} รายการที่ต้องสั่งซื้อแต่หาราคาในแท็บ "สั่งของรายเดือน" ไม่เจอ ` +
-        `จึงคำนวณมูลค่าใบขอซื้อไม่ครบ — ${names}${more}`,
+        `มี ${noPrice.length} รายการที่ต้องสั่งซื้อแต่ยังไม่ได้ใส่ราคาที่คอลัมน์ H ` +
+        `ในหัวตารางของแท็บนั้น จึงคำนวณมูลค่าใบขอซื้อไม่ครบ — ${names}${more}`,
       messageEn:
-        `${noPrice.length} items need reordering but have no price in the "สั่งของรายเดือน" tab, ` +
+        `${noPrice.length} items need reordering but have no price in column H of their own tab header, ` +
         `so the purchase request total is incomplete — ${names}${moreEn}`,
       expected: null,
       actual: noPrice.length,
+      delta: null,
+      related: [],
+    });
+  }
+
+  /* ป้ายราคาบอกราคาของ "หลายหน่วย" แต่คอลัมน์หน่วยนับเป็นหน่วยเดียว
+   *
+   * เจอจริง: `ราคา/ 5 แพ็ค=5 กิโล` = 420 ในแท็บที่หน่วยเขียนว่า `แพ็ค`
+   * เอา 420 ไปคูณจำนวนแพ็คจะได้มูลค่าเกินจริง 5 เท่า ส่วนการหาร 5 เองก็เป็นการ
+   * เดาความหมายจากข้อความไทยที่คนเขียนอิสระ — parser จึงคืน null ไว้ก่อน
+   * แล้วออก finding ให้คนไปเขียนราคาต่อหน่วยให้ชัดที่ชีต */
+  for (const t of kpi?.supply?.items ?? []) {
+    if (!t.priceQty) continue;
+    extra.push({
+      id: 'supply.priceNotPerUnit',
+      severity: 'warning',
+      source: 'supplyLog',
+      tab: t.tab,
+      gid: t.gid ?? null,
+      row: null,
+      field: 'คอลัมน์ H (ราคา/หน่วย)',
+      messageTh:
+        `แท็บ "${t.tab}" เขียนป้ายราคาว่า "${t.priceUnit}" ซึ่งเป็นราคาของ ${t.priceQty} หน่วย ` +
+        `แต่คอลัมน์หน่วยนับเป็น "${t.unit ?? '—'}" ทีละหน่วย — ระบบจึงยังไม่ใช้ราคานี้ ` +
+        `ให้แก้ที่ชีตเป็นราคาต่อ 1 ${t.unit ?? 'หน่วย'}`,
+      messageEn:
+        `Tab "${t.tab}" labels the price as "${t.priceUnit}" — a price for ${t.priceQty} units — ` +
+        `while the unit column counts single "${t.unit ?? '—'}". The price is not used; ` +
+        `rewrite it in the sheet as the price for one ${t.unit ?? 'unit'}`,
+      expected: null,
+      actual: t.priceQty,
       delta: null,
       related: [],
     });

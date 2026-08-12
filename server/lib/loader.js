@@ -387,6 +387,28 @@ export async function loadAll(onProgress, opts = {}) {
   return payload;
 }
 
+const PR_HISTORY_LIMIT = 50;
+
+/**
+ * ย่อทะเบียนใบขอซื้อสำหรับส่งขึ้นเบราว์เซอร์
+ *
+ * ทะเบียนโตขึ้นเรื่อย ๆ ไม่มีเพดาน ถ้าส่งทั้งก้อนวันหนึ่งจะกลายเป็น payload
+ * ที่ใหญ่ขึ้นทุกวันโดยไม่มีใครสังเกต — ตัดที่ 50 ใบล่าสุด (ใหม่ก่อน)
+ * และเก็บเฉพาะช่องที่แผงประวัติใช้จริง
+ */
+export function recentRequests(requests, limit = PR_HISTORY_LIMIT) {
+  return [...(requests ?? [])]
+    .sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')))
+    .slice(0, limit)
+    .map((r) => ({
+      docNo: r.docNo,
+      createdAt: r.createdAt ?? null,
+      form: r.form ?? 'general',
+      totalAmount: Number.isFinite(r.totalAmount) ? r.totalAmount : null,
+      items: (r.items ?? []).map((i) => ({ item: i.item, qty: i.qty })),
+    }));
+}
+
 /**
  * โหลดรายงานที่ตั้ง lazy ไว้ แบบเดี่ยว ๆ ไม่แตะ payload หลัก
  *
@@ -480,7 +502,9 @@ export async function loadLazySource(key, onProgress) {
      * ฝั่ง server ยังใช้ rows เต็มในการ analyze() ตามปกติ ที่ตัดคือเฉพาะขามาเบราว์เซอร์
      * ซึ่งได้ข้อมูลเดียวกันในรูปแบบย่อผ่าน kpi.items[].log อยู่แล้ว */
     source: { ...rest, rows: [], rowsOmitted: rest.rows.length },
-    kpi: kpi.supply,
+    /* แนบทะเบียนใบขอซื้อไปด้วยเพื่อให้หน้าเว็บโหลดใบเดิมกลับมาได้โดยไม่ต้องยิง API เพิ่ม
+     * (อ่านไฟล์เดียวกับที่ใช้ทำสถานะ "รอของ" อยู่แล้ว จึงไม่มีงาน I/O เพิ่ม) */
+    kpi: { ...kpi.supply, purchaseRequests: recentRequests(prIndex.requests) },
     analysis,
   };
 
