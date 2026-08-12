@@ -169,10 +169,23 @@
 .loader__source[data-state='deferred'] .loader__icon::before {
   content: '⋯';
 }
+/* วงแหวนหมุน ไม่ใช่ตัวอักษร ◐ ที่เอามาหมุน
+ *
+ * ตัวอักษรมีกรอบเป็น line box ที่กินทั้ง ascent/descent ของฟอนต์ จุดกึ่งกลางของ
+ * "หมึก" จึงไม่ได้อยู่ตรงกลางกรอบ พอสั่ง rotate ที่หมุนรอบจุดกึ่งกลางกรอบ (50% 50%)
+ * ตัวอักษรจะโคจรเป็นวงแทนที่จะหมุนอยู่กับที่ — เห็นเป็นอาการส่าย
+ * รูปทรงที่วาดด้วย border หมุนรอบตัวเองได้พอดีเสมอเพราะไม่เกี่ยวกับ metric ของฟอนต์
+ * (ชุดเดียวกับ .btn__spin ที่ปุ่มรีเฟรชใช้อยู่แล้ว)
+ */
 .loader__source[data-state='loading'] .loader__icon::before {
-  content: '◐';
-  animation: spin 1s linear infinite;
+  content: '';
   display: block;
+  width: 13px;
+  height: 13px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 .loader__source[data-state='ok'] .loader__icon::before {
   content: '✓';
