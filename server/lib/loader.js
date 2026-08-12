@@ -14,6 +14,7 @@ import { getParser } from './parsers/index.js';
 import { analyze, verifyPresentation } from './analysis.js';
 import { buildKpi } from './aggregate.js';
 import { discoverTabs, diffTabs } from './tabs.js';
+import { readRequestIndex } from './purchase-request.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CONFIG = path.join(ROOT, 'config', 'sources.json');
@@ -432,7 +433,14 @@ export async function loadLazySource(key, onProgress) {
   // ตรวจสองชั้นเหมือน loadAll — ชั้นที่สองจับปัญหาที่เกิดตอนจัดกลุ่ม/เรียง
   // เช่นเดือนเรียงผิด หรือของที่ต้องสั่งซื้อแต่หาราคาไม่เจอ
   let analysis = analyze(sources);
-  const kpi = buildKpi(sources, analysis);
+  /* ทะเบียนใบขอซื้อทำให้ตาราง "ของที่ต้องสั่งซื้อ" รู้ว่ารายการไหนขอไปแล้วรอของอยู่
+   * อ่านไม่ได้ก็ไม่เป็นไร แค่ไม่มีสถานะกำกับ ไม่ควรทำให้ทั้งรายงานล่ม */
+  const prIndex = await readRequestIndex().catch(() => ({ requests: [] }));
+  const kpi = buildKpi(sources, analysis, {
+    purchaseRequests: prIndex.requests,
+    // วันจริง ไม่ใช่วันล่าสุดในชีต — ชีตค้างไม่ได้แปลว่าของหยุดรอ
+    today: new Date().toISOString().slice(0, 10),
+  });
   analysis = verifyPresentation(analysis, kpi, sources);
   onProgress?.({ type: 'analysis:done', score: analysis.score, counts: analysis.counts });
 

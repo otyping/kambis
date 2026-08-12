@@ -23,7 +23,7 @@ const envLoaded = loadDotEnv();
 import { loadAll, loadFromSnapshot, loadConfig, loadLazySource } from './lib/loader.js';
 import { ask, MODELS, DEFAULT_MODEL, findModel, hasApiKey, KEY_ENV_NAME } from './lib/gemini.js';
 import { buildDataContext, SYSTEM_PROMPT } from './lib/chat-context.js';
-import { createPurchaseRequest, validateItems } from './lib/purchase-request.js';
+import { createPurchaseRequests, validateItems, readRequestIndex } from './lib/purchase-request.js';
 import { createRefreshGate } from './lib/refresh-gate.js';
 import {
   loadAuth,
@@ -650,30 +650,50 @@ async function handleApi(req, res, url, user) {
       return sendJson(res, 400, { error: errors[0] ?? 'ไม่มีรายการที่ขอซื้อ', errors });
     }
 
-    const pr = await createPurchaseRequest({
+    /* ปุ๋ยใช้แบบฟอร์มคนละแบบกับวัสดุทั่วไป เลือกปนกันมาจึงได้หลายใบ
+     *
+     * ตอบเป็น JSON ไม่ใช่ไฟล์ดิบเหมือนเดิม เพราะ (ก) ต้องส่งได้หลายไฟล์
+     * (ข) ของเดิมส่งรายการที่ตกหล่นมาทาง header `X-Skipped` ซึ่งหน้าเว็บไม่เคยอ่าน
+     * ผู้ใช้จึงไม่มีทางรู้ว่ามีรายการหายไปจากใบ */
+    const { documents, indexed } = await createPurchaseRequests({
       items,
       requestedBy: user?.username ?? null,
       note: body?.note ?? '',
     });
 
-    console.log(
-      `[pr] ${pr.docNo} · ${items.length} รายการ · ${pr.totalAmount.toLocaleString()} บาท` +
-        `${pr.savedTo ? '' : ' (เก็บสำเนาไม่สำเร็จ)'}`
-    );
+    for (const doc of documents) {
+      console.log(
+        `[pr] ${doc.docNo} · ${doc.form} · ${doc.items.length} รายการ · ` +
+          `${doc.totalAmount.toLocaleString()} บาท${doc.savedTo ? '' : ' (เก็บสำเนาไม่สำเร็จ)'}`
+      );
+    }
+    if (!indexed) console.warn('[pr] ออกใบแล้วแต่จดทะเบียนไม่สำเร็จ — ระบบจะจำไม่ได้ว่าเคยขอ');
 
-    res.writeHead(200, {
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Length': pr.buffer.length,
-      // ชื่อไฟล์เป็น ASCII อยู่แล้ว (PR-YYYYMMDD-NNN) จึงไม่ต้องเข้ารหัสเพิ่ม
-      'Content-Disposition': `attachment; filename="${pr.fileName}"`,
-      'Cache-Control': 'no-store',
-      // ให้หน้าเว็บอ่านเลขที่เอกสารและรายการที่ตกหล่นได้จาก header
-      'X-Document-No': pr.docNo,
-      'X-Missing-Price': String(pr.missingPrice),
-      'X-Skipped': String(errors.length),
-      'Access-Control-Expose-Headers': 'X-Document-No, X-Missing-Price, X-Skipped',
+    return sendJson(res, 200, {
+      documents: documents.map((d) => ({
+        docNo: d.docNo,
+        form: d.form,
+        fileName: d.fileName,
+        itemCount: d.items.length,
+        totalAmount: d.totalAmount,
+        missingPrice: d.missingPrice,
+        // ไฟล์เล็ก (~5KB) base64 จึงพอไหว และได้ส่งหลายไฟล์ในคำตอบเดียว
+        base64: d.buffer.toString('base64'),
+      })),
+      // จดทะเบียนไม่สำเร็จ = ครั้งหน้าระบบจะจำไม่ได้ว่าเคยขอ ต้องบอกผู้ใช้
+      indexed,
+      skipped: errors,
     });
-    return res.end(pr.buffer);
+  }
+
+  // ── ทะเบียนใบขอซื้อที่เคยออก ──
+  if (route === '/api/supply/purchase-requests') {
+    const index = await readRequestIndex();
+    // ใหม่ก่อน — คนเปิดดูเพื่อตอบคำถามว่า "เพิ่งขออะไรไป" ไม่ใช่ไล่ตั้งแต่ใบแรก
+    const requests = [...index.requests].sort((a, b) =>
+      String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? ''))
+    );
+    return sendJson(res, 200, { requests });
   }
 
   // ── Chatbot ──

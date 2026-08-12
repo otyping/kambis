@@ -30,7 +30,85 @@ import {
  * แถวล่าสุดที่ยังไม่เลยวันนี้ของแต่ละรายการ ซึ่ง parser คำนวณมาให้แล้วใน tab.current
  * (ชีตมีแถวลงวันที่ล่วงหน้าที่ยอดถูก carry forward ไว้ — บวกทั้งคอลัมน์จะได้เลขมั่ว)
  */
-function buildSupply(source) {
+/**
+ * ติดสถานะ "ขอซื้อไปแล้ว รอของ" ให้รายการที่ต้องสั่งซื้อ
+ *
+ * ปัญหาที่แก้: ของที่ขอซื้อไปแล้วยังต่ำกว่าขั้นต่ำอยู่จนกว่าของจะมาถึง
+ * มันจึงโผล่ในตาราง "ของที่ต้องสั่งซื้อ" ทุกวันเหมือนไม่เคยขอ ฝ่ายจัดซื้อ
+ * ที่กดขอไปเมื่อวานจึงไม่มีทางรู้ว่ารายการไหนกำลังรอของอยู่ แล้วขอซ้ำ
+ *
+ * **ปิดสถานะเองจาก Log Sheet ไม่ต้องให้ใครมากดอัปเดต** — ชีตมีคอลัมน์ "รับ"
+ * อยู่แล้ว ถ้ามีแถวที่รับของเข้าหลังวันที่ขอ แปลว่าของถึงแล้ว ใบนั้นจบ
+ * (ระบบไม่รู้ว่า CEO อนุมัติหรือยัง เพราะขั้นนั้นไม่ได้อยู่ในชีต — จึงบอกได้แค่
+ * "ขอไปแล้วกี่วัน" ซึ่งเป็นสิ่งที่ต้องรู้จริง ๆ เพื่อไม่ให้ขอซ้ำ)
+ *
+ * เทียบกับ Lead Time ที่เขียนไว้ในหัวตารางด้วย ถ้าเลยกำหนดแล้วของยังไม่มา
+ * ให้ติดธง `overdue` ไว้ตาม — แต่ **เฉพาะรายการที่ชีตเขียน Lead Time ไว้จริง**
+ * (มีแค่ 65 จาก 138 แท็บ) ที่เหลือ `overdue` เป็น null ห้ามเดา
+ *
+ * @param {Array} needsReorder แก้ในที่ (เติมฟิลด์ pending)
+ * @param {Array} items รายการทั้งหมดพร้อม log — ใช้หาว่ารับของเข้าเมื่อไร
+ * @param {Array} purchaseRequests ทะเบียนใบขอซื้อจาก data/purchase-requests/index.json
+ * @param {string} asOf วันที่อ้างอิง (YYYY-MM-DD)
+ */
+function attachPendingRequests(needsReorder, items, purchaseRequests, asOf) {
+  if (!needsReorder.length) return;
+
+  // วันที่รับของเข้าครั้งล่าสุดของแต่ละรายการ — ใช้ปิดใบขอซื้อที่ของมาถึงแล้ว
+  const lastReceived = new Map();
+  for (const entry of items) {
+    let latest = null;
+    for (const row of entry.log ?? []) {
+      if (!row.date || !(row.received > 0)) continue;
+      if (!latest || row.date > latest) latest = row.date;
+    }
+    if (latest) lastReceived.set(entry.item, latest);
+  }
+
+  /* ใบล่าสุดของแต่ละรายการที่ยังไม่มีของเข้ามาหลังวันที่ขอ
+   * ไล่จากใหม่ไปเก่า เจอใบที่ยังเปิดอยู่ใบแรกก็พอ — ใบเก่ากว่านั้นไม่มีความหมาย
+   * เพราะถ้าขอซ้ำหลายรอบ สิ่งที่ต้องรู้คือรอบล่าสุดว่ารอมากี่วันแล้ว */
+  const open = new Map();
+  const sorted = [...(purchaseRequests ?? [])].sort((a, b) =>
+    String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? ''))
+  );
+  for (const req of sorted) {
+    const day = String(req.createdAt ?? '').slice(0, 10);
+    if (!day) continue;
+    for (const line of req.items ?? []) {
+      if (open.has(line.item)) continue;
+      const received = lastReceived.get(line.item);
+      // ของเข้าหลังวันที่ขอแล้ว = ใบนั้นจบ ไม่ต้องเตือนอีก
+      if (received && received >= day) continue;
+      open.set(line.item, { docNo: req.docNo, form: req.form ?? 'general', date: day, qty: line.qty ?? null });
+    }
+  }
+
+  const dayMs = 86_400_000;
+  const today = Date.parse(`${asOf}T00:00:00Z`);
+  for (const row of needsReorder) {
+    const hit = open.get(row.item);
+    if (!hit) {
+      row.pending = null;
+      continue;
+    }
+    const asked = Date.parse(`${hit.date}T00:00:00Z`);
+    const daysAgo = Number.isFinite(today) && Number.isFinite(asked)
+      ? Math.max(0, Math.round((today - asked) / dayMs))
+      : null;
+    row.pending = {
+      ...hit,
+      daysAgo,
+      // ชีตไม่ได้เขียน Lead Time ไว้ทุกแท็บ — ไม่รู้ก็บอกว่าไม่รู้ ห้ามเดาว่าตรงเวลา
+      overdue:
+        row.leadTimeDays === null || row.leadTimeDays === undefined || daysAgo === null
+          ? null
+          : daysAgo > row.leadTimeDays,
+    };
+  }
+}
+
+function buildSupply(source, purchaseRequests = [], today = null) {
   const rows = source?.rows ?? [];
   const tabs = (source?.tabs ?? []).filter((t) => !t.skipped && t.role !== 'order');
   const logRows = rows.filter((r) => r.kind === 'log');
@@ -151,6 +229,13 @@ function buildSupply(source) {
 
   const asOf = items.reduce((max, i) => (i.date && i.date > max ? i.date : max), '');
   const usage = matrix('issued');
+
+  /* นับ "รอของมากี่วันแล้ว" จาก **วันจริง** ไม่ใช่วันล่าสุดในชีต
+   *
+   * ถ้าใช้ asOf แล้วชีตไม่ได้อัปเดตมาสามวัน ตัวเลขจะต่ำกว่าความจริงสามวัน
+   * ทั้งที่ของก็ยังไม่มาอยู่ดี — ยิ่งชีตค้างนาน ยิ่งต้องเห็นว่ารอนานแล้ว
+   * ไม่ส่ง today มา (เช่นในเทสต์) ถึงค่อยถอยไปใช้ asOf */
+  attachPendingRequests(needsReorder, items, purchaseRequests, today || asOf);
 
   return {
     itemCount: items.length,
@@ -607,9 +692,11 @@ export function findUsageAnomalies(usage, months, asOf) {
  *
  * @param {Record<string, object>} sources
  * @param {object} analysis
- * @param {{year?: string|null}} [options] ปีที่เลือกจากแถบตัวกรองกลาง — ส่งต่อให้ buildCost()
+ * @param {{year?: string|null, purchaseRequests?: Array}} [options]
+ *   `year` — ปีที่เลือกจากแถบตัวกรองกลาง ส่งต่อให้ buildCost()
  *   เพราะรายงานการเงินไม่ผ่าน applyFilters() (ดูเหตุผลใน buildCost)
- *   **ฝั่ง server ไม่ส่ง options → ผลลัพธ์เหมือนเดิมทุกตัวอักษร**
+ *   `purchaseRequests` — ทะเบียนใบขอซื้อ ใช้ติดสถานะ "รอของ" ให้รายการที่ต้องสั่งซื้อ
+ *   **ไม่ส่ง options → ผลลัพธ์เหมือนเดิมทุกตัวอักษร**
  */
 export function buildKpi(sources, analysis, options = {}) {
   const rowsOf = (key) => sources[key]?.rows ?? [];
@@ -779,7 +866,8 @@ export function buildKpi(sources, analysis, options = {}) {
       costByMonth: cost.costByMonth,
     },
     cost,
-    supply: buildSupply(sources.supplyLog),
+    // ทะเบียนใบขอซื้ออยู่ฝั่ง server เท่านั้น (data/) เบราว์เซอร์ได้ผลสำเร็จรูปมาใน payload
+    supply: buildSupply(sources.supplyLog, options.purchaseRequests, options.today),
     dailyTrim: {
       totalFlower: sum(daily.map((r) => r.flowerTotal)),
       totalNonFlower: sum(daily.map((r) => r.nonFlowerTotal)),

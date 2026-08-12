@@ -112,7 +112,7 @@ export function render(ctx) {
       { label: t('supply.asOf'), value: null, awaiting: false, hint: kpi.asOf || DASH },
     ]);
 
-    renderReorder(dataHost, reorder, kpi);
+    renderReorder(dataHost, reorder, kpi, requestSupply);
     renderAnomalies(dataHost, kpi.usageAnomalies, match);
     renderUsage(dataHost, usage, monthsWithUsage, filters, options);
     // ตารางสต๊อกใช้แถวจากแท็บ log (ยอดคงเหลือจริง) ไม่ใช่ orderItems ที่เป็นแผนสั่งซื้อ
@@ -335,7 +335,7 @@ function renderAnomalies(host, anomalies, match = () => true) {
 }
 
 /** ตารางของที่ต้องสั่งซื้อ พร้อมช่องเลือกและปุ่มออกเอกสาร */
-function renderReorder(host, reorder, kpi) {
+function renderReorder(host, reorder, kpi, requestSupply) {
   const body = panel(host, t('supply.reorderTitle'), t('supply.reorderNote'), { wide: true });
 
   if (!reorder.length) {
@@ -343,8 +343,19 @@ function renderReorder(host, reorder, kpi) {
     return;
   }
 
-  // สถานะที่ผู้ใช้แก้ได้ก่อนออกเอกสาร — เริ่มต้นเลือกทุกรายการ
-  const picked = new Map(reorder.map((r) => [r.item, { on: true, qty: r.suggestedQty }]));
+  /* เริ่มต้นติ๊กเฉพาะรายการที่ **ยังไม่ได้ขอซื้อ**
+   *
+   * ของที่ขอไปแล้วยังต่ำกว่าขั้นต่ำอยู่จนกว่าของจะมาถึง มันจึงยังอยู่ในตารางนี้
+   * ถ้าติ๊กไว้ให้เหมือนเดิม ฝ่ายจัดซื้อที่กดขอเมื่อวานจะขอซ้ำโดยไม่รู้ตัว
+   * — ยังติ๊กเองได้ถ้าตั้งใจจะขอเพิ่ม แต่ต้องเป็นการตัดสินใจ ไม่ใช่ค่าเริ่มต้น */
+  const picked = new Map(reorder.map((r) => [r.item, { on: !r.pending, qty: r.suggestedQty }]));
+  const waiting = reorder.filter((r) => r.pending);
+  if (waiting.length) {
+    const note = document.createElement('p');
+    note.className = 'supply-warn';
+    note.textContent = t('supply.pendingNote').replace('{n}', String(waiting.length));
+    body.appendChild(note);
+  }
 
   const noPrice = reorder.filter((r) => r.unitPrice === null).length;
   if (noPrice > 0) {
@@ -361,10 +372,11 @@ function renderReorder(host, reorder, kpi) {
       <thead>
         <tr>
           <th scope="col" class="col-check">
-            <input type="checkbox" id="pr-all" checked aria-label="${esc(t('supply.selectAll'))}">
+            <input type="checkbox" id="pr-all"${waiting.length ? '' : ' checked'} aria-label="${esc(t('supply.selectAll'))}">
           </th>
           <th scope="col">${esc(t('supply.date'))}</th>
           <th scope="col">${esc(t('supply.item'))}</th>
+          <th scope="col" title="${esc(t('supply.prStatusTip'))}">${esc(t('supply.prStatus'))}</th>
           <th scope="col" style="text-align:right">${esc(t('supply.balance'))}</th>
           <th scope="col">${esc(t('supply.unit'))}</th>
           <th scope="col" style="text-align:right">${esc(t('supply.minimum'))}</th>
@@ -378,15 +390,29 @@ function renderReorder(host, reorder, kpi) {
       <tbody></tbody>
     </table>`;
 
+  /* ป้ายสถานะใบขอซื้อ — ระบบปิดสถานะเองเมื่อ Log Sheet มีของเข้าหลังวันที่ขอ
+   * `overdue` เป็น null ได้ แปลว่าชีตไม่ได้เขียน Lead Time ไว้ จึงบอกไม่ได้ว่าช้าหรือยัง */
+  const pendingCell = (r) => {
+    if (!r.pending) return `<span class="muted">${DASH}</span>`;
+    const p = r.pending;
+    const days = p.daysAgo === null ? '' : ` · ${t('supply.daysAgo').replace('{n}', String(p.daysAgo))}`;
+    const level = p.overdue ? 'bad' : 'warn';
+    const tip = p.overdue
+      ? t('supply.prOverdueTip').replace('{n}', String(r.leadTimeDays))
+      : t('supply.prWaitingTip');
+    return `<span class="quality-chip" data-level="${level}" title="${esc(tip)}">${esc(p.docNo)}${esc(days)}</span>`;
+  };
+
   const tbody = table.querySelector('tbody');
   for (const r of reorder) {
     const tr = document.createElement('tr');
     tr.dataset.item = r.item;
     tr.innerHTML = `
-      <td class="col-check"><input type="checkbox" checked data-role="pick"
+      <td class="col-check"><input type="checkbox"${r.pending ? '' : ' checked'} data-role="pick"
           aria-label="${esc(r.item)}"></td>
       <td>${esc(fmtDate(r.date))}</td>
       <td>${esc(r.item)}</td>
+      <td>${pendingCell(r)}</td>
       <td style="text-align:right" class="num">${n(r.balance)}</td>
       <td>${esc(r.unit ?? '')}</td>
       <td style="text-align:right" class="num">${n(r.minimum)}</td>
@@ -497,20 +523,33 @@ function renderReorder(host, reorder, kpi) {
         throw new Error(err.error || `HTTP ${res.status}`);
       }
 
-      const docNo = res.headers.get('X-Document-No') ?? 'PR';
-      const blob = await res.blob();
+      /* ตอบเป็น JSON ที่มีได้หลายไฟล์ — เลือกทั้งวัสดุและปุ๋ยในครั้งเดียว
+       * จะได้สองใบเพราะบริษัทใช้แบบฟอร์มคนละแบบ */
+      const out = await res.json();
+      const docs = out.documents ?? [];
+      const MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
-      // ดาวน์โหลดลงเครื่องผู้ใช้ — ต้องปล่อย object URL คืนหลังใช้ ไม่งั้นค้างในหน่วยความจำ
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${docNo}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      for (const doc of docs) {
+        const bytes = Uint8Array.from(atob(doc.base64), (c) => c.charCodeAt(0));
+        // ต้องปล่อย object URL คืนหลังใช้ ไม่งั้นค้างในหน่วยความจำ
+        const url = URL.createObjectURL(new Blob([bytes], { type: MIME }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = doc.fileName ?? `${doc.docNo}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
 
-      status.textContent = `${t('supply.created')} ${docNo}`;
+      const parts = [`${t('supply.created')} ${docs.map((d) => d.docNo).join(' · ')}`];
+      // รายการที่ตกหล่นเคยหายเงียบไปกับ header ที่ไม่มีใครอ่าน — ต้องบอกให้เห็น
+      if (out.skipped?.length) parts.push(t('supply.prSkipped').replace('{n}', String(out.skipped.length)));
+      if (out.indexed === false) parts.push(t('supply.prNotIndexed'));
+      status.textContent = parts.join(' · ');
+
+      // ตารางต้องรู้ทันทีว่ารายการเหล่านี้ขอไปแล้ว ไม่ต้องรอผู้ใช้กดรีเฟรชเอง
+      requestSupply?.({ force: true });
     } catch (err) {
       status.textContent = `${t('supply.createFailed')}: ${err.message}`;
     } finally {

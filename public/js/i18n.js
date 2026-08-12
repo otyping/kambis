@@ -383,6 +383,32 @@ const STRINGS = {
   'supply.createPR': ['สร้างใบขอซื้อ (.xlsx)', 'Create purchase request (.xlsx)'],
   'supply.creating': ['กำลังสร้างเอกสาร…', 'Creating document…'],
   'supply.created': ['สร้างแล้ว', 'Created'],
+  /* ── สถานะใบขอซื้อ ──
+   * ระบบปิดสถานะเองเมื่อ Log Sheet มีของเข้าหลังวันที่ขอ ไม่มีใครต้องมากดอัปเดต
+   * ส่วนขั้น "CEO อนุมัติ" ไม่ได้อยู่ในชีต จึงบอกได้แค่ว่าขอไปแล้วกี่วัน */
+  'supply.prStatus': ['ใบขอซื้อ', 'Requested'],
+  'supply.prStatusTip': [
+    'เลขที่ใบขอซื้อล่าสุดที่ยังรอของอยู่ — ระบบปิดให้เองเมื่อ Log Stock บันทึกรับของเข้าหลังวันที่ขอ',
+    'The latest purchase request still awaiting delivery — cleared automatically once Log Stock records a receipt dated after the request',
+  ],
+  'supply.prWaitingTip': [
+    'ขอซื้อไปแล้ว กำลังรอของ — ยังไม่ต้องขอซ้ำ',
+    'Already requested, awaiting delivery — no need to request again',
+  ],
+  'supply.prOverdueTip': [
+    'เลยระยะเวลารอของที่ชีตเขียนไว้ ({n} วัน) แล้ว',
+    'Past the lead time recorded in the sheet ({n} days)',
+  ],
+  'supply.daysAgo': ['{n} วัน', '{n}d'],
+  'supply.pendingNote': [
+    'มี {n} รายการที่ขอซื้อไปแล้วและกำลังรอของ — ไม่ได้ติ๊กไว้ให้ กันขอซ้ำ',
+    '{n} item(s) already requested and awaiting delivery — left unticked to avoid duplicate requests',
+  ],
+  'supply.prSkipped': ['ข้าม {n} รายการ', '{n} item(s) skipped'],
+  'supply.prNotIndexed': [
+    'เตือน: บันทึกทะเบียนไม่สำเร็จ ระบบจะจำไม่ได้ว่าเคยขอรายการเหล่านี้',
+    'Warning: could not record this request — the system will not remember it',
+  ],
   'supply.createFailed': ['สร้างไม่สำเร็จ', 'Could not create'],
   'supply.noPriceTip': ['ไม่มีราคาในแท็บสั่งของรายเดือน', 'No price in the monthly order tab'],
   'supply.missingPriceWarn': ['มี {n} รายการที่ยังไม่มีราคาในชีต มูลค่ารวมจึงยังไม่ครบ', '{n} items have no price in the sheet, so the total is incomplete'],

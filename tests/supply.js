@@ -20,7 +20,7 @@ import { analyze } from '../server/lib/analysis.js';
 import { buildKpi } from '../server/lib/aggregate.js';
 import { comparePeriod, parseSheetDate } from '../server/lib/normalize.js';
 import { buildXlsx, columnLetter, escapeXml } from '../server/lib/xlsx.js';
-import { validateItems } from '../server/lib/purchase-request.js';
+import { validateItems, splitByForm } from '../server/lib/purchase-request.js';
 
 /** แท็บรายการจำลอง — หัวตาราง 1 แถว แล้วตามด้วยข้อมูล */
 const ITEM_TAB = {
@@ -287,6 +287,114 @@ describe('การตรวจข้อมูลของรายงานว�
   });
 });
 
+/* ── สถานะ "ขอซื้อไปแล้ว รอของ" ──
+ *
+ * ของที่ขอไปแล้วยังต่ำกว่าขั้นต่ำอยู่จนกว่าของจะมาถึง มันจึงยังโผล่ในตาราง
+ * "ของที่ต้องสั่งซื้อ" ทุกวัน ถ้าไม่มีสถานะกำกับ ฝ่ายจัดซื้อจะขอซ้ำ
+ *
+ * ระบบปิดสถานะเองจากคอลัมน์ "รับ" ใน Log Sheet — ไม่มีใครต้องมากดอัปเดต
+ */
+describe('สถานะใบขอซื้อที่รอของอยู่', () => {
+  /** แท็บที่คงเหลือต่ำกว่าขั้นต่ำ (จึงอยู่ในรายการต้องสั่งซื้อ) พร้อมแถวรับของตามที่กำหนด */
+  const tabWith = (rows) => ({
+    gid: '1',
+    name: '1.ถุงมือ',
+    rows: [['h', 'รับ', 'เบิก', 'คงเหลือ', 'หน่วย', 'ขั้นต่ำ', 'Index'], ...rows],
+  });
+
+  const kpiWith = (rows, requests, today = '2026-08-20') => {
+    const parsed = parseSupplyLog({ tabs: [tabWith(rows)], today });
+    const source = { key: 'supplyLog', kind: 'supply', status: 'ok', rows: parsed.rows, tabs: parsed.tabs };
+    return buildKpi(
+      { supplyLog: source },
+      { score: null, counts: {}, total: 0, bySource: {} },
+      // ส่ง today ให้ชัด — ไม่งั้นเทสต์จะขึ้นกับวันที่รันจริง
+      { purchaseRequests: requests, today }
+    ).supply;
+  };
+
+  const REQ = (day, item = 'ถุงมือ') => ({
+    docNo: `PR-${day.replace(/-/g, '')}-001`,
+    createdAt: `${day}T09:00:00.000Z`,
+    items: [{ item, qty: 5 }],
+  });
+
+  test('ขอไปแล้วและของยังไม่เข้า → ติดสถานะรอของ พร้อมจำนวนวัน', () => {
+    const kpi = kpiWith([['10/08/2569', '', '8', '2', 'ชิ้น', '10', '-8']], [REQ('2026-08-15')]);
+    const row = kpi.needsReorder.find((r) => r.item === 'ถุงมือ');
+    assert.ok(row, 'ของต่ำกว่าขั้นต่ำต้องอยู่ในรายการที่ต้องสั่งซื้อ');
+    assert.equal(row.pending.docNo, 'PR-20260815-001');
+    assert.equal(row.pending.daysAgo, 5, 'ขอวันที่ 15 ข้อมูลถึงวันที่ 20 = 5 วัน');
+  });
+
+  test('ของเข้าหลังวันที่ขอ → ปิดสถานะเอง ไม่ต้องมีใครมากด', () => {
+    const kpi = kpiWith(
+      [
+        ['10/08/2569', '', '8', '2', 'ชิ้น', '10', '-8'],
+        // รับของเข้าวันที่ 18 หลังใบขอวันที่ 15 — แต่ยังเบิกจนต่ำกว่าขั้นต่ำอยู่
+        ['18/08/2569', '4', '5', '1', 'ชิ้น', '10', '-9'],
+      ],
+      [REQ('2026-08-15')]
+    );
+    assert.equal(kpi.needsReorder.find((r) => r.item === 'ถุงมือ').pending, null);
+  });
+
+  test('ของเข้า *ก่อน* วันที่ขอ ไม่ปิดใบ — เป็นของรอบก่อน', () => {
+    const kpi = kpiWith(
+      [
+        ['10/08/2569', '4', '8', '2', 'ชิ้น', '10', '-8'],
+        ['16/08/2569', '', '1', '1', 'ชิ้น', '10', '-9'],
+      ],
+      [REQ('2026-08-15')]
+    );
+    assert.equal(kpi.needsReorder.find((r) => r.item === 'ถุงมือ').pending.docNo, 'PR-20260815-001');
+  });
+
+  test('ขอหลายรอบ → เอาใบล่าสุด เพราะสิ่งที่ต้องรู้คือรอมากี่วันแล้ว', () => {
+    const kpi = kpiWith(
+      [['10/08/2569', '', '8', '2', 'ชิ้น', '10', '-8']],
+      [REQ('2026-08-12'), REQ('2026-08-18')]
+    );
+    const p = kpi.needsReorder.find((r) => r.item === 'ถุงมือ').pending;
+    assert.equal(p.docNo, 'PR-20260818-001');
+    assert.equal(p.daysAgo, 2);
+  });
+
+  test('ไม่มีทะเบียนใบขอซื้อ = ไม่มีสถานะ ไม่ใช่พัง', () => {
+    const kpi = kpiWith([['10/08/2569', '', '8', '2', 'ชิ้น', '10', '-8']], []);
+    assert.equal(kpi.needsReorder.find((r) => r.item === 'ถุงมือ').pending, null);
+  });
+
+  /* ชีตเขียน Lead Time ไว้แค่ 65 จาก 138 แท็บ — แท็บที่ไม่มีต้องบอกว่าไม่รู้
+   * ห้ามเดาว่าตรงเวลา ไม่งั้นของที่ค้างมานานจะดูเหมือนปกติ */
+  test('ไม่มี Lead Time ในชีต → overdue เป็น null ห้ามเดา', () => {
+    const kpi = kpiWith([['10/08/2569', '', '8', '2', 'ชิ้น', '10', '-8']], [REQ('2026-07-01')]);
+    assert.equal(kpi.needsReorder.find((r) => r.item === 'ถุงมือ').pending.overdue, null);
+  });
+
+  test('มี Lead Time แล้วเลยกำหนด → ติดธง overdue', () => {
+    // Lead Time เขียนอยู่ในเซลล์หัวตารางที่ merge หลายบรรทัด ไม่ใช่ในชื่อแท็บ
+    const tab = {
+      gid: '1',
+      name: '1.ถุงมือ',
+      rows: [
+        ['ถุงมือ ใช้ 2 กล่อง/crop Lead Time - 5 Days', 'รับ', 'เบิก', 'คงเหลือ', 'หน่วย', 'ขั้นต่ำ', 'Index'],
+        ['10/08/2569', '', '8', '2', 'ชิ้น', '10', '-8'],
+      ],
+    };
+    const parsed = parseSupplyLog({ tabs: [tab], today: '2026-08-20' });
+    const kpi = buildKpi(
+      { supplyLog: { key: 'supplyLog', kind: 'supply', status: 'ok', rows: parsed.rows, tabs: parsed.tabs } },
+      { score: null, counts: {}, total: 0, bySource: {} },
+      { purchaseRequests: [REQ('2026-08-05')], today: '2026-08-20' }
+    ).supply;
+    const row = kpi.needsReorder.find((r) => r.item === 'ถุงมือ');
+    assert.equal(row.leadTimeDays, 5);
+    assert.equal(row.pending.daysAgo, 15);
+    assert.equal(row.pending.overdue, true, 'ขอมา 15 วันแต่ Lead Time 5 วัน = เลยกำหนดแล้ว');
+  });
+});
+
 describe('ใบขอซื้อ (.xlsx)', () => {
   const known = [
     { item: 'รองเท้า', unit: 'คู่', unitPrice: 88, balance: 20, minimum: 30 },
@@ -311,6 +419,34 @@ describe('ใบขอซื้อ (.xlsx)', () => {
   test('ของที่ไม่มีราคาในชีตต้องได้ยอดเป็น null ไม่ใช่ 0', () => {
     const { items } = validateItems([{ item: 'ไม้รีดน้ำ', qty: 9 }], known);
     assert.equal(items[0].amount, null, 'คิดเป็น 0 จะทำให้ยอดรวมในใบขอซื้อต่ำกว่าจริง');
+  });
+
+  /* บริษัทใช้แบบฟอร์มปุ๋ย (Athena/Coco/Co2) คนละแบบกับฟอร์มวัสดุทั่วไป
+   * เลือกปนกันมาในครั้งเดียวจึงต้องออกสองใบ ไม่ใช่ยัดลงใบเดียว */
+  test('แยกใบตามกลุ่ม — ปุ๋ยคนละใบกับวัสดุทั่วไป', () => {
+    const mixed = [
+      { item: 'รองเท้า', unit: 'คู่', unitPrice: 88, group: 'item' },
+      { item: 'Pro Bloom', unit: 'ถุง', unitPrice: 4250, group: 'nutrient' },
+      { item: 'COCO', unit: 'ถุง', unitPrice: 350, group: 'nutrient' },
+    ];
+    const groups = splitByForm(mixed);
+    assert.equal(groups.length, 2);
+    assert.equal(groups[0].form, 'general', 'วัสดุทั่วไปต้องมาก่อน เลขที่เอกสารจะได้คาดเดาได้');
+    assert.deepEqual(groups[0].items.map((i) => i.item), ['รองเท้า']);
+    assert.equal(groups[1].form, 'nutrient');
+    assert.deepEqual(groups[1].items.map((i) => i.item), ['Pro Bloom', 'COCO']);
+
+    // เลือกกลุ่มเดียวต้องได้ใบเดียว ไม่ใช่ใบเปล่าพ่วงมาด้วย
+    assert.equal(splitByForm([mixed[0]]).length, 1);
+    assert.equal(splitByForm([mixed[1]]).length, 1);
+    assert.equal(splitByForm([]).length, 0);
+  });
+
+  test('group มาจากชีตเสมอ ไม่ใช่จากที่เบราว์เซอร์ส่งมา', () => {
+    const src = [{ item: 'รองเท้า', unit: 'คู่', unitPrice: 88, group: 'item' }];
+    // client แกล้งส่ง group: 'nutrient' มาเพื่อให้ออกฟอร์มผิดแบบ
+    const { items } = validateItems([{ item: 'รองเท้า', qty: 1, group: 'nutrient' }], src);
+    assert.equal(items[0].group, 'item');
   });
 
   test('ไฟล์ที่สร้างเป็น ZIP ที่แกะกลับได้ และค่าในเซลล์ตรงกับที่ใส่ไป', () => {
