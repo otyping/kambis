@@ -170,11 +170,14 @@ const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <numFmts count="1">
 <numFmt numFmtId="164" formatCode="#,##0.00"/>
 </numFmts>
+${/* Angsana New 16pt ตามที่ผู้ใช้กำหนด — เป็นฟอนต์ที่บริษัทใช้กับเอกสารไทย
+    * ตัวอักษรเตี้ยกว่า Tahoma มาก ที่ 16pt จึงอ่านพอ ๆ กับ Tahoma 11
+    * หัวเอกสารกับหมายเหตุขยับขึ้น/ลงจากฐานนี้ ไม่ได้ตั้งค่าอิสระ */ ''}
 <fonts count="4">
-<font><sz val="14"/><name val="Tahoma"/></font>
-<font><b/><sz val="14"/><name val="Tahoma"/></font>
-<font><b/><sz val="18"/><name val="Tahoma"/></font>
-<font><sz val="11"/><color rgb="FF666666"/><name val="Tahoma"/></font>
+<font><sz val="16"/><name val="Angsana New"/></font>
+<font><b/><sz val="16"/><name val="Angsana New"/></font>
+<font><b/><sz val="22"/><name val="Angsana New"/></font>
+<font><sz val="14"/><color rgb="FF666666"/><name val="Angsana New"/></font>
 </fonts>
 <fills count="3">
 <fill><patternFill patternType="none"/></fill>
@@ -244,6 +247,8 @@ export function buildXlsx({
   merges = [],
   rowHeights = {},
   modified,
+  page = null,
+  image = null,
 }) {
   const sheetRows = rows
     .map((row, r) => {
@@ -270,21 +275,93 @@ export function buildXlsx({
         .join('')}</mergeCells>`
     : '';
 
+  /* ── ตั้งค่าหน้ากระดาษสำหรับพิมพ์ ──
+   *
+   * เอกสารนี้มีไว้ปริ้นให้ผู้บริหารเซ็น ถ้าไม่ตั้งค่า Excel จะใช้ Letter
+   * แล้วตารางล้นไปหน้าที่สองโดยที่คนสั่งพิมพ์ไม่รู้ตัวจนกระดาษออกมาแล้ว
+   *
+   * `fitToWidth: 1, fitToHeight: 1` บังคับย่อให้ลงแผ่นเดียว ต้องมาคู่กับ
+   * `<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>` ไม่งั้น Excel เมินทั้งคู่
+   *
+   * **ลำดับ element ใน worksheet ถูกกำหนดโดย schema** — sheetPr ต้องมาก่อน cols
+   * ส่วน mergeCells/pageMargins/pageSetup/drawing ต้องอยู่หลัง sheetData ตามลำดับนี้
+   * สลับแล้ว Excel ฟ้องว่าไฟล์เสียและขอซ่อมก่อนเปิด */
+  const sheetPr = page?.fitToPage
+    ? '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>'
+    : '';
+
+  const marginsXml = page
+    ? `<pageMargins left="${page.margins?.left ?? 0.4}" right="${page.margins?.right ?? 0.4}" ` +
+      `top="${page.margins?.top ?? 0.5}" bottom="${page.margins?.bottom ?? 0.5}" ` +
+      `header="0.3" footer="0.3"/>`
+    : '';
+
+  // paperSize 9 = A4 (ตามตาราง ECMA-376) · orientation portrait
+  const setupXml = page
+    ? `<pageSetup paperSize="9" orientation="${page.orientation ?? 'portrait'}"` +
+      (page.fitToPage ? ' fitToWidth="1" fitToHeight="1"' : '') +
+      '/>'
+    : '';
+
+  const drawingXml = image ? '<drawing r:id="rId2"/>' : '';
+  const sheetNs = image
+    ? ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+    : '';
+
   const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${cols}<sheetData>${sheetRows}</sheetData>${mergeXml}</worksheet>`;
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"${sheetNs}>${sheetPr}${cols}<sheetData>${sheetRows}</sheetData>${mergeXml}${marginsXml}${setupXml}${drawingXml}</worksheet>`;
 
   const workbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
 <sheets><sheet name="${escapeXml(sheetName).slice(0, 31)}" sheetId="1" r:id="rId1"/></sheets>
 </workbook>`;
 
+  /* ── โลโก้ ──
+   *
+   * รูปใน .xlsx ต้องมีสี่ชิ้นครบถึงจะขึ้น: ไฟล์รูปใน xl/media/ · drawing1.xml
+   * ที่บอกตำแหน่ง · rels ของ drawing ที่ชี้ไปหารูป · และ <drawing> ในแผ่นงาน
+   * ขาดชิ้นใดชิ้นหนึ่ง Excel จะเปิดได้แต่ไม่มีรูป หรือฟ้องว่าไฟล์เสีย
+   *
+   * ใช้ oneCellAnchor เพื่อให้รูปคงขนาดเดิมไม่ว่าคอลัมน์จะกว้างแค่ไหน
+   * (twoCellAnchor จะยืดรูปตามเซลล์ โลโก้จะเบี้ยวเวลาปรับความกว้างคอลัมน์)
+   * EMU คือหน่วยของ OOXML — 914400 EMU = 1 นิ้ว */
+  const EMU_PER_PX = 9525;
+  const drawing = image
+    ? `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+<xdr:oneCellAnchor>
+<xdr:from><xdr:col>${image.col ?? 0}</xdr:col><xdr:colOff>${image.offsetX ?? 0}</xdr:colOff><xdr:row>${image.row ?? 0}</xdr:row><xdr:rowOff>${image.offsetY ?? 0}</xdr:rowOff></xdr:from>
+<xdr:ext cx="${Math.round((image.width ?? 90) * EMU_PER_PX)}" cy="${Math.round((image.height ?? 90) * EMU_PER_PX)}"/>
+<xdr:pic>
+<xdr:nvPicPr><xdr:cNvPr id="1" name="${escapeXml(image.name ?? 'Logo')}"/><xdr:cNvPicPr/></xdr:nvPicPr>
+<xdr:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>
+<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${Math.round((image.width ?? 90) * EMU_PER_PX)}" cy="${Math.round((image.height ?? 90) * EMU_PER_PX)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>
+</xdr:pic>
+<xdr:clientData/>
+</xdr:oneCellAnchor>
+</xdr:wsDr>`
+    : null;
+
+  const drawingRels = image
+    ? `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/logo.png"/>
+</Relationships>`
+    : null;
+
   const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
 <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-<Default Extension="xml" ContentType="application/xml"/>
+<Default Extension="xml" ContentType="application/xml"/>${
+    image ? '\n<Default Extension="png" ContentType="image/png"/>' : ''
+  }
 <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
 <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
-<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${
+    image
+      ? '\n<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>'
+      : ''
+  }
 </Types>`;
 
   const rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -298,15 +375,30 @@ export function buildXlsx({
 <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>`;
 
-  return zip(
-    [
-      { name: '[Content_Types].xml', data: contentTypes },
-      { name: '_rels/.rels', data: rels },
-      { name: 'xl/workbook.xml', data: workbook },
-      { name: 'xl/_rels/workbook.xml.rels', data: workbookRels },
-      { name: 'xl/styles.xml', data: STYLES },
-      { name: 'xl/worksheets/sheet1.xml', data: sheet },
-    ],
-    modified
-  );
+  // แผ่นงานต้องมี rels ของตัวเองเมื่อมีรูป — ชี้จาก r:id="rId2" ในแท็ก <drawing>
+  const sheetRels = image
+    ? `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/>
+</Relationships>`
+    : null;
+
+  const files = [
+    { name: '[Content_Types].xml', data: contentTypes },
+    { name: '_rels/.rels', data: rels },
+    { name: 'xl/workbook.xml', data: workbook },
+    { name: 'xl/_rels/workbook.xml.rels', data: workbookRels },
+    { name: 'xl/styles.xml', data: STYLES },
+    { name: 'xl/worksheets/sheet1.xml', data: sheet },
+  ];
+  if (image) {
+    files.push(
+      { name: 'xl/worksheets/_rels/sheet1.xml.rels', data: sheetRels },
+      { name: 'xl/drawings/drawing1.xml', data: drawing },
+      { name: 'xl/drawings/_rels/drawing1.xml.rels', data: drawingRels },
+      { name: 'xl/media/logo.png', data: image.data }
+    );
+  }
+
+  return zip(files, modified);
 }

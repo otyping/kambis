@@ -176,8 +176,9 @@ export function splitByForm(items) {
   return out;
 }
 
-/** จำนวนแถวว่างขั้นต่ำในตาราง — ให้เขียนเพิ่มด้วยมือได้เหมือนฟอร์มเดิม */
-const MIN_TABLE_ROWS = 5;
+/* จำนวนแถวขั้นต่ำในตาราง — เอกสารมีไว้ปริ้นแล้วเขียนเพิ่มด้วยมือ
+ * 5 แถวทำให้ครึ่งล่างของ A4 ว่างเปล่า 14 แถวเต็มหน้าพอดีและมีที่ให้เขียนจริง */
+const MIN_TABLE_ROWS = 14;
 
 /* ═══════════════════════════════════════════════════════════════
    แบบฟอร์มใบขอซื้อของบริษัท
@@ -202,6 +203,27 @@ const FORMS = {
   nutrient: { project: 'ปุ๋ย/ธาตุอาหาร (Athena)', leadColumns: ['1 วัน', '7 วัน', '15 วัน', '30 วัน'] },
 };
 
+/* ชื่อผู้ขอซื้อและผู้อนุมัติ — ตามชีตตัวอย่าง PurchaseRe-Cosy
+ * พิมพ์ไว้ให้เลยเพราะเอกสารมีไว้ปริ้นให้เซ็น ไม่ใช่กรอกในคอมพิวเตอร์ */
+const SIGNERS = [
+  { label: 'Requested by:', name: 'Chamaiphorn Chama-oot' },
+  { label: 'Approved by:', name: 'Patira  Kambhu Na Ayudhaya' },
+];
+
+/* โลโก้บริษัทมุมซ้ายบน — อ่านครั้งเดียวแล้วใช้ซ้ำทุกใบ
+ * อ่านไม่ได้ก็ยังต้องออกใบได้ แค่ไม่มีโลโก้ (ไฟล์หายไม่ใช่เหตุให้สั่งของไม่ได้) */
+let logoCache;
+async function readLogo() {
+  if (logoCache !== undefined) return logoCache;
+  try {
+    logoCache = await readFile(path.join(ROOT, 'public', 'assets', 'logo-kambis.png'));
+  } catch (err) {
+    console.warn('[pr] อ่านโลโก้ไม่สำเร็จ ออกใบโดยไม่มีโลโก้:', err.message);
+    logoCache = null;
+  }
+  return logoCache;
+}
+
 /**
  * ประกอบแผ่นงานตามแบบฟอร์มบริษัท
  *
@@ -210,8 +232,10 @@ const FORMS = {
 function buildCompanyForm({ form, items, docNo, dateText, requestedBy, totalAmount, missingPrice, note }) {
   const cfg = FORMS[form] ?? FORMS.general;
   const LEAD = cfg.leadColumns.length;
-  // ลำดับ · รายการ · (ช่องเวลา) · จำนวน · ราคา/หน่วย · ราคารวม · หมายเหตุ
-  const COLS = 4 + LEAD + 2;
+  /* ลำดับ · รายการ · (ช่องเวลา) · จำนวน · ราคา/หน่วย · ราคารวม
+   * ไม่มีคอลัมน์หมายเหตุตามที่ผู้ใช้สั่ง — ในชีตต้นฉบับก็ถูกซ่อนไว้ (กว้าง 0) อยู่แล้ว
+   * และการตัดออกทำให้ตารางกว้างพอดี A4 แนวตั้งโดยไม่ต้องย่อ */
+  const COLS = 3 + LEAD + 2;
   const col = (i) => String.fromCharCode(65 + i);
   const lastCol = col(COLS - 1);
 
@@ -221,30 +245,41 @@ function buildCompanyForm({ form, items, docNo, dateText, requestedBy, totalAmou
   const blank = (style) => ({ v: '', s: style });
   const pad = (cells) => [...cells, ...Array(Math.max(0, COLS - cells.length)).fill('')];
 
-  // แถว 1 — หัวเอกสาร (ชีตจริงเขียนเป็นอังกฤษทั้งสองใบ)
-  rows.push(pad([{ v: 'Purchase Request Form', s: STYLE.TITLE }]));
-  merges.push(`A1:${lastCol}1`);
-  rowHeights[1] = 28;
+  /* แถว 1 เว้นไว้ให้โลโก้ที่มุมซ้ายบน — รูปเป็น oneCellAnchor ลอยทับเซลล์
+   * จึงต้องกันความสูงไว้เอง ไม่งั้นโลโก้จะทับหัวเอกสาร
+   * แถว 2 เป็นหัวเอกสาร (ชีตจริงเขียนเป็นอังกฤษทั้งสองใบ) */
   rows.push([]);
+  rowHeights[1] = 46;
+  rows.push(pad([{ v: 'Purchase Request Form', s: STYLE.TITLE }]));
+  merges.push(`A2:${lastCol}2`);
+  rowHeights[2] = 30;
 
-  // แถว 3 — ชื่อผู้ขอ / วันที่ · แถว 4 — Project / เลขที่เอกสาร
-  rows.push(pad([
-    { v: 'ชื่อ', s: STYLE.LABEL },
-    { v: requestedBy ?? '', s: STYLE.FIELD },
-    { v: 'วันที่', s: STYLE.LABEL_C },
-    { v: dateText, s: STYLE.FIELD },
-  ]));
-  rows.push(pad([
-    { v: 'Project', s: STYLE.LABEL },
-    { v: cfg.project, s: STYLE.FIELD },
-    { v: 'เลขที่', s: STYLE.LABEL_C },
-    { v: docNo, s: STYLE.FIELD },
-  ]));
+  /* แถว 3 — ชื่อผู้ขอ / วันที่ · แถว 4 — Project / เลขที่เอกสาร
+   *
+   * ค่าทางขวาต้อง merge ให้กว้างพอเสมอ ไม่งั้นถูกคอลัมน์ถัดไปตัดหัวทิ้ง
+   * (เคยได้ "2/08/2026" แทน "12/08/2026" และ "!0260812-003" แทนเลขที่เต็ม)
+   * และเขียนป้ายรวมกับค่าไว้ในเซลล์เดียวแบบชีต Cosy จะไม่มีอะไรให้ตัดตั้งแต่แรก */
+  const half = 1 + Math.ceil((COLS - 1) / 2); // คอลัมน์ที่เริ่มบล็อกขวา
+  const rightCol = col(half);
+  const fieldRow = (label, value, rightLabel, rightValue) => {
+    const r = rows.length + 1;
+    const cells = Array(COLS).fill('');
+    cells[0] = { v: label, s: STYLE.LABEL };
+    for (let i = 1; i < half; i++) cells[i] = { v: i === 1 ? value : '', s: STYLE.FIELD };
+    for (let i = half; i < COLS; i++) {
+      cells[i] = { v: i === half ? `${rightLabel}   ${rightValue}` : '', s: STYLE.FIELD };
+    }
+    rows.push(cells);
+    merges.push(`B${r}:${col(half - 1)}${r}`, `${rightCol}${r}:${lastCol}${r}`);
+    rowHeights[r] = 22;
+  };
+  fieldRow('ชื่อ', requestedBy ?? '', 'วันที่', dateText);
+  fieldRow('Project', cfg.project, 'เลขที่', docNo);
   rows.push([]);
 
   // แถว 6 — หัวตาราง
   rows.push(
-    ['ลำดับ', 'รายการ', ...cfg.leadColumns, 'จำนวน', 'ราคา/หน่วย', 'ราคารวม', 'หมายเหตุ'].map((h) => ({
+    ['ลำดับ', 'รายการ', ...cfg.leadColumns, 'จำนวน', 'ราคา/หน่วย', 'ราคารวม'].map((h) => ({
       v: h,
       s: STYLE.TH,
     }))
@@ -261,23 +296,21 @@ function buildCompanyForm({ form, items, docNo, dateText, requestedBy, totalAmou
       // ไม่มีราคาในชีตให้เว้นว่าง ห้ามใส่ 0 เพราะยอดรวมจะดูเหมือนถูกต้องทั้งที่ขาด
       item.unitPrice === null ? blank(STYLE.TD_C) : { v: item.unitPrice, s: STYLE.TD_MONEY },
       item.amount === null ? blank(STYLE.TD_C) : { v: item.amount, s: STYLE.TD_MONEY },
-      blank(STYLE.TD),
     ]);
   });
   // แถวว่างให้เขียนเพิ่มด้วยมือได้ เหมือนฟอร์มเดิม
   for (let i = items.length; i < MIN_TABLE_ROWS; i++) {
-    rows.push([blank(STYLE.TD_C), blank(STYLE.TD), ...Array(LEAD + 4).fill(blank(STYLE.TD_C))]);
+    rows.push([blank(STYLE.TD_C), blank(STYLE.TD), ...Array(LEAD + 3).fill(blank(STYLE.TD_C))]);
   }
 
   // แถวรวม — ป้ายกินตั้งแต่ A ถึงก่อนช่องราคารวม ตามชีตจริง (A16:H16)
   const totalRow = rows.length + 1;
   rows.push([
     { v: 'รวมราคาทั้งหมด', s: STYLE.TOTAL_LABEL },
-    ...Array(COLS - 3).fill(blank(STYLE.TOTAL_LABEL)),
+    ...Array(COLS - 2).fill(blank(STYLE.TOTAL_LABEL)),
     { v: totalAmount, s: STYLE.TOTAL_VALUE },
-    blank(STYLE.TOTAL_LABEL),
   ]);
-  merges.push(`A${totalRow}:${col(COLS - 3)}${totalRow}`);
+  merges.push(`A${totalRow}:${col(COLS - 2)}${totalRow}`);
 
   // รายการที่ยังไม่มีราคา — ต้องเห็นก่อนอนุมัติ ไม่ใช่ให้เซ็นไปแล้วค่อยรู้
   if (missingPrice > 0) {
@@ -294,25 +327,46 @@ function buildCompanyForm({ form, items, docNo, dateText, requestedBy, totalAmou
     merges.push(`A${r}:${lastCol}${r}`);
   }
 
-  /* ── ช่องเซ็น: Requested by / Approved by อย่างละบล็อก พร้อมบรรทัด Date ──
-   * ตามชีต PurchaseRe-Cosy ซึ่งมีสองชั้น ไม่ใช่สามชั้นแบบฟอร์มเก่าของระบบ */
+  /* ── ช่องเซ็น: Requested by / Approved by อย่างละบล็อก ──
+   * ตามชีต PurchaseRe-Cosy ซึ่งมีสองชั้น ไม่ใช่สามชั้นแบบฟอร์มเก่าของระบบ
+   * เว้นบรรทัดว่างเหนือชื่อไว้ให้เซ็น แล้วพิมพ์ชื่อกำกับใต้เส้น */
   rows.push([]);
-  for (const label of ['Requested by:', 'Approved by:']) {
-    rows.push([]);
+  /* ── ช่องเซ็น ──
+   *
+   * สามบรรทัดต่อคน: ป้าย+เส้นเซ็น · ชื่อใต้เส้น · แล้วค่อยช่องวันที่ที่มีเส้นของตัวเอง
+   * ถ้าเอาชื่อไปไว้บรรทัดเดียวกับ "Date:" จะอ่านเหมือนชื่อเป็นค่าของช่องวันที่
+   *
+   * **ทุกเซลล์ในช่วงที่ merge ต้องมีสไตล์เส้นเอง** Excel วาดขอบจากเซลล์แต่ละช่อง
+   * ไม่ได้ยืดขอบของเซลล์ซ้ายบนให้ ใส่แค่ช่องแรกจะได้ขีดสั้น ๆ แทนเส้นยาว */
+  const SIGN_FROM = 2;
+  const SIGN_TO = COLS - 2;
+  const spanRow = (label, value, style) => {
     const r = rows.length + 1;
-    rows.push(pad([{ v: label, s: STYLE.LABEL_C }]));
-    merges.push(`A${r}:B${r}`);
-    const dr = rows.length + 1;
-    rows.push(pad([{ v: 'Date:', s: STYLE.LABEL_C }, '', blank(STYLE.SIGN_LINE)]));
-    merges.push(`C${dr}:${lastCol}${dr}`);
+    const cells = Array(COLS).fill('');
+    if (label) cells[0] = { v: label, s: STYLE.LABEL };
+    for (let i = SIGN_FROM; i <= SIGN_TO; i++) {
+      cells[i] = { v: i === SIGN_FROM ? value : '', s: style };
+    }
+    rows.push(cells);
+    merges.push(`A${r}:B${r}`, `${col(SIGN_FROM)}${r}:${col(SIGN_TO)}${r}`);
+    return r;
+  };
+
+  for (const signer of SIGNERS) {
+    rows.push([]);
+    rowHeights[spanRow(signer.label, '', STYLE.SIGN_LINE)] = 30;
+    spanRow('', signer.name, STYLE.SIGN_NAME);
+    rowHeights[spanRow('Date:', '', STYLE.SIGN_LINE)] = 26;
   }
 
   return {
     rows,
     merges,
     rowHeights,
-    // ลำดับแคบ · รายการกว้าง · ช่องเวลาแคบเท่ากัน · ตัวเลขพอใส่หลักหมื่น
-    columnWidths: [6.5, 46, ...Array(LEAD).fill(7.5), 10, 13, 14, 20],
+    /* รวมกันต้องไม่เกินความกว้างที่ A4 แนวตั้งรับได้ (~92 หน่วย Excel ที่ขอบ 1 ซม.)
+     * 6 + 40 + 4×7 + 9 + 12 + 14 = 109 → ยังเกิน จึงเปิด fitToPage ให้ย่อลงพอดี
+     * ที่ไม่บีบคอลัมน์รายการให้แคบกว่านี้เพราะชื่อวัสดุยาว ถ้าตัดคำจะอ่านไม่รู้เรื่อง */
+    columnWidths: [10, 38, ...Array(LEAD).fill(7), 9, 12, 14],
   };
 }
 
@@ -351,6 +405,7 @@ export async function createPurchaseRequest({
   const built = buildCompanyForm({
     form, items, docNo, dateText, requestedBy, totalAmount, missingPrice, note,
   });
+  const logo = await readLogo();
   const buffer = buildXlsx({
     sheetName: docNo,
     rows: built.rows,
@@ -358,6 +413,12 @@ export async function createPurchaseRequest({
     merges: built.merges,
     rowHeights: built.rowHeights,
     modified: now,
+    /* เอกสารนี้มีไว้ปริ้นให้ผู้บริหารเซ็น ต้องพอดี A4 แผ่นเดียว
+     * fitToPage ย่อให้ลงเองถ้ารายการเยอะ ดีกว่าปล่อยล้นไปหน้าสองแบบไม่มีใครรู้ */
+    page: { fitToPage: true, orientation: 'portrait', margins: { left: 0.4, right: 0.3, top: 0.4, bottom: 0.4 } },
+    image: logo
+      ? { data: logo, name: 'Kambis', col: 0, row: 0, width: 58, height: 58, offsetX: 38100, offsetY: 19050 }
+      : null,
   });
 
   const saved = await saveCopy(docNo, buffer);
