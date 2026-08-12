@@ -176,45 +176,58 @@ export function splitByForm(items) {
   return out;
 }
 
-/* ผู้อนุมัติตามแบบฟอร์มของบริษัท (Purchase Request/Purchase Request_03-08-2026.xlsx)
- * เอกสารที่ออกจากระบบต้องหน้าตาเหมือนที่ใช้กันอยู่ ไม่งั้นต้องพิมพ์ใหม่ทั้งใบ */
-const APPROVERS = ['Ekaluck', 'Chamaiphorn', 'CEO'];
-
 /** จำนวนแถวว่างขั้นต่ำในตาราง — ให้เขียนเพิ่มด้วยมือได้เหมือนฟอร์มเดิม */
 const MIN_TABLE_ROWS = 5;
 
-/* ช่วงเวลาส่งของบนฟอร์มปุ๋ยของบริษัท (ชีต PurchaseRe-Athena-1)
- * เป็นช่องติ๊กว่าตกลงกันไว้กี่วัน ระบบไม่รู้ค่านี้ จึงเว้นให้คนกาเอง */
-const NUTRIENT_LEAD_COLUMNS = ['1 วัน', '7 วัน', '15 วัน', '30 วัน'];
+/* ═══════════════════════════════════════════════════════════════
+   แบบฟอร์มใบขอซื้อของบริษัท
+   ═══════════════════════════════════════════════════════════════
+
+   ถอดจากชีตจริงสองใบในไฟล์ `Purchase Request/Purchase Request Form-Ping.xlsx`:
+   `PurchaseRe-Cosy` (วัสดุทั่วไป) กับ `PurchaseRe-Athena-1` (ปุ๋ย)
+
+   **สองใบนี้เป็นโครงเดียวกัน** — ลำดับ · รายการ · ช่องเวลาส่งของ 4 ช่อง ·
+   จำนวน · ราคา/หน่วย · ราคารวม · หมายเหตุ สิ่งที่ต่างคือช่อง Project
+   กับจำนวนวันบนหัวช่องเวลา ซึ่งตกลงกันใหม่ทุกครั้งที่สั่ง
+   จึงใช้ตัวสร้างตัวเดียวแล้วส่ง config ต่างกัน ไม่ต้องมีสองก้อนที่ต้องแก้คู่กัน
+
+   สิ่งที่ **ไม่** ลอกมาจากชีตต้นฉบับ: คอลัมน์ที่ซ่อนไว้ (กว้าง 0) และตัวเลข
+   ที่ค้างอยู่ในเซลล์โดยไม่มีหัวคอลัมน์ — เป็นเศษจากการแก้ไฟล์ด้วยมือ
+   ลอกมาจะได้เอกสารที่มีเลขลอยโดยไม่มีใครอธิบายได้ว่าคืออะไร */
+
+const FORMS = {
+  // ชีต PurchaseRe-Cosy — ช่องเวลา 1/5/7/15 วัน
+  general: { project: 'Farm — Supply Stock', leadColumns: ['1 วัน', '5 วัน', '7 วัน', '15 วัน'] },
+  // ชีต PurchaseRe-Athena-1 — ปุ๋ยสั่งล่วงหน้านานกว่า ช่องเวลาจึงยาวกว่า
+  nutrient: { project: 'ปุ๋ย/ธาตุอาหาร (Athena)', leadColumns: ['1 วัน', '7 วัน', '15 วัน', '30 วัน'] },
+};
 
 /**
- * ใบขอซื้อปุ๋ย — โครงตามชีต `PurchaseRe-Athena-1`
- *
- * ต่างจากใบวัสดุทั่วไปตรงที่มี **คอลัมน์ลำดับ** และ **ช่องเวลาส่งของให้ติ๊ก**
- * และหัวตารางเป็นภาษาไทย ตามที่ฝ่ายจัดซื้อใช้กับซัพพลายเออร์ปุ๋ยอยู่จริง
- *
- * สิ่งที่ **ไม่** ลอกมาจากชีตต้นฉบับ: คอลัมน์ที่ซ่อนไว้ (D กับ K กว้าง 0)
- * และตัวเลขที่ค้างอยู่ในเซลล์โดยไม่มีหัวคอลัมน์ — เป็นเศษจากการแก้ไฟล์ด้วยมือ
- * ลอกมาจะได้เอกสารที่มีเลขลอยโดยไม่มีใครอธิบายได้ว่าคืออะไร
+ * ประกอบแผ่นงานตามแบบฟอร์มบริษัท
  *
  * @returns {{rows:Array, merges:string[], rowHeights:object, columnWidths:number[]}}
  */
-function buildNutrientForm({ items, docNo, dateText, requestedBy, totalAmount, missingPrice, note }) {
+function buildCompanyForm({ form, items, docNo, dateText, requestedBy, totalAmount, missingPrice, note }) {
+  const cfg = FORMS[form] ?? FORMS.general;
+  const LEAD = cfg.leadColumns.length;
+  // ลำดับ · รายการ · (ช่องเวลา) · จำนวน · ราคา/หน่วย · ราคารวม · หมายเหตุ
+  const COLS = 4 + LEAD + 2;
+  const col = (i) => String.fromCharCode(65 + i);
+  const lastCol = col(COLS - 1);
+
   const rows = [];
   const merges = [];
   const rowHeights = {};
   const blank = (style) => ({ v: '', s: style });
-  const LEAD = NUTRIENT_LEAD_COLUMNS.length;
-  // ลำดับ · รายการ · (ช่องเวลา) · จำนวน · ราคา/หน่วย · ราคารวม · หมายเหตุ
-  const COLS = 4 + LEAD + 2;
   const pad = (cells) => [...cells, ...Array(Math.max(0, COLS - cells.length)).fill('')];
-  const lastCol = String.fromCharCode(65 + COLS - 1);
 
-  rows.push(pad([{ v: 'ใบขอซื้อ — ปุ๋ยและธาตุอาหาร', s: STYLE.TITLE }]));
+  // แถว 1 — หัวเอกสาร (ชีตจริงเขียนเป็นอังกฤษทั้งสองใบ)
+  rows.push(pad([{ v: 'Purchase Request Form', s: STYLE.TITLE }]));
   merges.push(`A1:${lastCol}1`);
   rowHeights[1] = 28;
   rows.push([]);
 
+  // แถว 3 — ชื่อผู้ขอ / วันที่ · แถว 4 — Project / เลขที่เอกสาร
   rows.push(pad([
     { v: 'ชื่อ', s: STYLE.LABEL },
     { v: requestedBy ?? '', s: STYLE.FIELD },
@@ -223,16 +236,18 @@ function buildNutrientForm({ items, docNo, dateText, requestedBy, totalAmount, m
   ]));
   rows.push(pad([
     { v: 'Project', s: STYLE.LABEL },
-    { v: 'Kambis — ปุ๋ย/ธาตุอาหาร', s: STYLE.FIELD },
+    { v: cfg.project, s: STYLE.FIELD },
     { v: 'เลขที่', s: STYLE.LABEL_C },
     { v: docNo, s: STYLE.FIELD },
   ]));
   rows.push([]);
 
+  // แถว 6 — หัวตาราง
   rows.push(
-    ['ลำดับ', 'รายการ', ...NUTRIENT_LEAD_COLUMNS, 'จำนวน', 'ราคา/หน่วย', 'ราคารวม', 'หมายเหตุ'].map(
-      (h) => ({ v: h, s: STYLE.TH })
-    )
+    ['ลำดับ', 'รายการ', ...cfg.leadColumns, 'จำนวน', 'ราคา/หน่วย', 'ราคารวม', 'หมายเหตุ'].map((h) => ({
+      v: h,
+      s: STYLE.TH,
+    }))
   );
 
   items.forEach((item, i) => {
@@ -240,27 +255,31 @@ function buildNutrientForm({ items, docNo, dateText, requestedBy, totalAmount, m
     rows.push([
       { v: i + 1, s: STYLE.TD_C },
       { v: item.item + unit, s: STYLE.TD },
-      ...Array(LEAD).fill(blank(STYLE.TD_C)), // ช่องติ๊กเวลาส่งของ — คนกาเอง
+      // ช่องติ๊กเวลาส่งของ — ระบบไม่รู้ว่าตกลงกันกี่วัน ต้องให้คนกาเอง
+      ...Array(LEAD).fill(blank(STYLE.TD_C)),
       { v: item.qty, s: STYLE.TD_C },
+      // ไม่มีราคาในชีตให้เว้นว่าง ห้ามใส่ 0 เพราะยอดรวมจะดูเหมือนถูกต้องทั้งที่ขาด
       item.unitPrice === null ? blank(STYLE.TD_C) : { v: item.unitPrice, s: STYLE.TD_MONEY },
       item.amount === null ? blank(STYLE.TD_C) : { v: item.amount, s: STYLE.TD_MONEY },
       blank(STYLE.TD),
     ]);
   });
+  // แถวว่างให้เขียนเพิ่มด้วยมือได้ เหมือนฟอร์มเดิม
   for (let i = items.length; i < MIN_TABLE_ROWS; i++) {
     rows.push([blank(STYLE.TD_C), blank(STYLE.TD), ...Array(LEAD + 4).fill(blank(STYLE.TD_C))]);
   }
 
+  // แถวรวม — ป้ายกินตั้งแต่ A ถึงก่อนช่องราคารวม ตามชีตจริง (A16:H16)
   const totalRow = rows.length + 1;
-  const totalValueCol = String.fromCharCode(65 + COLS - 2);
   rows.push([
-    { v: 'รวมราคาทั้งหมด (บาท)', s: STYLE.TOTAL_LABEL },
+    { v: 'รวมราคาทั้งหมด', s: STYLE.TOTAL_LABEL },
     ...Array(COLS - 3).fill(blank(STYLE.TOTAL_LABEL)),
     { v: totalAmount, s: STYLE.TOTAL_VALUE },
     blank(STYLE.TOTAL_LABEL),
   ]);
-  merges.push(`A${totalRow}:${String.fromCharCode(65 + COLS - 3)}${totalRow}`);
+  merges.push(`A${totalRow}:${col(COLS - 3)}${totalRow}`);
 
+  // รายการที่ยังไม่มีราคา — ต้องเห็นก่อนอนุมัติ ไม่ใช่ให้เซ็นไปแล้วค่อยรู้
   if (missingPrice > 0) {
     rows.push([]);
     const r = rows.length + 1;
@@ -275,21 +294,18 @@ function buildNutrientForm({ items, docNo, dateText, requestedBy, totalAmount, m
     merges.push(`A${r}:${lastCol}${r}`);
   }
 
+  /* ── ช่องเซ็น: Requested by / Approved by อย่างละบล็อก พร้อมบรรทัด Date ──
+   * ตามชีต PurchaseRe-Cosy ซึ่งมีสองชั้น ไม่ใช่สามชั้นแบบฟอร์มเก่าของระบบ */
   rows.push([]);
-  rows.push([]);
-  const signBlock = (label, name) => {
+  for (const label of ['Requested by:', 'Approved by:']) {
     rows.push([]);
     const r = rows.length + 1;
-    rows.push(pad([{ v: label, s: STYLE.LABEL_C }, '', blank(STYLE.SIGN_LINE)]));
-    merges.push(`A${r}:B${r}`, `C${r}:${lastCol}${r}`);
-    if (name) {
-      const nr = rows.length + 1;
-      rows.push(pad(['', '', { v: name, s: STYLE.SIGN_NAME }]));
-      merges.push(`C${nr}:${lastCol}${nr}`);
-    }
-  };
-  signBlock('ผู้ขอซื้อ:', null);
-  for (const approver of APPROVERS) signBlock('ผู้อนุมัติ:', approver);
+    rows.push(pad([{ v: label, s: STYLE.LABEL_C }]));
+    merges.push(`A${r}:B${r}`);
+    const dr = rows.length + 1;
+    rows.push(pad([{ v: 'Date:', s: STYLE.LABEL_C }, '', blank(STYLE.SIGN_LINE)]));
+    merges.push(`C${dr}:${lastCol}${dr}`);
+  }
 
   return {
     rows,
@@ -297,7 +313,6 @@ function buildNutrientForm({ items, docNo, dateText, requestedBy, totalAmount, m
     rowHeights,
     // ลำดับแคบ · รายการกว้าง · ช่องเวลาแคบเท่ากัน · ตัวเลขพอใส่หลักหมื่น
     columnWidths: [6.5, 46, ...Array(LEAD).fill(7.5), 10, 13, 14, 20],
-    totalValueCol,
   };
 }
 
@@ -311,7 +326,6 @@ function buildNutrientForm({ items, docNo, dateText, requestedBy, totalAmount, m
  * @param {string} [opts.note]
  * @param {Date} [opts.now]
  * @param {string} [opts.docNo] ระบุเลขที่เอง (ใช้ตอนออกหลายใบในคำขอเดียว)
- * @returns {Promise<{docNo:string, fileName:string, buffer:Buffer, savedTo:string|null, totalAmount:number, missingPrice:number, form:string}>}
  */
 export async function createPurchaseRequest({
   items,
@@ -334,158 +348,20 @@ export async function createPurchaseRequest({
   const totalAmount = items.reduce((t, i) => t + (i.amount ?? 0), 0);
   const missingPrice = items.filter((i) => i.unitPrice === null).length;
 
-  if (form === 'nutrient') {
-    const built = buildNutrientForm({
-      items, docNo, dateText, requestedBy, totalAmount, missingPrice, note,
-    });
-    const buffer = buildXlsx({
-      sheetName: docNo,
-      rows: built.rows,
-      columnWidths: built.columnWidths,
-      merges: built.merges,
-      rowHeights: built.rowHeights,
-      modified: now,
-    });
-    const saved = await saveCopy(docNo, buffer);
-    return { docNo, form, totalAmount, missingPrice, buffer, ...saved };
-  }
-
-  /* วางตามแบบฟอร์มเดิมของบริษัททุกช่อง — 5 คอลัมน์ A–E
-   *   A1:E1  หัวเอกสาร
-   *   แถว 3  Name / Date       แถว 4  Project / Phase
-   *   แถว 7  หัวตาราง: Date | Item | Number | Price/Unit | Total
-   *   แถวถัดมา รายการ แล้วปิดท้ายด้วยแถว Total
-   *   ท้ายเอกสาร Requested by + Approve by สามชั้น พร้อมชื่อผู้อนุมัติ
-   */
-  const rows = [];
-  const merges = [];
-  const rowHeights = {};
-  const blank = (style) => ({ v: '', s: style });
-
-  // แถว 1 — หัวเอกสาร
-  rows.push([{ v: 'Purchase Request Form', s: STYLE.TITLE }, '', '', '', '']);
-  merges.push('A1:E1');
-  rowHeights[1] = 28;
-  rows.push([]);
-
-  // แถว 3 — Name / Date
-  rows.push([
-    { v: 'Name:', s: STYLE.LABEL },
-    { v: requestedBy ?? '', s: STYLE.FIELD },
-    { v: 'Date:', s: STYLE.LABEL_C },
-    { v: dateText, s: STYLE.FIELD },
-    blank(STYLE.FIELD),
-  ]);
-  merges.push('D3:E3');
-
-  // แถว 4 — Project / Phase (ระบุที่มาของเอกสารให้ตามรอยกลับได้)
-  rows.push([
-    { v: 'Project:', s: STYLE.LABEL },
-    { v: 'Kambis — Supply Stock', s: STYLE.FIELD },
-    { v: 'Phase:', s: STYLE.LABEL_C },
-    { v: docNo, s: STYLE.FIELD },
-    blank(STYLE.FIELD),
-  ]);
-  merges.push('D4:E4');
-
-  rows.push([]);
-  rows.push([]);
-
-  // แถว 7 — หัวตาราง
-  rows.push(
-    ['Date', 'Item', 'Number', 'Price/Unit', 'Total'].map((h) => ({ v: h, s: STYLE.TH }))
-  );
-
-  for (const item of items) {
-    const unit = item.unit ? ` (${item.unit})` : '';
-    rows.push([
-      { v: dateText, s: STYLE.TD_C },
-      { v: item.item + unit, s: STYLE.TD },
-      { v: item.qty, s: STYLE.TD_C },
-      // ไม่มีราคาในชีตให้เว้นว่าง ห้ามใส่ 0 เพราะยอดรวมจะดูเหมือนถูกต้องทั้งที่ขาด
-      item.unitPrice === null ? blank(STYLE.TD_C) : { v: item.unitPrice, s: STYLE.TD_MONEY },
-      item.amount === null ? blank(STYLE.TD_C) : { v: item.amount, s: STYLE.TD_MONEY },
-    ]);
-  }
-
-  // แถวว่างให้เขียนเพิ่มด้วยมือได้ เหมือนฟอร์มเดิม
-  for (let i = items.length; i < MIN_TABLE_ROWS; i++) {
-    rows.push([blank(STYLE.TD_C), blank(STYLE.TD), blank(STYLE.TD_C), blank(STYLE.TD_C), blank(STYLE.TD_C)]);
-  }
-
-  // แถวรวม
-  const totalRow = rows.length + 1;
-  rows.push([
-    { v: 'Total', s: STYLE.TOTAL_LABEL },
-    blank(STYLE.TOTAL_LABEL),
-    blank(STYLE.TOTAL_LABEL),
-    blank(STYLE.TOTAL_LABEL),
-    { v: totalAmount, s: STYLE.TOTAL_VALUE },
-  ]);
-  merges.push(`A${totalRow}:D${totalRow}`);
-
-  // หมายเหตุเรื่องรายการที่ยังไม่มีราคา — ต้องเห็นก่อนอนุมัติ
-  if (missingPrice > 0) {
-    rows.push([]);
-    const noteRow = rows.length + 1;
-    rows.push([
-      {
-        v: `* ${missingPrice} item(s) have no price in the source sheet — the total above is incomplete. · มี ${missingPrice} รายการที่ยังไม่มีราคาในชีต ยอดรวมจึงยังไม่ครบ`,
-        s: STYLE.NOTE,
-      },
-      '',
-      '',
-      '',
-      '',
-    ]);
-    merges.push(`A${noteRow}:E${noteRow}`);
-    rowHeights[noteRow] = 30;
-  }
-
-  if (String(note ?? '').trim()) {
-    rows.push([]);
-    const r = rows.length + 1;
-    rows.push([{ v: `Note: ${String(note).slice(0, 300)}`, s: STYLE.NOTE }, '', '', '', '']);
-    merges.push(`A${r}:E${r}`);
-  }
-
-  rows.push([]);
-  rows.push([]);
-
-  // ── ช่องเซ็น: Requested by + Approve by สามชั้น ──
-  const signBlock = (label, name) => {
-    rows.push([]);
-    const r = rows.length + 1;
-    rows.push([
-      { v: label, s: STYLE.LABEL_C },
-      '',
-      blank(STYLE.SIGN_LINE),
-      blank(STYLE.SIGN_LINE),
-      blank(STYLE.SIGN_LINE),
-    ]);
-    merges.push(`A${r}:B${r}`, `C${r}:E${r}`);
-    if (name) {
-      const nr = rows.length + 1;
-      rows.push(['', '', { v: name, s: STYLE.SIGN_NAME }, blank(STYLE.SIGN_NAME), blank(STYLE.SIGN_NAME)]);
-      merges.push(`C${nr}:E${nr}`);
-    }
-  };
-
-  signBlock('Requested  by:', null);
-  for (const approver of APPROVERS) signBlock('Approve by:', approver);
-
+  const built = buildCompanyForm({
+    form, items, docNo, dateText, requestedBy, totalAmount, missingPrice, note,
+  });
   const buffer = buildXlsx({
     sheetName: docNo,
-    rows,
-    // ความกว้างตามฟอร์มเดิม
-    columnWidths: [14.875, 54, 13.125, 13, 12.75],
-    merges,
-    rowHeights,
+    rows: built.rows,
+    columnWidths: built.columnWidths,
+    merges: built.merges,
+    rowHeights: built.rowHeights,
     modified: now,
   });
 
   const saved = await saveCopy(docNo, buffer);
-  return { docNo, form: 'general', totalAmount, missingPrice, buffer, ...saved };
+  return { docNo, form, totalAmount, missingPrice, buffer, ...saved };
 }
 
 /** เก็บสำเนาลงดิสก์ — ล้มเหลวได้ ผู้ใช้ยังต้องดาวน์โหลดไฟล์ได้อยู่ดี */
