@@ -161,6 +161,7 @@ export const STYLE = {
   SIGN_LINE: 11, // เส้นสำหรับเซ็น — เส้นใต้
   SIGN_NAME: 12, // ชื่อผู้อนุมัติ — เส้นบน จัดกลาง
   NOTE: 13, // หมายเหตุ — ตัวเล็ก
+  LABEL_R: 14, // "Requested by:" — หนา ชิดขวา (บล็อกเซ็นอยู่ชิดขวาของหน้า)
 };
 
 /* ฟอนต์ต้องรองรับภาษาไทย เพราะชื่อวัสดุเป็นไทยเกือบทั้งหมด
@@ -191,7 +192,7 @@ ${/* Angsana New 16pt ตามที่ผู้ใช้กำหนด — �
 <border><left/><right/><top style="thin"/><bottom/><diagonal/></border>
 </borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="14">
+<cellXfs count="15">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf>
 <xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
 <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
@@ -206,6 +207,7 @@ ${/* Angsana New 16pt ตามที่ผู้ใช้กำหนด — �
 <xf numFmtId="0" fontId="0" fillId="0" borderId="2" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
 <xf numFmtId="0" fontId="0" fillId="0" borderId="3" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
 <xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;

@@ -176,10 +176,6 @@ export function splitByForm(items) {
   return out;
 }
 
-/* จำนวนแถวขั้นต่ำในตาราง — เอกสารมีไว้ปริ้นแล้วเขียนเพิ่มด้วยมือ
- * 5 แถวทำให้ครึ่งล่างของ A4 ว่างเปล่า 14 แถวเต็มหน้าพอดีและมีที่ให้เขียนจริง */
-const MIN_TABLE_ROWS = 14;
-
 /* ═══════════════════════════════════════════════════════════════
    แบบฟอร์มใบขอซื้อของบริษัท
    ═══════════════════════════════════════════════════════════════
@@ -298,10 +294,9 @@ function buildCompanyForm({ form, items, docNo, dateText, requestedBy, totalAmou
       item.amount === null ? blank(STYLE.TD_C) : { v: item.amount, s: STYLE.TD_MONEY },
     ]);
   });
-  // แถวว่างให้เขียนเพิ่มด้วยมือได้ เหมือนฟอร์มเดิม
-  for (let i = items.length; i < MIN_TABLE_ROWS; i++) {
-    rows.push([blank(STYLE.TD_C), blank(STYLE.TD), ...Array(LEAD + 3).fill(blank(STYLE.TD_C))]);
-  }
+  /* ไม่มีแถวว่างเผื่อไว้ตามที่ผู้ใช้สั่ง — ตารางจบตรงรายการสุดท้าย
+   * ถ้าต้องเพิ่มรายการ ผู้ใช้แทรกแถวเองใน Excel ซึ่งได้เส้นขอบตามแถวข้างบนอยู่แล้ว
+   * (แถวว่างที่เว้นไว้ล่วงหน้าทำให้เอกสารที่มีของ 2 รายการดูเหมือนกรอกไม่ครบ) */
 
   // แถวรวม — ป้ายกินตั้งแต่ A ถึงก่อนช่องราคารวม ตามชีตจริง (A16:H16)
   const totalRow = rows.length + 1;
@@ -338,17 +333,25 @@ function buildCompanyForm({ form, items, docNo, dateText, requestedBy, totalAmou
    *
    * **ทุกเซลล์ในช่วงที่ merge ต้องมีสไตล์เส้นเอง** Excel วาดขอบจากเซลล์แต่ละช่อง
    * ไม่ได้ยืดขอบของเซลล์ซ้ายบนให้ ใส่แค่ช่องแรกจะได้ขีดสั้น ๆ แทนเส้นยาว */
-  const SIGN_FROM = 2;
-  const SIGN_TO = COLS - 2;
+  /* บล็อกเซ็นอยู่ **ชิดขวา** ของหน้า ตามที่ผู้ใช้สั่ง
+   * ป้ายชิดขวาไปติดกับเส้น เพื่อให้อ่านเป็นคู่กันแทนที่จะลอยอยู่คนละฝั่งของกระดาษ */
+  const LABEL_FROM = 2; // ป้ายเริ่มที่คอลัมน์ C
+  const SIGN_FROM = COLS - 3; // เส้นกินสามคอลัมน์ขวาสุด (G–I)
+  const SIGN_TO = COLS - 1;
   const spanRow = (label, value, style) => {
     const r = rows.length + 1;
     const cells = Array(COLS).fill('');
-    if (label) cells[0] = { v: label, s: STYLE.LABEL };
+    for (let i = LABEL_FROM; i < SIGN_FROM; i++) {
+      cells[i] = { v: i === LABEL_FROM ? label : '', s: STYLE.LABEL_R };
+    }
     for (let i = SIGN_FROM; i <= SIGN_TO; i++) {
       cells[i] = { v: i === SIGN_FROM ? value : '', s: style };
     }
     rows.push(cells);
-    merges.push(`A${r}:B${r}`, `${col(SIGN_FROM)}${r}:${col(SIGN_TO)}${r}`);
+    merges.push(
+      `${col(LABEL_FROM)}${r}:${col(SIGN_FROM - 1)}${r}`,
+      `${col(SIGN_FROM)}${r}:${col(SIGN_TO)}${r}`
+    );
     return r;
   };
 
