@@ -26,13 +26,18 @@ const FOCUSABLE =
 const MOBILE = window.matchMedia('(max-width: 767px)');
 
 /** ชื่อหน้าสำหรับป้ายใต้โลโก้ (จอเล็ก) — คีย์เดียวกับที่เมนูใช้ */
+/* คีย์เป็น `<report>/<page>` ไม่ใช่ชื่อหน้าเดี่ยว ๆ — ตั้งแต่ Supply มีหน้าย่อย
+ * ชื่อ `stock` มีอยู่ทั้งสองรายงาน ถ้าคีย์ด้วยชื่อหน้าอย่างเดียว ป้ายบนหัวจะขึ้น
+ * "3. สต็อก" (ของดอก) ตอนอยู่หน้าสต๊อกวัสดุ */
 const PAGE_LABEL = {
-  overview: 'nav.overview',
-  production: 'nav.production',
-  stock: 'nav.stock',
-  sales: 'nav.sales',
-  cost: 'nav.cost',
-  main: 'nav.supply',
+  'dryflower/overview': 'nav.overview',
+  'dryflower/production': 'nav.production',
+  'dryflower/stock': 'nav.stock',
+  'dryflower/sales': 'nav.sales',
+  'dryflower/cost': 'nav.cost',
+  'supply/order': 'nav.supplyOrder',
+  'supply/stock': 'nav.supplyStock',
+  'supply/usage': 'nav.supplyUsage',
 };
 
 let wired = false;
@@ -52,30 +57,41 @@ export function renderNav(route) {
 
   wire();
 
-  /* Supply เป็นรายงานหน้าเดียว จึงไม่มีเมนูย่อยบนจอใหญ่
+  /* ทั้งสองรายงานมีเมนูย่อยแล้ว — โชว์แถบเสมอ แต่ให้เห็นเฉพาะลิงก์ของรายงานที่เปิดอยู่
    *
-   * แต่ในแผงของจอเล็กหน้าย่อยทั้ง 5 ต้องโชว์เสมอ แม้ตอนอยู่รายงาน Supply
-   * เพราะแผงคือเมนูรวมของทั้งเว็บ ถ้าซ่อนไว้ คนที่อยู่หน้า Supply จะต้องกด
-   * DRYFLOWER ก่อนแล้วเปิดเมนูใหม่อีกรอบถึงจะไปหน้าสต็อกได้ — สองเที่ยวโดยไม่จำเป็น */
-  subnav.hidden = route.report !== 'dryflower';
+   * ส่วนในแผงของจอเล็ก หน้าย่อยของ **ทั้งสองรายงาน** ต้องโชว์พร้อมกันเสมอ
+   * เพราะแผงคือเมนูรวมของทั้งเว็บ ถ้าซ่อนไว้ คนที่อยู่รายงานหนึ่งจะต้องกดชื่อรายงาน
+   * อีกอันก่อน แล้วเปิดเมนูใหม่อีกรอบถึงจะไปหน้าที่ต้องการได้ — สองเที่ยวโดยไม่จำเป็น */
+  subnav.hidden = false;
+  for (const link of subnav.querySelectorAll('a[data-report]')) {
+    link.hidden = link.dataset.report !== route.report;
+  }
 
   /* ทำเครื่องหมาย + ตั้ง href ให้ลิงก์ "ทุกที่ในหน้า" ที่มี data-report / data-page
-   * (เมนูบน, เมนูย่อย, และแผงของจอเล็ก) — ชุดเดียวกันหมด จึงไม่มีทางไม่ตรงกัน */
+   * (เมนูบน, เมนูย่อย, และแผงของจอเล็ก) — ชุดเดียวกันหมด จึงไม่มีทางไม่ตรงกัน
+   *
+   * **ต้องอ่าน data-report ของลิงก์ ไม่ใช่ตรึงเป็น 'dryflower'** ตั้งแต่ Supply
+   * มีหน้าย่อยของตัวเอง ชื่อหน้าซ้ำกันได้ด้วย (`stock` มีทั้งสองรายงาน)
+   * ถ้าเทียบแค่ชื่อหน้า เมนูจะไฮไลต์ผิดฝั่งทันทีที่เข้าหน้าสต๊อกของอีกรายงาน */
   for (const link of document.querySelectorAll('a[data-page]')) {
-    const active = link.dataset.page === route.page && route.report === 'dryflower';
+    const report = link.dataset.report ?? 'dryflower';
+    const active = link.dataset.page === route.page && report === route.report;
     link.setAttribute('aria-current', active ? 'page' : 'false');
     link.classList.toggle('is-active', active);
 
-    /* พาตัวกรองติดไปด้วยตอนสลับหน้า
+    /* พาตัวกรองติดไปด้วยตอนสลับหน้า **ภายในรายงานเดียวกัน**
      * ผู้ใช้ที่เลือก "เฉพาะสายพันธุ์ Shogun" แล้วกดไปหน้าสต็อก ย่อมคาดหวังว่า
-     * ยังกรอง Shogun อยู่ ไม่ใช่ถูกรีเซ็ตเงียบ ๆ */
+     * ยังกรอง Shogun อยู่ — แต่ตัวกรองข้ามรายงานคนละชุดกัน จึงไม่พาไปด้วย */
     link.setAttribute(
       'href',
-      toHash({ report: 'dryflower', page: link.dataset.page, params: route.params })
+      toHash({ report, page: link.dataset.page, params: report === route.report ? route.params : null })
     );
   }
 
-  for (const link of document.querySelectorAll('a[data-report]')) {
+  /* **`:not([data-page])` สำคัญ** — ตั้งแต่ลิงก์เมนูย่อยมี `data-report` ติดมาด้วย
+   * (เพื่อให้รู้ว่าเป็นของรายงานไหน) มันจะเข้าลูปนี้ด้วยแล้วถูกตั้ง is-active
+   * จาก "อยู่รายงานเดียวกันไหม" ทับผลของลูปด้านบน — ผลคือเมนูย่อยสว่างพร้อมกันทั้งสามอัน */
+  for (const link of document.querySelectorAll('a[data-report]:not([data-page])')) {
     const report = link.dataset.report;
     const active = report === route.report;
     link.setAttribute('aria-current', active ? 'page' : 'false');
@@ -83,12 +99,10 @@ export function renderNav(route) {
 
     /* กลับมาที่ Dryflower ให้ลงหน้าที่กำลังดูค้างไว้ ไม่ใช่เด้งกลับหน้าแรกเสมอ
      * ส่วน Supply ใช้ตัวกรองคนละชุด จึงไม่พาตัวกรองของ Dryflower ติดไป */
+    // อยู่รายงานเดิม = คงหน้าเดิมไว้ · ข้ามรายงาน = ลงหน้าแรกของรายงานนั้น
     const page =
-      report === 'dryflower'
-        ? // ถ้าตอนนี้อยู่รายงาน Supply หน้าปัจจุบันคือ 'main' ซึ่งไม่มีใน Dryflower
-          (route.report === 'dryflower' && ROUTES.dryflower.includes(route.page)
-            ? route.page
-            : 'overview')
+      report === route.report && ROUTES[report].includes(route.page)
+        ? route.page
         : ROUTES[report][0];
     link.setAttribute(
       'href',
@@ -99,7 +113,7 @@ export function renderNav(route) {
   // ป้ายบอกว่าอยู่หน้าไหน — บนจอเล็กเมนูถูกพับเก็บ ถ้าไม่บอกก็ไม่มีทางรู้
   const crumb = document.getElementById('brand-crumb');
   if (crumb) {
-    const key = PAGE_LABEL[route.page];
+    const key = PAGE_LABEL[`${route.report}/${route.page}`];
     crumb.textContent = key ? t(key) : '';
   }
 

@@ -15,6 +15,35 @@ import path from 'node:path';
 import { createRefreshGate } from '../server/lib/refresh-gate.js';
 import { payloadHealth } from '../server/lib/loader.js';
 import { writeSnapshot, readSnapshot, CACHE_DIR } from '../server/lib/cache.js';
+import { csvUrl } from '../server/lib/fetcher.js';
+
+describe('endpoint ที่ใช้ดึง CSV', () => {
+  /* gviz/tq เป็น endpoint ของ Query API — มันเดาเองว่าแถวบน ๆ เป็นหัวตารางแล้วตัดทิ้ง
+   * จำนวนแถวที่ตัดไม่เท่ากันในแต่ละแท็บ กริดที่ได้จึง **เลื่อนแถว** ไปจากของจริง
+   *
+   * เคสจริง ส.ค. 69: ราคาที่คนกรอกไว้ที่ H2 ของทุกแท็บในชีต Log Stock ถูก gviz
+   * กลืนไปเป็นหัวตาราง หน้าเว็บจึงขึ้น "ยังไม่ใส่ราคา" ทั้งที่ในชีตมีเลขครบ
+   * (ผู้ใช้เป็นคนจับได้ ไม่ใช่ระบบ — ไม่มี error อะไรเลย ข้อมูลแค่หายเงียบ ๆ)
+   *
+   * เทสต์นี้มีไว้กันคนเปลี่ยนกลับ เพราะคอมเมนต์อย่างเดียวเคยกันไม่อยู่มาแล้ว */
+  test('ต้องเป็น /export?format=csv ไม่ใช่ gviz — gviz ตัดแถวหัวตารางทิ้ง', () => {
+    const url = csvUrl('SHEET123', '456');
+    assert.match(url, /\/export\?format=csv/, 'ต้องใช้ endpoint ที่คืนกริดดิบ');
+    assert.ok(!url.includes('gviz'), 'ห้ามกลับไปใช้ gviz');
+    assert.ok(url.includes('SHEET123') && url.includes('gid=456'));
+  });
+
+  test('ยังสลับกลับไปเทียบผลด้วย CSV_ENDPOINT=gviz ได้', () => {
+    const prev = process.env.CSV_ENDPOINT;
+    process.env.CSV_ENDPOINT = 'gviz';
+    try {
+      assert.match(csvUrl('S', '1'), /gviz/);
+    } finally {
+      if (prev === undefined) delete process.env.CSV_ENDPOINT;
+      else process.env.CSV_ENDPOINT = prev;
+    }
+  });
+});
 
 describe('คูลดาวน์ปุ่มรีเฟรช', () => {
   /** นาฬิกาปลอม เพื่อไม่ต้องรอจริงในเทสต์ */

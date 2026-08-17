@@ -16,8 +16,12 @@
  * จากช่องพิมพ์ทันทีที่กดตัวแรก — URL ยังถูกอัปเดตอยู่ แต่แบบไม่ยิง event
  */
 import { t } from '../i18n.js';
-import { n, esc, DASH, date as fmtDate } from '../format.js';
+/* `fmtDateFull` = ค.ศ. เต็ม (`31 ก.ค. 2026`) ใช้เฉพาะ **สายของ "ข้อมูล ณ วันที่"**
+ * ให้เป็นศักราชเดียวกับปฏิทินบนแถบตัวกรองและช่อง "ปี 2026" ที่อยู่ข้าง ๆ กัน
+ * ส่วน `fmtDate` (พ.ศ. `31 ก.ค. 69`) ยังใช้กับตารางและ log ตามเดิม เพราะอ้างอิงชีตต้นทาง */
+import { n, esc, DASH, date as fmtDate, dateFull as fmtDateFull } from '../format.js';
 import { sortableTable } from '../ui/table.js';
+import { tabUrl, sheetUrlOf } from '../ui/sheet-link.js';
 import { pageHeader, panel, tiles, emptyNote, appendQualityCard } from './shared.js';
 import { comparePeriod } from '../shared/agg-core.js';
 import { stockAt } from '../shared/kpi.js';
@@ -29,7 +33,7 @@ import {
   supplyLookup,
 } from '../ui/supply-filters.js';
 
-export const meta = { report: 'supply', page: 'main' };
+export const meta = { report: 'supply', pages: ['order', 'stock', 'usage'] };
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
@@ -75,17 +79,35 @@ async function downloadRequest(docNo, onStatus) {
   }
 }
 
+/* ── หน้าย่อยของรายงาน Supply ──
+ *
+ * เดิมเป็นหน้าเดียวยาว 3,710px ≈ 4.1 หน้าจอ (ยาวที่สุดในเว็บ) แยกตาม **งานที่คนมาทำ**
+ * ไม่ใช่ตามชนิดของตาราง — และที่สำคัญกว่าเรื่องความยาวคือ **ตัวกรอง 5 ตัวมีผลคนละตาราง**
+ * พอแยกหน้าแล้ว แต่ละหน้าโชว์เฉพาะตัวกรองของตัวเอง แถบเตือน "แผงนี้ไม่เดินตามวันที่
+ * ที่เลือก" จึงหายไปเลย เพราะช่องเลือกวันไม่ได้อยู่บนหน้าที่มีตารางสั่งซื้ออีกต่อไป
+ *
+ * ตัวกรองที่หน้าไหนไม่ได้โชว์ **ต้องไม่มีผลกับตัวเลขของหน้านั้น** (ดู `applied` ด้านล่าง)
+ * ไม่งั้นค่าที่ค้างใน URL จากอีกหน้าจะกลายเป็นตัวกรองล่องหนที่ไม่มีอะไรบอก
+ */
+const PAGE_FILTERS = {
+  order: { search: true, group: true, price: true },
+  stock: { search: true, group: true, price: true, asOf: true },
+  usage: { year: true, search: true, group: true },
+};
+
 export function render(ctx) {
-  const { host, supply, requestSupply, supplyError, params, setParams, onOpen, drawLater } = ctx;
+  const { host, supply, requestSupply, supplyError, params, setParams, onOpen, drawLater, route } = ctx;
+  const page = PAGE_FILTERS[route?.page] ? route.page : 'order';
+  const show = PAGE_FILTERS[page];
 
   /* วันที่ของข้อมูลย้ายมาอยู่ใต้หัวเรื่อง — เดิมเป็นช่องตัวเลขที่ค่าเป็น "—" เสมอ
    * แล้วเอาวันที่ไปซ่อนในบรรทัดคำอธิบาย ซึ่งอ่านเหมือนช่องนั้นไม่มีข้อมูล
    * เป็นข้อมูลบอกความสดของชีต ไม่ใช่ตัวเลขที่ต้องเอาไปตัดสินใจ จึงไม่ควรกินช่องตัวเลข */
   const asOfSheet = supply?.kpi?.asOf;
   pageHeader(host, {
-    title: t('page.supply.title'),
+    title: `${t('page.supply.title')} · ${t(`nav.supply${page[0].toUpperCase()}${page.slice(1)}`)}`,
     sub: asOfSheet
-      ? `${t('page.supply.sub')} · ${t('supply.asOf')} ${fmtDate(asOfSheet)}`
+      ? `${t('page.supply.sub')} · ${t('supply.asOf')} ${fmtDateFull(asOfSheet)}`
       : t('page.supply.sub'),
   });
 
@@ -132,6 +154,15 @@ export function render(ctx) {
     maxDate: today,
   };
 
+  /* ลิงก์ไปแท็บของแต่ละรายการในชีต — `kpi.items[]` มี `gid` ติดมาจาก parser อยู่แล้ว
+   * ส่วน `sheetUrl` มาจาก meta ของ payload ก้อนนี้ (ชีตวัสดุโหลดแยก จึงมี meta ของตัวเอง)
+   * จับคู่ด้วยชื่อที่แสดง เพราะตารางการเบิกก็ใช้ชื่อเดียวกันนี้เป็นคีย์ */
+  const gidByItem = new Map(items.filter((i) => i.gid != null).map((i) => [i.item, i.gid]));
+  const sheet = {
+    sheetUrl: sheetUrlOf(supply.meta, 'supplyLog'),
+    gidOf: (name) => gidByItem.get(name) ?? null,
+  };
+
   let filters = readSupplyFilters(params);
 
   /* .stack ให้ระยะห่างระหว่างแผงเท่ากับหน้าอื่น — กล่องนี้เป็น div เปล่าที่หน้าวาดใหม่เอง
@@ -141,7 +172,7 @@ export function render(ctx) {
 
   const bar = supplyFilterBar({
     filters,
-    options,
+    options: { ...options, show },
     onChange: (next) => {
       filters = next;
       // อัปเดต URL แบบไม่ยิง event — ถ้ายิง router จะวาดทั้งหน้าใหม่แล้วโฟกัสหลุด
@@ -155,20 +186,29 @@ export function render(ctx) {
   /** วาดเฉพาะแผงข้อมูล — แถบตัวกรองกับการ์ดคุณภาพข้อมูลอยู่นอกกล่องนี้ */
   const draw = () => {
     dataHost.innerHTML = '';
-    const match = supplyMatcher(filters, lookup);
+
+    /* ตัวกรองที่หน้านี้ไม่ได้โชว์ ต้องไม่มีผลกับตัวเลข — แต่ยังเก็บไว้ใน URL
+     * เพื่อให้กดกลับไปหน้าเดิมแล้วค่าที่เลือกไว้ยังอยู่ (เช่นวันที่ของหน้าสต๊อก) */
+    const applied = {
+      ...filters,
+      year: show.year ? filters.year : '',
+      price: show.price ? filters.price : 'all',
+      asOf: show.asOf ? filters.asOf : '',
+    };
+    const match = supplyMatcher(applied, lookup);
 
     const reorder = (kpi.needsReorder ?? []).filter(match);
+    const optional = (kpi.optionalReorder ?? []).filter(match);
     const usage = (kpi.usage ?? []).filter(match);
-    const shownItems = asOfItems(items, filters.asOf).filter(match);
+    const shownItems = asOfItems(items, applied.asOf).filter(match);
     bar.__setCount(shownItems.length, items.length);
 
     /* ── แถบเตือนตอนดูย้อนหลัง ──
-     * สองแผงบนหน้านี้อ้างอิงคนละวันโดยตั้งใจ (ดูหมายเหตุที่ renderReorder)
-     * ถ้าไม่บอกให้ชัด คนจะอ่านตัวเลขสองชุดนี้เป็นวันเดียวกัน */
-    if (filters.asOf) {
+     * มีเฉพาะหน้าสต๊อกซึ่งเป็นหน้าเดียวที่มีช่องเลือกวัน */
+    if (applied.asOf) {
       const back = document.createElement('p');
       back.className = 'supply-warn';
-      back.textContent = t('supply.asOfBanner').replace('{date}', fmtDate(filters.asOf));
+      back.textContent = t('supply.asOfBanner').replace('{date}', fmtDateFull(applied.asOf));
       dataHost.appendChild(back);
     }
 
@@ -187,7 +227,7 @@ export function render(ctx) {
       {
         label: t('supply.needReorder'),
         value: reorder.length,
-        hint: filters.asOf ? t('supply.belowMinimumNow') : t('supply.belowMinimum'),
+        hint: applied.asOf ? t('supply.belowMinimumNow') : t('supply.belowMinimum'),
       },
       {
         label: t('supply.stockValue'),
@@ -209,19 +249,46 @@ export function render(ctx) {
       },
     ]);
 
-    renderReorder(dataHost, reorder, kpi, requestSupply, filters.asOf);
-    renderAnomalies(dataHost, kpi.usageAnomalies, match);
-    renderUsage(dataHost, usage, monthsWithUsage, filters, options);
-    // ตารางสต๊อกใช้แถวจากแท็บ log (ยอดคงเหลือจริง) ไม่ใช่ orderItems ที่เป็นแผนสั่งซื้อ
-    renderStockTable(dataHost, shownItems, filters.asOf);
+    if (page === 'order') {
+      /* หน้านี้ไม่มีช่องเลือกวันแล้ว จึงส่ง asOf เป็นค่าว่างเสมอ —
+       * แถบเตือน "แผงนี้ยึดวันนี้เสมอ" ไม่จำเป็นอีกต่อไปเพราะไม่มีวันอื่นให้สับสน */
+      renderReorder(dataHost, reorder, kpi, requestSupply, '');
+
+      /* ของที่ชีตตั้งขั้นต่ำไว้ 0 = ไม่ต้องเก็บสต๊อก หมดแล้วก็ยังไม่ต้องรีบสั่ง
+       * แยกแผงออกมา ไม่ติ๊กไว้ให้ และไม่นับเข้าช่อง "ต้องสั่งซื้อ" ด้านบน
+       * แต่ยังกดสั่งเองได้ถ้าจะซื้อจริง (ผู้ใช้เป็นคนตัดสิน ไม่ใช่ระบบ) */
+      renderReorder(dataHost, optional, kpi, requestSupply, '', {
+        title: t('supply.optionalTitle'),
+        note: t('supply.optionalNote'),
+        intro: t('supply.optionalIntro'),
+        defaultOn: false,
+        hideWhenEmpty: true,
+        idPrefix: 'pr-opt',
+      });
+    }
+
+    if (page === 'usage') {
+      renderAnomalies(dataHost, kpi.usageAnomalies, match);
+      renderUsage(dataHost, usage, monthsWithUsage, applied, options, sheet);
+    }
+
+    if (page === 'stock') {
+      // ตารางสต๊อกใช้แถวจากแท็บ log (ยอดคงเหลือจริง) ไม่ใช่ orderItems ที่เป็นแผนสั่งซื้อ
+      renderStockTable(dataHost, shownItems, applied.asOf);
+    }
   };
 
   draw();
 
   /* ── ใบขอซื้อที่เคยออก ──
+   * อยู่หน้าเดียวกับตารางสั่งซื้อโดยตั้งใจ ไม่ได้แยกเป็นเมนูของตัวเอง เพราะแท็ก
+   * `PR-…` ในตารางด้านบนกดแล้วโหลดสำเนาใบเดิม — สองอย่างนี้ใช้ด้วยกันตลอด
+   * ถ้าแยกคนละหน้า พอเห็นแท็กแล้วอยากดูรายละเอียดต้องสลับหน้า ซึ่งแย่กว่าเลื่อนลง
+   *
    * อยู่นอก dataHost เหมือนการ์ดคุณภาพข้อมูล เพราะเป็นทะเบียนของ "ทั้งชีต"
    * ไม่ใช่ของที่กรองไว้ — คนเปิดดูเพื่อหาใบเดิมที่ทำหาย ซึ่งอาจเป็นรายการที่
    * ตัวกรองปัจจุบันซ่อนอยู่ก็ได้ */
+  if (page !== 'order') return;
   renderHistory(host, kpi.purchaseRequests ?? [], kpi.needsReorder ?? []);
 
   /* ── ④ คุณภาพข้อมูล — ใบสุดท้ายของหน้าเสมอ (ผู้ใช้กำหนดไว้) ──
@@ -246,7 +313,7 @@ export function render(ctx) {
  * แสดงเฉพาะเดือนที่มีการเบิกจริง ชีตมีแถวลงวันที่ล่วงหน้าถึงสิ้นปี
  * ถ้าเอาทุกเดือนที่ปรากฏในข้อมูลมาทำคอลัมน์ จะได้คอลัมน์ว่างเปล่าอีกครึ่งตาราง
  */
-function renderUsage(host, usage, monthsWithUsage, filters, options) {
+function renderUsage(host, usage, monthsWithUsage, filters, options, sheet = {}) {
   const body = panel(host, t('supply.usageTitle'), t('supply.usageNote'), { wide: true });
 
   // ปีที่ดูอยู่ — ยังไม่ได้เลือกเอง = ปีล่าสุดที่มีการเบิกจริง (ไม่ใช่ปีปฏิทินปัจจุบัน
@@ -269,12 +336,30 @@ function renderUsage(host, usage, monthsWithUsage, filters, options) {
    * เพราะนั่นเป็นยอดตลอดกาล พอกรองปีแล้วแถวจะรวมไม่ตรงกับคอลัมน์ที่เห็น */
   const totalOf = (r) => shown.reduce((sum, m) => sum + (r.byMonth[m] ?? 0), 0);
 
+  /* ── ลิงก์ไปแท็บของรายการนั้นในชีต ──
+   *
+   * ตารางนี้บอกว่า "เบิกไปเท่าไร" แต่ไม่ได้บอกว่า "เบิกวันไหนบ้าง" ซึ่งอยู่ในแท็บ log
+   * ของรายการนั้น การให้กดจากตรงนี้ไปดูได้เลยตัดขั้นตอน "เปิดชีต → หาแท็บใน 138 อัน"
+   *
+   * `gidOf` คืน `null` ได้เมื่อจับคู่แท็บไม่เจอ — กรณีนั้นต้องเป็นข้อความธรรมดา
+   * **ห้ามสร้างลิงก์หลอกที่กดแล้วไปโผล่แท็บแรก** (กฎเดียวกับ finding ใน §10) */
+  const linkOf = (item) => tabUrl(sheet.sheetUrl, sheet.gidOf?.(item));
+
   body.appendChild(
     sortableTable(
       /* หน่วยอยู่ท้ายสุด ต่อจากคอลัมน์รวม — คอลัมน์เดือนคือของที่ต้องกวาดตาเทียบกัน
        * แทรกคอลัมน์ข้อความคั่นระหว่างชื่อรายการกับตัวเลขทำให้สายตาสะดุดทุกแถว */
       [
-        { label: t('supply.item'), get: (r) => r.item },
+        {
+          label: t('supply.item'),
+          get: (r) => r.item,
+          render: (r) => {
+            const href = linkOf(r.item);
+            if (!href) return esc(r.item);
+            return `<a class="sheet-link" href="${esc(href)}" target="_blank" rel="noopener"
+              title="${esc(t('supply.openTab'))}">${esc(r.item)}<span class="sheet-link__arrow" aria-hidden="true">↗</span></a>`;
+          },
+        },
         ...shown.map((m) => ({
           label: m,
           align: 'n',
@@ -292,9 +377,28 @@ function renderUsage(host, usage, monthsWithUsage, filters, options) {
       ],
       usage,
       // เรียงตามคอลัมน์รวม ซึ่งตอนนี้อยู่ถัดจากคอลัมน์เดือนสุดท้าย (ชื่อรายการ + เดือน)
-      { sortIndex: 1 + shown.length, sortDir: 'desc' }
+      { sortIndex: 1 + shown.length, sortDir: 'desc', rowKey: (r) => r.item }
     )
   );
+
+  /* กดที่ตัวเลขในแถวก็ไปแท็บเดียวกันได้ ไม่ต้องเล็งชื่อรายการ
+   *
+   * ทำเป็น delegate ที่ตัวตาราง ไม่ใช่ผูกทีละแถว เพราะ `sortableTable` วาด tbody
+   * ใหม่ทุกครั้งที่เรียงคอลัมน์ใหม่ — listener ที่ผูกกับ <tr> เดิมจะหลุดไปพร้อมกัน
+   *
+   * ไม่ทำให้ตัวเลขทุกช่องเป็น `<a>` เพราะ screen reader จะอ่าน "ลิงก์ 480 ลิงก์ 199…"
+   * ซ้ำกันสี่ครั้งต่อแถว — ลิงก์จริงมีอันเดียวที่ชื่อรายการ ส่วนตรงนี้เป็นทางลัดของเมาส์ */
+  const tableEl = body.querySelector('.table-wrap');
+  tableEl?.classList.add('usage-table');
+  tableEl?.addEventListener('click', (e) => {
+    if (e.target.closest('a')) return; // ลิงก์จริงทำงานของมันเอง
+    const tr = e.target.closest('tbody tr[data-key]');
+    if (!tr) return;
+    // กำลังลากเลือกตัวเลขอยู่ ไม่ใช่ตั้งใจกด — อย่าเด้งออกไปกลางคัน
+    if (String(window.getSelection?.() ?? '').length) return;
+    const href = linkOf(tr.dataset.key);
+    if (href) window.open(href, '_blank', 'noopener');
+  });
 }
 
 /**
@@ -311,13 +415,15 @@ function renderUsage(host, usage, monthsWithUsage, filters, options) {
 function renderStockTable(host, items, asOf = '') {
   /* หัวแผงต้องบอกวันที่เมื่อดูย้อนหลัง ไม่งั้นแคปหน้าจอส่งต่อแล้วไม่มีใครรู้ว่าเป็นของวันไหน */
   const title = asOf
-    ? t('supply.stockTableAsOf').replace('{date}', fmtDate(asOf))
+    ? t('supply.stockTableAsOf').replace('{date}', fmtDateFull(asOf))
     : t('supply.stockTable');
   const body = panel(host, title, t('supply.stockTableNote'), { wide: true });
   if (!items.length) {
     emptyNote(body);
     return;
   }
+
+  body.appendChild(stockExportBar(items, asOf));
 
   // มูลค่าคิดได้เฉพาะรายการที่มีทั้งยอดคงเหลือและราคา
   const valueOf = (r) =>
@@ -380,6 +486,77 @@ function renderStockTable(host, items, asOf = '') {
       }
     )
   );
+}
+
+/**
+ * แถบปุ่มดาวน์โหลด Excel เหนือตารางสต๊อก
+ *
+ * ส่งไปแค่ **ชื่อรายการที่กรองอยู่** กับวันที่ — ตัวเลขทุกช่องเซิร์ฟเวอร์เอาจากชีตเอง
+ * (กฎเดียวกับใบขอซื้อ: ห้ามให้เบราว์เซอร์เป็นคนบอกราคา)
+ *
+ * ต้องผ่าน `fetch` แล้วแปลงเป็น blob ไม่ใช่ `<a href>` ธรรมดา เพราะเป็น POST
+ * และเพราะต้องอ่าน `X-Skipped` เพื่อบอกผู้ใช้ว่ามีรายการตกหล่นไหม
+ */
+function stockExportBar(items, asOf) {
+  const bar = document.createElement('div');
+  bar.className = 'panel-actions';
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn btn--sm';
+  btn.textContent = t('supply.exportXlsx');
+
+  const hint = document.createElement('span');
+  hint.className = 'panel-actions__hint';
+  hint.textContent = t('supply.exportHint');
+
+  btn.addEventListener('click', async () => {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    const label = btn.textContent;
+    btn.textContent = t('supply.exportBusy');
+    hint.classList.remove('is-error');
+    try {
+      const res = await fetch('/api/supply/stock-export', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ items: items.map((r) => r.item), asOf: asOf || '' }),
+      });
+      if (!res.ok) {
+        const msg = await res.json().catch(() => ({}));
+        throw new Error(msg.error || `${res.status}`);
+      }
+      const skipped = Number(res.headers.get('X-Skipped') ?? 0);
+      const name =
+        /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ??
+        'kambis-stock.xlsx';
+      const blob = await res.blob();
+
+      /* ปล่อย object URL ทิ้งหลังกดแล้ว ไม่งั้นไฟล์ทั้งก้อนค้างในหน่วยความจำ
+       * จนกว่าจะปิดแท็บ — กดดาวน์โหลดหลายรอบก็สะสมไปเรื่อย ๆ */
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+
+      hint.textContent = skipped
+        ? `${t('supply.exportHint')} · ${t('supply.exportFailed')} ${skipped}`
+        : t('supply.exportHint');
+    } catch (err) {
+      hint.textContent = `${t('supply.exportFailed')} — ${err.message}`;
+      hint.classList.add('is-error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = label;
+    }
+  });
+
+  bar.append(btn, hint);
+  return bar;
 }
 
 /**
@@ -571,19 +748,44 @@ function renderAnomalies(host, anomalies, match = () => true) {
  * ย้อนหลังไม่ได้ ถ้าปล่อยให้เดินตามวันที่ที่เลือก คนจะกดขอซื้อจากยอดขาดของเมื่อเดือนที่แล้ว
  * ซึ่งของอาจเข้ามาแล้ว — และสถานะ "รอของ" ก็เป็นเรื่องของตอนนี้เช่นกัน
  */
-function renderReorder(host, reorder, kpi, requestSupply, asOf = '') {
-  const body = panel(host, t('supply.reorderTitle'), t('supply.reorderNote'), { wide: true });
+function renderReorder(host, reorder, kpi, requestSupply, asOf = '', opts = {}) {
+  const {
+    /* กลุ่ม "ไม่บังคับ" ใช้โครงตารางเดียวกันทุกอย่าง ต่างแค่ข้อความกับค่าเริ่มต้น
+     * ของช่องติ๊ก — แยกเป็นฟังก์ชันที่สองจะกลายเป็นโค้ดสองชุดที่ต้องแก้คู่กัน */
+    title = t('supply.reorderTitle'),
+    note = t('supply.reorderNote'),
+    emptyText = t('supply.nothingToReorder'),
+    intro = '',
+    // ติ๊กไว้ให้ล่วงหน้าไหม — กลุ่มไม่บังคับต้องเป็นการตัดสินใจของคน ไม่ใช่ค่าเริ่มต้น
+    defaultOn = true,
+    // ว่างแล้วซ่อนทั้งแผงไปเลย ไม่ต้องขึ้นกล่องเปล่า
+    hideWhenEmpty = false,
+    idPrefix = 'pr',
+  } = opts;
+
+  if (hideWhenEmpty && !reorder.length) return;
+
+  const body = panel(host, title, note, { wide: true });
+  // ป้ายกำกับให้ตัวตรวจอัตโนมัติเล็งถูกแผง — สองแผงนี้หน้าตาเหมือนกันจนแยกด้วย CSS ไม่ได้
+  body.parentElement?.classList.add(`panel--${idPrefix}`);
 
   // ดูย้อนหลังอยู่ ต้องบอกว่าแผงนี้ไม่ได้เดินตามวันที่ที่เลือก
   if (asOf) {
-    const note = document.createElement('p');
-    note.className = 'supply-warn';
-    note.textContent = t('supply.reorderAlwaysNow').replace('{date}', fmtDate(asOf));
-    body.appendChild(note);
+    const warn = document.createElement('p');
+    warn.className = 'supply-warn';
+    warn.textContent = t('supply.reorderAlwaysNow').replace('{date}', fmtDateFull(asOf));
+    body.appendChild(warn);
+  }
+
+  if (intro) {
+    const p = document.createElement('p');
+    p.className = 'panel-intro';
+    p.textContent = intro;
+    body.appendChild(p);
   }
 
   if (!reorder.length) {
-    emptyNote(body, t('supply.nothingToReorder'));
+    emptyNote(body, emptyText);
     return;
   }
 
@@ -592,7 +794,9 @@ function renderReorder(host, reorder, kpi, requestSupply, asOf = '') {
    * ของที่ขอไปแล้วยังต่ำกว่าขั้นต่ำอยู่จนกว่าของจะมาถึง มันจึงยังอยู่ในตารางนี้
    * ถ้าติ๊กไว้ให้เหมือนเดิม ฝ่ายจัดซื้อที่กดขอเมื่อวานจะขอซ้ำโดยไม่รู้ตัว
    * — ยังติ๊กเองได้ถ้าตั้งใจจะขอเพิ่ม แต่ต้องเป็นการตัดสินใจ ไม่ใช่ค่าเริ่มต้น */
-  const picked = new Map(reorder.map((r) => [r.item, { on: !r.pending, qty: r.suggestedQty }]));
+  const picked = new Map(
+    reorder.map((r) => [r.item, { on: defaultOn && !r.pending, qty: r.suggestedQty }])
+  );
   const waiting = reorder.filter((r) => r.pending);
   if (waiting.length) {
     const note = document.createElement('p');
@@ -616,7 +820,9 @@ function renderReorder(host, reorder, kpi, requestSupply, asOf = '') {
       <thead>
         <tr>
           <th scope="col" class="col-check">
-            <input type="checkbox" id="pr-all"${waiting.length ? '' : ' checked'} aria-label="${esc(t('supply.selectAll'))}">
+            <input type="checkbox" id="${idPrefix}-all"${
+              defaultOn && !waiting.length ? ' checked' : ''
+            } aria-label="${esc(t('supply.selectAll'))}">
           </th>
           <th scope="col">${esc(t('supply.date'))}</th>
           <th scope="col">${esc(t('supply.item'))}</th>
@@ -656,8 +862,9 @@ function renderReorder(host, reorder, kpi, requestSupply, asOf = '') {
     const tr = document.createElement('tr');
     tr.dataset.item = r.item;
     tr.innerHTML = `
-      <td class="col-check"><input type="checkbox"${r.pending ? '' : ' checked'} data-role="pick"
-          aria-label="${esc(r.item)}"></td>
+      <td class="col-check"><input type="checkbox"${
+        picked.get(r.item).on ? ' checked' : ''
+      } data-role="pick" aria-label="${esc(r.item)}"></td>
       <td>${esc(fmtDate(r.date))}</td>
       <td>${esc(r.item)}</td>
       <td>${pendingCell(r)}</td>
@@ -758,7 +965,7 @@ function renderReorder(host, reorder, kpi, requestSupply, asOf = '') {
     refresh();
   });
 
-  table.querySelector('#pr-all').addEventListener('change', (e) => {
+  table.querySelector(`#${idPrefix}-all`).addEventListener('change', (e) => {
     const on = e.target.checked;
     for (const state of picked.values()) state.on = on;
     for (const cb of tbody.querySelectorAll('[data-role="pick"]')) cb.checked = on;

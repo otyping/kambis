@@ -101,16 +101,20 @@ export function sortableTable(columns, rows, opts = {}) {
     const limit = opts.limit ?? 400;
     const shown = data.slice(0, limit);
 
+    /* `opts.rowKey(row)` ติด `data-key` ให้แถว เพื่อให้ผู้เรียกผูก event แบบ delegate
+     * ได้โดยไม่ต้องถือ reference ของ <tr> ไว้เอง — ตารางวาด tbody ใหม่ทุกครั้งที่เรียงใหม่
+     * reference ที่เก็บไว้จะกลายเป็น element ที่หลุด DOM ไปแล้ว */
     tbody.innerHTML = shown
-      .map(
-        (row) =>
-          `<tr>${columns
-            .map((col) => {
-              const html = col.render ? col.render(row) : esc(col.get(row) ?? '—');
-              return `<td class="${col.align === 'n' ? 'n' : ''}">${html}</td>`;
-            })
-            .join('')}</tr>`
-      )
+      .map((row) => {
+        const key = opts.rowKey ? opts.rowKey(row) : null;
+        const attr = key ? ` data-key="${esc(String(key))}"` : '';
+        return `<tr${attr}>${columns
+          .map((col) => {
+            const html = col.render ? col.render(row) : esc(col.get(row) ?? '—');
+            return `<td class="${col.align === 'n' ? 'n' : ''}">${html}</td>`;
+          })
+          .join('')}</tr>`;
+      })
       .join('');
 
     if (data.length > limit) {

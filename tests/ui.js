@@ -28,9 +28,23 @@ import {
   supplyLookup,
 } from '../public/js/ui/supply-filters.js';
 import { looksLikePeriod, comparePeriod } from '../public/js/shared/agg-core.js';
+import { parseHash, toHash } from '../public/js/router.js';
+import { tabUrl, sheetUrlOf } from '../public/js/ui/sheet-link.js';
 import { collectNotices } from '../public/js/ui/notices.js';
 import { t, setLang } from '../public/js/i18n.js';
-import { countdown } from '../public/js/format.js';
+import { countdown, monthLong, dateFull } from '../public/js/format.js';
+import {
+  monthGrid,
+  addDays,
+  addMonths,
+  isDisabled,
+  clampISO,
+  keyTarget,
+  nextEnabled,
+  defaultPresets,
+  defaultRangePresets,
+  weekdayNames,
+} from '../public/js/ui/datepicker.js';
 
 /** record ย่อ ๆ พอให้ตัวกรองทำงานได้ */
 const rec = (extra) => ({ sizes: {}, nonFlower: {}, flowerTotal: 100, ...extra });
@@ -323,6 +337,230 @@ describe('ตัวกรองของรายงาน Supply', () => {
         asOf: '2026-07-31',
       }
     );
+  });
+});
+
+/* ปฏิทินเลือกวันที่ — เทสต์เฉพาะชั้นคำนวณ ชั้น DOM อยู่นอกขอบเขตของไฟล์นี้
+ *
+ * ของที่ต้องกันให้ได้คือ **ค่าที่ไม่ใช่ YYYY-MM-DD หลุดออกไป** เพราะ `stockAt()`
+ * เทียบวันที่ด้วยการเทียบสตริงตรง ๆ ไม่เคย parse — `13/08/2026` จะมากกว่าทุกแถวใน log
+ * แล้วคืนแถวสุดท้ายซึ่งเป็นยอดยกมาของอนาคต โดยไม่มี error อะไรให้เห็นเลย */
+describe('ลิงก์ที่เปิดตรงไปยังแท็บของ Google Sheet', () => {
+  /* **ต้องมี gid ทั้งใน query และ fragment** ใส่อย่างใดอย่างหนึ่งจะเปิดที่แท็บแรกเสมอ
+   * ซึ่งดูเหมือนใช้ได้ (หน้าเปิดขึ้นมา) แต่ไปผิดแท็บ — พลาดแล้วจับยาก
+   * เดิมสูตรนี้ฝังอยู่ใน modal.js ที่เดียว ตอนนี้ตารางการเบิกใช้ด้วย จึงต้องมีตัวคุม */
+  test('มี gid ครบทั้งสองที่', () => {
+    assert.equal(tabUrl('https://x/edit', 123), 'https://x/edit?gid=123#gid=123');
+    assert.equal(tabUrl('https://x/edit', '456'), 'https://x/edit?gid=456#gid=456');
+  });
+
+  test('ไม่รู้แท็บ = ลิงก์ไปที่ไฟล์เฉย ๆ ไม่ใช่ลิงก์เสีย', () => {
+    // finding ระดับทั้งชีต (เช่นงบสรุปไม่ตรง) ไม่ได้ผูกกับแท็บใดแท็บหนึ่ง
+    for (const gid of [null, undefined, '']) {
+      assert.equal(tabUrl('https://x/edit', gid), 'https://x/edit', `gid=${String(gid)}`);
+    }
+  });
+
+  test('ไม่มี sheetUrl = ต้องคืน null ห้ามสร้างลิงก์หลอก', () => {
+    assert.equal(tabUrl(null, 123), null);
+    assert.equal(tabUrl('', 123), null);
+    assert.equal(tabUrl(undefined, undefined), null);
+  });
+
+  test('หา sheetUrl ของรายงานจาก meta ได้ และไม่พังเมื่อ meta ว่าง', () => {
+    const meta = { sources: [{ key: 'supplyLog', sheetUrl: 'https://s/edit' }, { key: 'sales' }] };
+    assert.equal(sheetUrlOf(meta, 'supplyLog'), 'https://s/edit');
+    assert.equal(sheetUrlOf(meta, 'sales'), null, 'มี key แต่ไม่มีลิงก์ = null');
+    assert.equal(sheetUrlOf(meta, 'ไม่มีจริง'), null);
+    assert.equal(sheetUrlOf(null, 'supplyLog'), null);
+    assert.equal(sheetUrlOf({}, 'supplyLog'), null);
+  });
+});
+
+describe('เส้นทางของรายงาน Supply หลังแยกเป็นสามหน้า', () => {
+  test('ลิงก์เก่า #/supply ต้องยังใช้ได้ ไม่ใช่เด้งไปหน้าแรกของ Dryflower', () => {
+    /* ตอน Supply เป็นหน้าเดียว URL คือ `#/supply` เฉย ๆ ลิงก์ที่คนส่งต่อกันไว้
+     * หรือ bookmark ไว้ต้องยังพาไปที่รายงานเดิม ไม่ใช่ถูกมองว่าเป็น route ผิด */
+    const r = parseHash('#/supply');
+    assert.equal(r.report, 'supply');
+    assert.equal(r.page, 'order', 'ไม่ระบุหน้า = หน้าแรกของรายงาน');
+    assert.ok(!r.unknown);
+  });
+
+  test('ทั้งสามหน้าย่อยเข้าถึงได้และประกอบ hash กลับได้ตรง', () => {
+    for (const page of ['order', 'stock', 'usage']) {
+      const r = parseHash(`#/supply/${page}`);
+      assert.equal(r.report, 'supply');
+      assert.equal(r.page, page);
+      assert.equal(toHash(r), `#/supply/${page}`);
+    }
+  });
+
+  test('ชื่อหน้าซ้ำกันสองรายงานต้องไม่ปนกัน', () => {
+    // `stock` มีทั้งสองรายงาน — เคยเป็นเหตุให้เมนูไฮไลต์ผิดฝั่ง
+    assert.equal(parseHash('#/supply/stock').report, 'supply');
+    assert.equal(parseHash('#/dryflower/stock').report, 'dryflower');
+  });
+
+  test('ตัวกรองติดไปกับ hash ของหน้าย่อยได้', () => {
+    const params = new URLSearchParams('q=ถุงมือ&asOf=2026-07-31');
+    assert.equal(
+      toHash({ report: 'supply', page: 'stock', params }),
+      `#/supply/stock?${params}`
+    );
+  });
+});
+
+describe('ปฏิทินเลือกวันที่', () => {
+  const ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+  test('ตารางเดือนมี 42 ช่องเสมอ และวันที่ 1 ตกคอลัมน์ถูก', () => {
+    const aug = monthGrid('2026-08');
+    assert.equal(aug.length, 42, '6 แถวคงที่ ไม่งั้นกล่องกระตุกตอนเปลี่ยนเดือน');
+    assert.ok(aug.every((c) => ISO.test(c.iso)));
+    // 1 ส.ค. 2026 เป็นวันเสาร์ → สัปดาห์เริ่มวันอาทิตย์ จึงมีวันเดือนก่อน 6 ช่อง
+    assert.equal(aug.findIndex((c) => c.iso === '2026-08-01'), 6);
+    const inMonth = aug.filter((c) => c.inMonth).map((c) => c.iso);
+    assert.equal(inMonth.length, 31);
+    assert.equal(inMonth[0], '2026-08-01');
+    assert.equal(inMonth.at(-1), '2026-08-31');
+  });
+
+  test('เดือนกุมภาพันธ์ปีอธิกสุรทินมี 29 วัน', () => {
+    assert.equal(monthGrid('2024-02').filter((c) => c.inMonth).length, 29);
+    assert.equal(monthGrid('2026-02').filter((c) => c.inMonth).length, 28);
+  });
+
+  test('บวกลบวันข้ามเดือนและข้ามปีได้', () => {
+    assert.equal(addDays('2026-12-31', 1), '2027-01-01');
+    assert.equal(addDays('2026-03-01', -1), '2026-02-28');
+    assert.equal(addDays('2024-03-01', -1), '2024-02-29');
+  });
+
+  test('บวกเดือนต้องหนีบวันที่ให้อยู่ในเดือนปลายทาง', () => {
+    // 31 ส.ค. + 1 เดือน ต้องเป็น 30 ก.ย. ไม่ใช่ 1 ต.ค.
+    assert.equal(addMonths('2026-08-31', 1), '2026-09-30');
+    assert.equal(addMonths('2026-03-31', -1), '2026-02-28');
+    assert.equal(addMonths('2026-01-15', -1), '2025-12-15');
+  });
+
+  test('ขอบเขตรวมปลายทั้งสองข้าง — วันนี้ต้องเลือกได้ พรุ่งนี้ต้องไม่ได้', () => {
+    const max = '2026-08-13';
+    assert.equal(isDisabled('2026-08-13', '', max), false, 'max ต้องเลือกได้');
+    assert.equal(isDisabled('2026-08-14', '', max), true, 'เลย max ไปหนึ่งวันต้องกดไม่ได้');
+    assert.equal(isDisabled('2026-01-05', '2026-01-05', max), false, 'min ต้องเลือกได้');
+    assert.equal(isDisabled('2026-01-04', '2026-01-05', max), true);
+    assert.equal(isDisabled('', '', max), true, 'ค่าว่างไม่ใช่วันที่');
+  });
+
+  test('หนีบค่าเข้าช่วง และคืนค่าว่างเมื่อไม่ได้เลือก', () => {
+    assert.equal(clampISO('2026-12-31', '', '2026-08-13'), '2026-08-13');
+    assert.equal(clampISO('2025-01-01', '2026-01-05', ''), '2026-01-05');
+    assert.equal(clampISO('2026-07-31', '2026-01-05', '2026-08-13'), '2026-07-31');
+    assert.equal(clampISO('', '2026-01-05', '2026-08-13'), '');
+  });
+
+  test('ปุ่มลูกศรและ PageUp/PageDown ไปถูกช่อง', () => {
+    assert.equal(keyTarget('2026-08-13', 'ArrowRight'), '2026-08-14');
+    assert.equal(keyTarget('2026-08-13', 'ArrowLeft'), '2026-08-12');
+    assert.equal(keyTarget('2026-08-01', 'ArrowUp'), '2026-07-25');
+    assert.equal(keyTarget('2026-08-13', 'ArrowDown'), '2026-08-20');
+    assert.equal(keyTarget('2026-08-31', 'PageDown'), '2026-09-30');
+    assert.equal(keyTarget('2026-03-31', 'PageUp'), '2026-02-28');
+    assert.equal(keyTarget('2026-08-13', 'PageUp', true), '2025-08-13');
+    // 13 ส.ค. 2026 เป็นวันพฤหัส → ต้นสัปดาห์คืออาทิตย์ที่ 9
+    assert.equal(keyTarget('2026-08-13', 'Home'), '2026-08-09');
+    assert.equal(keyTarget('2026-08-13', 'End'), '2026-08-15');
+    assert.equal(keyTarget('2026-08-13', 'Enter'), null, 'ปุ่มที่ไม่เกี่ยวต้องคืน null');
+  });
+
+  test('ลูกศรต้องไม่พาไปตกวันที่กดไม่ได้ และต้องไม่วนไม่รู้จบ', () => {
+    const min = '2026-01-05';
+    const max = '2026-08-13';
+    assert.equal(nextEnabled('2026-08-20', 1, min, max), max, 'เลยขอบบนแล้วหยุดที่ max');
+    assert.equal(nextEnabled('2025-12-01', -1, min, max), min, 'เลยขอบล่างแล้วหยุดที่ min');
+    assert.equal(nextEnabled('2026-07-31', 1, min, max), '2026-07-31', 'อยู่ในช่วงอยู่แล้ว');
+    // ช่วงที่ปิดทั้งหมด (min > max) ต้องคืน null ไม่ใช่ค้าง
+    assert.equal(nextEnabled('2026-05-01', 1, '2026-09-01', '2026-01-01'), null);
+  });
+
+  test('ปุ่มลัดทุกตัวคืน YYYY-MM-DD และไม่มีตัวไหนเกิน max', () => {
+    const today = '2026-08-13';
+    const max = today;
+    const presets = defaultPresets({ today, min: '2026-01-05', max });
+    assert.ok(presets.length >= 5);
+    for (const p of presets) {
+      assert.ok(p.id && p.labelKey, 'ทุกปุ่มต้องมี id และคีย์ข้อความ');
+      if (p.iso === null) continue;
+      assert.match(p.iso, ISO, `${p.id} ต้องเป็น YYYY-MM-DD`);
+      assert.ok(p.iso <= max, `${p.id} ต้องไม่เกิน max`);
+      assert.ok(p.iso >= '2026-01-05', `${p.id} ต้องไม่ต่ำกว่า min`);
+    }
+    const byId = Object.fromEntries(presets.map((p) => [p.id, p.iso]));
+    assert.equal(byId.today, '2026-08-13');
+    assert.equal(byId.yesterday, '2026-08-12');
+    assert.equal(byId.endLastMonth, '2026-07-31');
+    assert.equal(byId.days7, '2026-08-06');
+    assert.equal(byId.firstRecord, '2026-01-05');
+  });
+
+  test('ปุ่มลัดที่ตกนอกช่วงต้องเป็น null — ห้ามหนีบเข้าช่วงเงียบ ๆ', () => {
+    /* วันที่ 5 ม.ค. ซึ่งเป็นวันแรกที่ชีตมีข้อมูลด้วย — "สิ้นเดือนที่แล้ว" คือ 31 ธ.ค.
+     * ซึ่งอยู่ก่อนวันแรกที่มีข้อมูล การหนีบให้เป็น 5 ม.ค. = ตอบคำถามคนละข้อกับที่กด */
+    const presets = defaultPresets({ today: '2026-01-05', min: '2026-01-05', max: '2026-01-05' });
+    const byId = Object.fromEntries(presets.map((p) => [p.id, p.iso]));
+    assert.equal(byId.today, '2026-01-05');
+    assert.equal(byId.endLastMonth, null);
+    assert.equal(byId.days7, null);
+    assert.equal(byId.yesterday, null);
+  });
+
+  test('ปุ่มลัดของช่วงวันที่ต้องไม่หลุดไปอนาคต แม้ชีตจะมีแถวลงวันที่ล่วงหน้า', () => {
+    /* เคสจริง: ชีต Dryflower มีแถวลงวันที่ถึงเดือนธันวาคม ถ้ายึดปุ่มลัดกับ "วันล่าสุด
+     * ที่มีข้อมูล" จะได้ "เดือนที่แล้ว" = พฤศจิกายน 2026 ซึ่งยังไม่มาถึง */
+    const today = '2026-08-13';
+    const byId = (o) => Object.fromEntries(defaultRangePresets(o).map((p) => [p.id, [p.from, p.to]]));
+
+    const future = byId({ today, min: '2025-11-01', max: '2026-12-31' });
+    assert.deepEqual(future.lastMonth, ['2026-07-01', '2026-07-31'], 'เดือนที่แล้ว = ก.ค. ไม่ใช่ พ.ย.');
+    assert.deepEqual(future.thisMonth, ['2026-08-01', '2026-08-13']);
+    assert.deepEqual(future.last7, ['2026-08-07', '2026-08-13']);
+
+    // ชีตหยุดอัปเดตไปแล้ว — ต้องยึดวันล่าสุดที่มีข้อมูล ไม่งั้นได้ช่วงที่ว่างเปล่า
+    const stale = byId({ today, min: '2025-11-01', max: '2026-06-20' });
+    assert.deepEqual(stale.last7, ['2026-06-14', '2026-06-20']);
+    assert.deepEqual(stale.lastMonth, ['2026-05-01', '2026-05-31']);
+
+    // ไม่เหลื่อมกับช่วงข้อมูลเลย = กดไม่ได้ ห้ามคืนช่วงว่าง
+    const narrow = byId({ today, min: '2026-08-10', max: '2026-08-13' });
+    assert.deepEqual(narrow.lastMonth, [null, null]);
+    assert.deepEqual(narrow.last7, ['2026-08-10', '2026-08-13'], 'ช่วงที่เหลื่อมบางส่วนหนีบเข้าช่วงข้อมูล');
+  });
+
+  test('ชื่อวันบนหัวตารางต้องไม่ซ้ำกัน ทั้งไทยและอังกฤษ', () => {
+    /* ไทยใช้ narrow ได้ (อา จ อ พ พฤ ศ ส) แต่อังกฤษ narrow ได้ S M T W T F S
+     * ซึ่งซ้ำสองคู่ — ถ้าเผลอไปใช้ชุดเดียวกันทั้งสองภาษา หัวตารางฝั่ง EN จะอ่านไม่ออก */
+    for (const lang of ['th', 'en']) {
+      setLang(lang);
+      const names = weekdayNames();
+      assert.equal(names.length, 7);
+      assert.equal(new Set(names).size, 7, `ชื่อวันภาษา ${lang} ต้องไม่ซ้ำกัน`);
+      assert.ok(names.every((s) => s.trim().length > 0));
+    }
+    setLang('th');
+  });
+
+  test('หัวปฏิทินเขียนปีเป็น ค.ศ. ทั้งสองภาษา', () => {
+    /* ป้ายนี้อยู่ในกล่องที่เปิดจากแถบเดียวกับช่อง "ปี 2026" ถ้าเขียน 2569
+     * ผู้ใช้จะไม่แน่ใจว่ากำลังดูปีไหน (กฎเดียวกับ monthYear() ใน format.js) */
+    setLang('th');
+    assert.match(monthLong('2026-08'), /2026$/);
+    assert.ok(!monthLong('2026-08').includes('2569'));
+    assert.equal(dateFull('2026-07-31').slice(-4), '2026');
+    setLang('en');
+    assert.match(monthLong('2026-08'), /^August 2026$/);
+    assert.equal(dateFull('2026-07-31'), '31 Jul 2026');
+    setLang('th');
   });
 });
 

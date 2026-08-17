@@ -237,6 +237,9 @@ const STRINGS = {
   'nav.stock': ['3. สต็อก', '3. Stock'],
   'nav.sales': ['4. การขาย', '4. Sales'],
   'nav.cost': ['5. ต้นทุน', '5. Cost'],
+  'nav.supplyOrder': ['1. สั่งซื้อ', '1. Ordering'],
+  'nav.supplyStock': ['2. สต๊อกคงเหลือ', '2. Stock on hand'],
+  'nav.supplyUsage': ['3. การเบิก', '3. Usage'],
   // ── หัวข้อของแต่ละหน้า ──
   'page.overview.title': ['ภาพรวมผู้บริหาร', 'Executive Overview'],
   'page.overview.sub': ['ตัวเลขระดับสูงสุดสำหรับดูสุขภาพธุรกิจในภาพเดียว', 'Top-level KPIs for an instant health check'],
@@ -359,6 +362,15 @@ const STRINGS = {
   'supply.trackedItems': ['รายการที่ติดตาม', 'Items tracked'],
   'supply.fromLog': ['จากชีต Log Stock', 'From the Log Stock sheet'],
   'supply.needReorder': ['ต้องสั่งซื้อ', 'Need reordering'],
+  /* ของที่ชีตตั้งขั้นต่ำไว้ 0 — หมดสต๊อกแต่ไม่ได้แปลว่าต้องรีบซื้อ */
+  'supply.optionalTitle': ['หมดสต๊อก แต่ยังไม่ต้องสั่ง', 'Out of stock — no reorder needed'],
+  'supply.optionalNote': ['ชีตตั้งขั้นต่ำไว้ 0 · สั่งได้ถ้าต้องการใช้', 'Sheet sets minimum 0 · order only if needed'],
+  'supply.optionalIntro': [
+    'ชีตกำหนดขั้นต่ำของรายการเหล่านี้ไว้ที่ 0 แปลว่าไม่ต้องเก็บสต๊อกไว้ ' +
+      'จึงไม่นับรวมในช่อง "ต้องสั่งซื้อ" ด้านบน — ถ้าจะซื้อจริงให้ติ๊กเลือกแล้วออกใบขอซื้อได้เลย',
+    'The sheet sets a minimum of 0 for these, meaning no stock needs to be held, ' +
+      'so they are excluded from the "Need reordering" count above. Tick any you actually want to buy.',
+  ],
   'supply.belowMinimum': ['คงเหลือถึงหรือต่ำกว่าขั้นต่ำ', 'At or below the minimum'],
   /* ── ช่องตัวเลขบนหัวหน้า Supply ──
    * เดิมมี "มูลค่าตามตารางสั่งซื้อ" ซึ่งตีราคาทั้งตารางแผนสั่งซื้อ 60 แถวรวมของที่ยังไม่ต้องสั่ง
@@ -695,6 +707,46 @@ const STRINGS = {
   'supply.anomalyExpected': ['ควรจะเป็น', 'Expected'],
   'supply.anomalyBaseline': ['เฉลี่ยต่อเดือน', 'Monthly average'],
   'supply.anomalyRatio': ['เทียบปกติ', 'vs normal'],
+
+  /* ── ตัวเลือกวันที่ (ui/datepicker.js) ──
+   * ใช้ namespace `date.` ไม่ใช่ `filter.` เพราะเป็นคำของตัวปฏิทินเอง
+   * ช่วงวันที่ของรายงาน Dryflower จะใช้ชุดเดียวกันนี้ตอนย้ายมาใช้ปฏิทิน
+   * ชื่อเดือนกับชื่อวันมาจาก Intl ไม่ต้องมีคีย์ (ลดที่ที่ต้องแก้สองภาษา) */
+  'date.pick': ['เลือกวันที่', 'Pick a date'],
+  'date.shortcuts': ['ทางลัด', 'Shortcuts'],
+  'date.prevMonth': ['เดือนก่อนหน้า', 'Previous month'],
+  'date.nextMonth': ['เดือนถัดไป', 'Next month'],
+  'date.today': ['วันนี้', 'Today'],
+  'date.yesterday': ['เมื่อวาน', 'Yesterday'],
+  'date.endOfLastMonth': ['สิ้นเดือนที่แล้ว', 'End of last month'],
+  'date.days7': ['7 วันก่อน', '7 days ago'],
+  'date.days30': ['30 วันก่อน', '30 days ago'],
+  'date.firstRecord': ['วันแรกที่มีข้อมูล', 'First day with data'],
+  'date.clear': ['ล้างวันที่', 'Clear date'],
+  'date.clearRange': ['ล้างช่วงวันที่', 'Clear range'],
+
+  // ดาวน์โหลดตารางสต๊อกเป็น Excel
+  'supply.exportXlsx': ['ดาวน์โหลด Excel', 'Download Excel'],
+  'supply.exportBusy': ['กำลังสร้างไฟล์…', 'Preparing…'],
+  'supply.exportHint': [
+    'ได้เฉพาะรายการที่กรองอยู่ตอนนี้ · พร้อมปริ้น A4 แนวตั้ง',
+    'Exports the rows currently filtered · print-ready A4 portrait',
+  ],
+  'supply.exportFailed': ['สร้างไฟล์ไม่สำเร็จ', 'Could not create the file'],
+  'supply.openTab': [
+    'เปิดแท็บของรายการนี้ในชีต เพื่อดูประวัติการเบิกทั้งหมด',
+    'Open this item’s tab in the sheet to see its full log',
+  ],
+  'date.last7': ['7 วันล่าสุด', 'Last 7 days'],
+  'date.last30': ['30 วันล่าสุด', 'Last 30 days'],
+  'date.thisMonth': ['เดือนนี้', 'This month'],
+  'date.lastMonth': ['เดือนที่แล้ว', 'Last month'],
+  'date.notSelected': ['ยังไม่ได้เลือก', 'Not selected'],
+  'date.outOfRange': ['นอกช่วงที่มีข้อมูล', 'Outside the recorded range'],
+  'date.maxNote': [
+    'เลือกได้ถึง {max} เท่านั้น — ยอดหลังจากนั้นเป็นยอดยกมา ไม่ใช่ของที่นับได้จริง',
+    'Only dates up to {max} — later rows are carried-forward figures, not counted stock',
+  ],
 };
 
 const LANG_KEY = 'kambis.lang';

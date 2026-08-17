@@ -17,6 +17,7 @@ import {
   parseLeadTimeDays,
 } from '../server/lib/parsers/supplyLog.js';
 import { analyze, verifyPresentation } from '../server/lib/analysis.js';
+import { buildStockRows, createStockExport } from '../server/lib/stock-export.js';
 import { buildKpi } from '../server/lib/aggregate.js';
 import { comparePeriod, parseSheetDate } from '../server/lib/normalize.js';
 import { buildXlsx, columnLetter, escapeXml } from '../server/lib/xlsx.js';
@@ -614,6 +615,136 @@ describe('ราคาจากคอลัมน์ H ของแท็บร�
    ต้องใช้กฎเดียวกับที่ parser คิด "ยอดปัจจุบัน" เป๊ะ ๆ ไม่งั้นเลือกวันนี้
    แล้วได้เลขคนละตัวกับที่ server ส่งมา ซึ่งไม่มีทางอธิบายให้ผู้ใช้เข้าใจได้
    ═══════════════════════════════════════════════════════════════ */
+describe('ขั้นต่ำ 0 = ไม่ต้องเก็บสต๊อก ห้ามนับเป็นของที่ต้องสั่งซื้อ', () => {
+  /* คงเหลือ 0 · ขั้นต่ำ 0 · Index 0 เข้าเกณฑ์ `index ≤ 0` ก็จริง แต่ไม่ได้แปลว่าขาดของ
+   * ชีตตั้งขั้นต่ำ 0 ให้ของที่ไม่ต้องมีสต๊อกเก็บไว้ (เครื่องมือที่ซื้อเมื่อพัง)
+   * ถ้าปนอยู่ในตารางเดียวกัน ยอด "ต้องสั่งซื้อ" จะเกินจริงทุกวัน */
+  /* สร้างจากแถวดิบผ่าน parser จริง เพื่อให้ครอบทั้งเส้นทาง ไม่ใช่แค่ฟังก์ชันเดียว
+   * ขั้นต่ำที่เป็นค่าว่างในชีต = ไม่ได้กำหนด (null) ต่างจากเลข 0 ที่คนตั้งใจใส่ */
+  const build = (specs, today = '2026-08-14') => {
+    const tabs = specs.map((s, i) => ({
+      gid: String(i + 1),
+      name: `${i + 1}.${s.item}`,
+      rows: [
+        ['h', 'รับ', 'เบิก', 'คงเหลือ', 'หน่วย', 'ขั้นต่ำ', 'Index', 'ราคา/อัน'],
+        [
+          '01/08/2569',
+          '',
+          '',
+          String(s.balance),
+          s.unit ?? 'อัน',
+          s.minimum === null ? '' : String(s.minimum),
+          '',
+          String(s.unitPrice ?? 10),
+        ],
+      ],
+    }));
+    const parsed = parseSupplyLog({ tabs, today });
+    return buildKpi(
+      {
+        supplyLog: {
+          key: 'supplyLog',
+          kind: 'supply',
+          status: 'ok',
+          rows: parsed.rows,
+          tabs: parsed.tabs,
+          rowCount: parsed.rows.length,
+        },
+      },
+      { score: null, counts: {}, total: 0, bySource: {} },
+      { today }
+    ).supply;
+  };
+
+  test('ขั้นต่ำ 0 ไปอยู่กลุ่มไม่บังคับ · ขั้นต่ำ > 0 ยังอยู่กลุ่มต้องสั่ง', () => {
+    const kpi = build([
+      { item: 'แผ่นฟิล์มสะท้อนแสง', balance: 0, minimum: 0 }, // ไม่ต้องเก็บสต๊อก
+      { item: 'ปลั๊กพ่วง', balance: 0, minimum: 0 },
+      { item: 'ถุงมือไนไตร', balance: 1, minimum: 4 }, // ขาดจริง
+      { item: 'กรรไกรตัดต้น', balance: 2, minimum: 2 }, // เท่าขั้นต่ำพอดี = ต้องสั่ง
+      { item: 'COCO', balance: 99, minimum: 10 }, // ยังพอ
+    ]);
+
+    const need = (kpi.needsReorder ?? []).map((r) => r.item);
+    const opt = (kpi.optionalReorder ?? []).map((r) => r.item);
+
+    assert.deepEqual(need.sort(), ['กรรไกรตัดต้น', 'ถุงมือไนไตร'].sort());
+    assert.deepEqual(opt.sort(), ['ปลั๊กพ่วง', 'แผ่นฟิล์มสะท้อนแสง'].sort());
+    assert.ok(!need.includes('COCO'), 'ของที่ยังพอต้องไม่อยู่ในทั้งสองกลุ่ม');
+    assert.ok(!opt.includes('COCO'));
+  });
+
+  test('ไม่มีขั้นต่ำเลย (null) ต้องไม่เข้ากลุ่มไหนทั้งนั้น — ห้ามเดา', () => {
+    const kpi = build([{ item: 'ของไม่มีขั้นต่ำ', balance: 0, minimum: null }]);
+    assert.equal((kpi.needsReorder ?? []).length, 0);
+    assert.equal((kpi.optionalReorder ?? []).length, 0);
+  });
+
+  test('กลุ่มไม่บังคับยังสั่งได้จริง — ต้องมีจำนวนที่แนะนำอย่างน้อย 1', () => {
+    const kpi = build([{ item: 'ปลั๊กพ่วง', balance: 0, minimum: 0, unitPrice: 250 }]);
+    const row = kpi.optionalReorder[0];
+    assert.ok(row.suggestedQty >= 1, 'ต้องสั่งได้อย่างน้อย 1 ชิ้น ไม่ใช่ 0');
+    assert.equal(row.amount, row.suggestedQty * 250);
+  });
+});
+
+describe('ไฟล์ Excel ของตารางสต๊อก', () => {
+  const known = [
+    { item: 'COCO', unit: 'ถุง', balance: 158, unitPrice: 164, lifetimeText: '30 วัน', log: [
+      { date: '2026-07-01', balance: 200, minimum: 85 },
+      { date: '2026-08-01', balance: 158, minimum: 85 },
+    ] },
+    { item: 'ถาดหลุมเพาะชำ', unit: 'ถาด', balance: 66, unitPrice: null, lifetimeText: '', log: [
+      { date: '2026-07-01', balance: 66, minimum: 10 },
+    ] },
+    { item: 'Fade', unit: 'ถัง', balance: 5, unitPrice: 4450, lifetimeText: '', log: [
+      { date: '2026-07-01', balance: 5, minimum: 7 },
+    ] },
+  ];
+
+  test('รายการที่ไม่มีราคา ต้องได้มูลค่าเป็น null ห้ามเป็น 0', () => {
+    const { rows, total, missingPrice } = buildStockRows(
+      ['COCO', 'ถาดหลุมเพาะชำ', 'Fade'], known, ''
+    );
+    assert.equal(rows.length, 3);
+    const tray = rows.find((r) => r.item === 'ถาดหลุมเพาะชำ');
+    assert.equal(tray.unitPrice, null);
+    assert.equal(tray.amount, null, 'ไม่มีราคา = คิดมูลค่าไม่ได้ ห้ามนับเป็น 0');
+    assert.equal(missingPrice, 1);
+    // ยอดรวมต้องเป็นเฉพาะสองรายการที่มีราคา
+    assert.equal(total, 158 * 164 + 5 * 4450);
+  });
+
+  test('เลือกดูย้อนหลัง ต้องคิดยอดใหม่ด้วย stockAt ตัวเดียวกับหน้าเว็บ', () => {
+    const { rows } = buildStockRows(['COCO'], known, '2026-07-15');
+    assert.equal(rows[0].balance, 200, 'วันที่ 15 ก.ค. ต้องได้ยอดของแถว 1 ก.ค.');
+    assert.equal(rows[0].amount, 200 * 164);
+  });
+
+  test('ชื่อที่ไม่มีในชีตต้องถูกตัดออกและรายงานกลับ ไม่ใช่ใส่แถวเปล่า', () => {
+    const { rows, skipped } = buildStockRows(['COCO', 'ของที่ไม่มีจริง'], known, '');
+    assert.equal(rows.length, 1);
+    assert.deepEqual(skipped, ['ของที่ไม่มีจริง']);
+  });
+
+  test('ออกไฟล์ได้จริง เป็น zip ที่ตั้งค่ากระดาษ A4 แนวนอน ไม่จำกัดจำนวนหน้า', () => {
+    const { buffer, fileName, rowCount } = createStockExport({
+      items: ['COCO', 'ถาดหลุมเพาะชำ'],
+      known,
+      now: new Date('2026-08-13T00:00:00Z'),
+    });
+    assert.equal(rowCount, 2);
+    assert.match(fileName, /^kambis-stock-\d{4}-\d{2}-\d{2}\.xlsx$/);
+    // .xlsx คือ zip — ต้องขึ้นต้นด้วยลายเซ็น PK
+    assert.equal(buffer.subarray(0, 2).toString('latin1'), 'PK');
+
+    const raw = buffer.toString('latin1');
+    // ชื่อชิ้นส่วนใน zip อ่านได้ตรง ๆ เพราะไม่ได้บีบอัดชื่อไฟล์
+    assert.ok(raw.includes('xl/worksheets/sheet1.xml'));
+    assert.ok(raw.includes('[Content_Types].xml'));
+  });
+});
+
 describe('ยอดคงเหลือ ณ วันที่ที่เลือก', () => {
   const LOG = [
     { date: '2026-07-01', balance: 47, minimum: 16 },

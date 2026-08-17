@@ -15,7 +15,11 @@ export const PAGES = {
   'dryflower/stock': stock,
   'dryflower/sales': sales,
   'dryflower/cost': cost,
-  'supply/main': supply,
+  // Supply ใช้ไฟล์เดียววาดทั้งสามหน้า — แยกด้วย `route.page` ข้างใน เพราะทั้งสามหน้า
+  // ใช้ payload · ตัวกรอง · ตัวช่วยชุดเดียวกันหมด ต่างแค่ว่าวาดแผงไหน
+  'supply/order': supply,
+  'supply/stock': supply,
+  'supply/usage': supply,
 };
 
 export function getPage(report, page) {

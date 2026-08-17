@@ -517,6 +517,376 @@ body.has-nav-open {
   margin-left: auto;
 }
 
+/* ── ปฏิทินเลือกวันที่ (ui/datepicker.js) ─────────────────────
+ *
+ * อยู่ในกล่อง `.filter-pop` ซึ่งมีกรอบอยู่แล้ว → **ทุกอย่างข้างในไม่มีกรอบของตัวเอง**
+ * (กฎหนึ่งกลุ่ม = หนึ่งกรอบ, skill ui-craft §2) แถบปุ่มลัดแยกจากปฏิทินด้วย
+ * **เส้นคั่นด้านเดียว** ซึ่งเป็นขั้นที่ 3 ของบันไดการแบ่งพื้นที่ ไม่ใช่ขั้นที่ 4
+ */
+.dp {
+  display: grid;
+  grid-template-columns: minmax(9rem, max-content) 1fr;
+  gap: var(--sp-4);
+  min-width: 0;
+}
+
+/* ไม่มีปุ่มลัด = ปฏิทินกินเต็มกล่อง ไม่ต้องกันคอลัมน์ซ้ายไว้เปล่า ๆ */
+.dp--nopresets {
+  grid-template-columns: 1fr;
+}
+
+.dp__presets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding-inline-end: var(--sp-4);
+  border-inline-end: 1px solid var(--glass-border-soft);
+}
+
+.dp__preset {
+  min-height: 34px;
+  padding: var(--sp-1) var(--sp-2);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: var(--fs-xs);
+  text-align: start;
+  /* ป้ายไทยยาว ("วันแรกที่มีข้อมูล") ต้องตัดบรรทัดได้ ห้ามตัดคำทิ้ง
+   * ทางลัดที่อ่านไม่ออกคือทางลัดที่ไม่มีใครกด */
+  white-space: normal;
+  cursor: pointer;
+}
+
+.dp__preset:hover:not(:disabled) {
+  background: var(--well-inset);
+  color: var(--ink);
+}
+
+.dp__preset.is-on {
+  background: var(--tint-accent);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.dp__preset:disabled {
+  color: var(--ink-mute);
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* ช่องวันเป็นสี่เหลี่ยมจัตุรัส (`aspect-ratio: 1`) ความสูงจึงโตตามความกว้างของกล่อง
+ * ถ้าไม่คุมไว้ กล่องกว้าง 480px จะได้ช่องละ ~62px คูณ 6 แถว = ปฏิทินสูงจนแถวล่าง
+ * กับปุ่มด้านล่างถูกตัดหายไปนอกกรอบ */
+.dp__cal {
+  min-width: 0;
+  max-width: 20rem;
+  margin-inline: auto;
+}
+
+.dp__nav {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+
+.dp__month {
+  flex: 1 1 auto;
+  text-align: center;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.dp__navbtn {
+  display: inline-grid;
+  place-items: center;
+  min-width: 34px;
+  min-height: 34px;
+  flex: none;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.dp__navbtn:hover:not(:disabled) {
+  background: var(--well-inset);
+  color: var(--ink);
+}
+
+.dp__navbtn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.dp__navbtn svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dp__row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.dp__dow {
+  display: grid;
+  place-items: center;
+  min-height: 26px;
+  font-size: var(--fs-3xs);
+  font-weight: 600;
+  color: var(--ink-mute);
+}
+
+.dp__day {
+  display: grid;
+  place-items: center;
+  /* min-height ไม่ใช่ height — --fs-scale ขยับได้ ตัวเลขต้องไม่ล้นช่อง */
+  min-height: 36px;
+  aspect-ratio: 1;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.dp__day:hover:not(:disabled) {
+  background: var(--well-inset);
+}
+
+/* วันของเดือนข้างเคียง — ยังกดได้ แต่ต้องไม่แย่งสายตาจากเดือนที่กำลังดู */
+.dp__day.is-out {
+  color: var(--ink-mute);
+}
+
+.dp__day:disabled {
+  color: var(--ink-mute);
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* "วันนี้" กับ "วันที่เลือก" ต้องต่างกันด้วยรูปทรง ไม่ใช่แค่สี — ใต้ตาบอดสี
+ * และในภาพหน้าจอขาวดำ วงแหวนกับพื้นทึบยังแยกออกจากกันได้
+ * ใช้ inset shadow ไม่ใช่ border เพราะ border จะกลายเป็นกรอบซ้อนในกรอบ */
+.dp__day.is-today {
+  box-shadow: inset 0 0 0 1.5px var(--accent-line);
+}
+
+.dp__day.is-sel {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+}
+
+/* วันนี้ถูกเลือกอยู่ — พื้นทึบบอกครบแล้ว วงแหวนซ้อนข้างในคือกรอบซ้อนกรอบ */
+.dp__day.is-sel.is-today {
+  box-shadow: none;
+}
+
+/* ── โหมดช่วงวันที่ ──
+ * วันระหว่างกลางใช้พื้นจาง ๆ ต่อกันเป็นแถบเดียว หัวท้ายเป็นพื้นทึบ
+ * มุมของหัวท้ายมนเฉพาะด้านนอก เพื่อให้อ่านเป็น "แคปซูลเดียว" ไม่ใช่สามก้อนแยกกัน */
+.dp__day.is-range {
+  background: var(--tint-accent);
+  border-radius: 0;
+}
+
+.dp__day.is-start {
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
+}
+
+.dp__day.is-end {
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+}
+
+/* ต่อพื้นจางให้ทะลุช่องว่างระหว่างเซลล์ ไม่งั้นแถบจะขาดเป็นปล้อง ๆ ทุก 2px */
+.dp__day.is-range,
+.dp__day.is-start,
+.dp__day.is-end {
+  box-shadow: -1px 0 0 var(--tint-accent), 1px 0 0 var(--tint-accent);
+}
+
+.dp__day.is-start:not(.is-end) {
+  box-shadow: 1px 0 0 var(--tint-accent);
+}
+
+.dp__day.is-end:not(.is-start) {
+  box-shadow: -1px 0 0 var(--tint-accent);
+}
+
+/* ปฏิทินแบบฝัง — อยู่ในกล่องที่มีกรอบอยู่แล้วสองชั้น (popup → fdrop)
+ * จึงต้องไม่มีเส้นคั่นซ้ายขวาเพิ่ม และวางปุ่มลัดไว้ข้างบนเพราะช่องแคบกว่า */
+.dp--inline {
+  grid-template-columns: 1fr;
+  gap: var(--sp-2);
+}
+
+.dp--inline .dp__presets {
+  flex-direction: row;
+  flex-wrap: wrap;
+  padding-inline-end: 0;
+  border-inline-end: 0;
+}
+
+.dp--inline .dp__preset {
+  flex: none;
+  min-height: 30px;
+  border-radius: var(--r-full);
+  background: var(--glass-fill);
+}
+
+/* โหมดฝังอยู่ในกล่องที่แคบอยู่แล้ว (popup 420px → เหลือจริง ~364px)
+ * จึงไม่ต้องมีเพดานความกว้างซ้ำอีกชั้น ปล่อยให้เต็มกล่อง
+ * เพดาน 20rem ของ `.dp__cal` มีไว้กันเซลล์บวมตอนอยู่ในกล่องลอยกว้าง ๆ เท่านั้น */
+.dp--inline .dp__cal {
+  max-width: none;
+  margin-inline: 0;
+}
+
+/* ช่องวันในกล่องแคบต้องเตี้ยกว่าปกติ — `aspect-ratio: 1` บนกล่องกว้าง 364px
+ * ได้ช่องสูง ~50px คูณ 6 แถว = ปฏิทินสูงเกือบ 300px ซึ่งดันตัวกรองที่เหลือ
+ * (สถานที่ · ขนาด · สายพันธุ์ · ครอป) ตกออกนอกจอไปหมด
+ * ปล่อยให้กว้างตามกล่องแต่คุมความสูงไว้ = ได้ช่องกว้างขึ้นโดยไม่แลกความสูง */
+.dp--inline .dp__day {
+  aspect-ratio: auto;
+  min-height: 34px;
+  font-size: var(--fs-2xs);
+}
+
+.dp--inline .dp__dow {
+  min-height: 20px;
+}
+
+.dp--inline .dp__nav {
+  margin-bottom: var(--sp-1);
+}
+
+.dp--inline .dp__month {
+  font-size: var(--fs-xs);
+}
+
+.dp--inline .dp__navbtn {
+  min-width: 28px;
+  min-height: 28px;
+}
+
+.dp--inline .dp__foot {
+  padding-top: var(--sp-2);
+}
+
+.dp__day:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ในโหมด popup ท้ายกล่องเป็น `.filter-pop__foot` (อยู่นอกส่วนที่เลื่อนได้)
+ * ส่วนโหมดฝังไม่มีโครงนั้น จึงต้องวาดเส้นคั่นกับระยะห่างเอง */
+.dp__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.dp--inline .dp__foot {
+  grid-column: 1 / -1;
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--glass-border-soft);
+}
+
+.dp__note {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: var(--fs-3xs);
+  color: var(--ink-mute);
+}
+
+.dp__clear {
+  flex: none;
+  margin-inline-start: auto;
+}
+
+/* ปฏิทินที่เปิดจากในตัว modal ต้องลอยเหนือ modal (90) ไม่งั้นมันไปอยู่ข้างหลัง
+ * แล้วผู้ใช้เห็นแค่ฉากมืดวูบเดียวโดยไม่รู้ว่ามีปฏิทินเปิดอยู่ */
+.filter-pop-root--over-modal {
+  z-index: 95;
+}
+
+/* ปุ่มเปิดปฏิทินบนแถบควบคุมของตารางดิบ — เตี้ยกว่าบนแถบตัวกรองเพราะอยู่ในแถวเดียว
+ * กับ select และช่องค้นหาที่สูง 30px */
+.ctl-date {
+  min-height: 30px;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--glass-border-soft);
+  border-radius: var(--r-sm);
+  background: var(--bg-raise);
+  font-size: var(--fs-2xs);
+}
+
+.ctl-date .filter-year__label {
+  font-size: var(--fs-3xs);
+}
+
+.ctl-date:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ── ปุ่มที่เปิดปฏิทิน ──
+ * ค่าเริ่มต้นเป็นปุ่มโปร่งไม่มีกรอบ (สำหรับตอนวางอยู่ในกลุ่มที่มีกรอบอยู่แล้ว)
+ * ผู้เรียกที่อยากให้ปุ่มเป็นเม็ดยาเองให้ส่ง `className: 'filter-year …'` มาด้วย */
+.dp-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  align-self: stretch;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.dp-trigger.is-empty .dp-trigger__value {
+  color: var(--ink-mute);
+  font-weight: 600;
+}
+
+.dp-trigger__icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.55;
+}
+
+.dp-trigger:hover .dp-trigger__icon {
+  opacity: 1;
+}
+
 /* ── ช่องในตัว popup ── */
 .filter-field {
   display: flex;
@@ -534,14 +904,8 @@ body.has-nav-open {
   color: var(--ink-soft);
 }
 
-.filter-dates {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  color: var(--ink-mute);
-}
-
-.filter-date,
+/* `.filter-dates` / `.filter-date` ถูกลบแล้ว — ไม่มี `<input type="date">` เหลือ
+ * ในโปรเจกต์อีกเลย ทุกที่ใช้ `ui/datepicker.js` แทน (ดูเหตุผลที่ .dp ด้านบน) */
 .filter-pick {
   min-height: 40px;
   padding: 0 var(--sp-3);
@@ -551,11 +915,6 @@ body.has-nav-open {
   background: var(--bg-raise);
   border: 1px solid var(--glass-border-soft);
   border-radius: var(--r-sm);
-}
-
-.filter-date {
-  flex: 1 1 0;
-  min-width: 0;
 }
 
 .filter-pick {
@@ -908,6 +1267,69 @@ body.has-nav-open {
   color: var(--money-pos);
 }
 
+/* ── ลิงก์ไปแท็บของชีต (ตารางจำนวนเบิกต่อเดือน) ──
+ *
+ * ใช้สีตัวอักษรปกติ ไม่ใช่สีลิงก์ — ตารางข้อมูลที่ชื่อรายการเป็นสีน้ำเงินทุกแถว
+ * จะกลายเป็นกำแพงสีที่แย่งความสนใจไปจากตัวเลข ซึ่งเป็นสิ่งที่คนมาอ่านจริง ๆ
+ * บอกว่ากดได้ด้วยลูกศร ↗ กับเส้นใต้ตอน hover แทน */
+.sheet-link {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dotted var(--glass-border);
+}
+
+.sheet-link:hover,
+.sheet-link:focus-visible {
+  color: var(--accent);
+  border-bottom-color: currentColor;
+}
+
+.sheet-link__arrow {
+  margin-inline-start: 4px;
+  font-size: var(--fs-3xs);
+  opacity: 0.5;
+}
+
+.sheet-link:hover .sheet-link__arrow {
+  opacity: 1;
+}
+
+/* ทั้งแถวกดได้ ไม่ต้องเล็งชื่อรายการ — ตัวเลขก็กดไปแท็บเดียวกันได้ */
+.usage-table tbody tr[data-key] {
+  cursor: pointer;
+}
+
+.usage-table tbody tr[data-key]:hover {
+  background: var(--well-inset);
+}
+
+/* แถบปุ่มบนหัวแผง (ดาวน์โหลด Excel) — คำอธิบายอยู่ข้างปุ่ม ไม่ใช่ใต้ปุ่ม
+ * เพราะเป็นเงื่อนไขของสิ่งที่จะได้ ต้องอ่านก่อนกด ไม่ใช่หลังกด */
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-3);
+}
+
+/* คำอธิบายนำหน้าตารางในแผง — ยาวกว่า note ที่หัวแผง จึงต้องเป็นย่อหน้าของตัวเอง */
+.panel-intro {
+  margin: 0 0 var(--sp-3);
+  max-width: 68ch;
+  font-size: var(--fs-2xs);
+  color: var(--ink-soft);
+}
+
+.panel-actions__hint {
+  font-size: var(--fs-3xs);
+  color: var(--ink-mute);
+}
+
+.panel-actions__hint.is-error {
+  color: var(--sev-critical);
+}
+
 /* ── หน้า Supply: แถบตัวกรอง ──
  *
  * กางทุกช่องไว้เลย ไม่ซ่อนใน popup แบบรายงาน Dryflower เพราะมีแค่ 4 ช่อง
@@ -917,18 +1339,26 @@ body.has-nav-open {
   margin-bottom: var(--sp-4);
 }
 
-/* ช่อง "ดูสต๊อก ณ วันที่" — ใช้กรอบเดียวกับช่องเลือกอื่นบนแถบนี้
- * min-height ไม่ใช่ height ตายตัว ไม่งั้นตัวอักษรจะล้นกรอบตอน --fs-scale ใหญ่ขึ้น */
-.filter-asof .filter-date {
-  min-height: 38px;
-  border-radius: var(--r-full);
+/* ช่อง "ดูสต๊อก ณ วันที่" — ป้ายกับปุ่มเปิดปฏิทินอยู่ใน "เม็ดยา" ใบเดียวกัน
+ *
+ * **หนึ่งกลุ่ม = หนึ่งกรอบ** เดิมที่นี่เป็น `<input type="date">` ที่ลากกรอบ+พื้นของ
+ * คลาส `.filter-date` (ซึ่งออกแบบไว้ให้เป็นช่องเดี่ยว ๆ ใน popup ของรายงาน Dryflower)
+ * มาซ้อนในกรอบของ `.filter-year` อีกชั้น กลายเป็นกรอบซ้อนกรอบที่ไม่ได้บอกอะไรเลย
+ * ตอนนี้ทั้งปุ่มคือเม็ดยา (`.dp-trigger.filter-year`) จึงไม่มีอะไรให้ซ้อนอีก
+ */
+/* ปุ่มนี้ **เป็น** เม็ดยา ไม่ใช่ของที่วางอยู่ในเม็ดยา กรอบกับพื้นจึงมาจาก `.filter-year`
+ * ต้องเขียนทับตรงนี้เพราะ `.dp-trigger` (ซึ่งตั้ง border:0 ไว้สำหรับตอนอยู่ในกลุ่ม)
+ * อยู่ทีหลังในไฟล์ specificity เท่ากันแล้วคนหลังชนะ */
+.filter-year.dp-trigger {
+  border: 1px solid var(--glass-border-soft);
   background: var(--glass-fill);
-  border-color: var(--glass-border-soft);
 }
 
-.filter-asof .filter-date:focus-visible {
+/* วงแหวนโฟกัสล้อมเม็ดยาทั้งใบ ซึ่งตอนนี้คือตัวปุ่มเอง — ไม่ต้องพึ่ง :has() อีกแล้ว
+ * เพราะไม่มีตัวควบคุมซ้อนอยู่ข้างในให้ต้องยกวงแหวนออกมา */
+.filter-asof:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline-offset: 2px;
 }
 
 .supply-search {

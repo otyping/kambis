@@ -190,17 +190,25 @@
           </a>
 
           <div class="nav-panel__pages">
-            <a href="#/dryflower/overview" class="nav-item nav-item--page" data-page="overview" data-i18n="nav.overview">1. ภาพรวมผู้บริหาร</a>
-            <a href="#/dryflower/production" class="nav-item nav-item--page" data-page="production" data-i18n="nav.production">2. การผลิต</a>
-            <a href="#/dryflower/stock" class="nav-item nav-item--page" data-page="stock" data-i18n="nav.stock">3. สต็อก</a>
-            <a href="#/dryflower/sales" class="nav-item nav-item--page" data-page="sales" data-i18n="nav.sales">4. การขาย</a>
-            <a href="#/dryflower/cost" class="nav-item nav-item--page" data-page="cost" data-i18n="nav.cost">5. ต้นทุน</a>
+            <a href="#/dryflower/overview" class="nav-item nav-item--page" data-report="dryflower" data-page="overview" data-i18n="nav.overview">1. ภาพรวมผู้บริหาร</a>
+            <a href="#/dryflower/production" class="nav-item nav-item--page" data-report="dryflower" data-page="production" data-i18n="nav.production">2. การผลิต</a>
+            <a href="#/dryflower/stock" class="nav-item nav-item--page" data-report="dryflower" data-page="stock" data-i18n="nav.stock">3. สต็อก</a>
+            <a href="#/dryflower/sales" class="nav-item nav-item--page" data-report="dryflower" data-page="sales" data-i18n="nav.sales">4. การขาย</a>
+            <a href="#/dryflower/cost" class="nav-item nav-item--page" data-report="dryflower" data-page="cost" data-i18n="nav.cost">5. ต้นทุน</a>
           </div>
 
-          <a href="#/supply" class="nav-item nav-item--report" data-report="supply">
+          <a href="#/supply/order" class="nav-item nav-item--report" data-report="supply">
             <span data-i18n="nav.supply">KAMBIS SUPPLY STOCK</span>
             <span class="nav-item__tick" aria-hidden="true"></span>
           </a>
+
+          <!-- หน้าย่อยของ Supply โชว์ในแผงเสมอเหมือนของ Dryflower — แผงคือเมนูรวมของทั้งเว็บ
+               ถ้าซ่อนไว้ คนที่อยู่ Dryflower ต้องเปิดเมนูสองเที่ยวถึงจะไปหน้าสต๊อกวัสดุได้ -->
+          <div class="nav-panel__pages">
+            <a href="#/supply/order" class="nav-item nav-item--page" data-report="supply" data-page="order" data-i18n="nav.supplyOrder">1. สั่งซื้อ</a>
+            <a href="#/supply/stock" class="nav-item nav-item--page" data-report="supply" data-page="stock" data-i18n="nav.supplyStock">2. สต๊อกคงเหลือ</a>
+            <a href="#/supply/usage" class="nav-item nav-item--page" data-report="supply" data-page="usage" data-i18n="nav.supplyUsage">3. การเบิก</a>
+          </div>
         </nav>
 
         <!-- ที่วางของจาก header-tools ตอนจอเล็ก — nav.js ย้าย element จริงเข้ามาที่นี่ -->
@@ -211,12 +219,17 @@
     <main class="shell">
       <div class="notice" id="notice" hidden></div>
 
-      <nav class="subnav" id="subnav" aria-label="หัวข้อรายงาน Dryflower" hidden>
-        <a href="#/dryflower/overview" data-page="overview" data-i18n="nav.overview">1. ภาพรวมผู้บริหาร</a>
-        <a href="#/dryflower/production" data-page="production" data-i18n="nav.production">2. การผลิต</a>
-        <a href="#/dryflower/stock" data-page="stock" data-i18n="nav.stock">3. สต็อก</a>
-        <a href="#/dryflower/sales" data-page="sales" data-i18n="nav.sales">4. การขาย</a>
-        <a href="#/dryflower/cost" data-page="cost" data-i18n="nav.cost">5. ต้นทุน</a>
+      <!-- เมนูย่อยของแต่ละรายงาน — ลิงก์ทุกอันมีทั้ง data-report และ data-page
+           nav.js จึงรู้ว่าอันไหนเป็นของรายงานไหน แล้วโชว์เฉพาะชุดของรายงานที่เปิดอยู่ -->
+      <nav class="subnav" id="subnav" aria-label="หัวข้อรายงาน" hidden>
+        <a href="#/dryflower/overview" data-report="dryflower" data-page="overview" data-i18n="nav.overview">1. ภาพรวมผู้บริหาร</a>
+        <a href="#/dryflower/production" data-report="dryflower" data-page="production" data-i18n="nav.production">2. การผลิต</a>
+        <a href="#/dryflower/stock" data-report="dryflower" data-page="stock" data-i18n="nav.stock">3. สต็อก</a>
+        <a href="#/dryflower/sales" data-report="dryflower" data-page="sales" data-i18n="nav.sales">4. การขาย</a>
+        <a href="#/dryflower/cost" data-report="dryflower" data-page="cost" data-i18n="nav.cost">5. ต้นทุน</a>
+        <a href="#/supply/order" data-report="supply" data-page="order" data-i18n="nav.supplyOrder">1. สั่งซื้อ</a>
+        <a href="#/supply/stock" data-report="supply" data-page="stock" data-i18n="nav.supplyStock">2. สต๊อกคงเหลือ</a>
+        <a href="#/supply/usage" data-report="supply" data-page="usage" data-i18n="nav.supplyUsage">3. การเบิก</a>
       </nav>
 
       <div id="filter-host" hidden></div>

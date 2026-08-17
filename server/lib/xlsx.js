@@ -166,14 +166,18 @@ export const STYLE = {
    * ต่างจาก FIELD ที่เป็นช่องให้คนเขียนลงไป (จึงมีเส้นใต้) สองช่องนี้ระบบเติมค่าให้แล้ว
    * ไม่มีอะไรให้กรอก เส้นจึงเป็นแค่เส้นเปล่าที่ทำให้หัวกระดาษดูรก */
   FIELD_R: 15,
+  /* จำนวนนับ — `#,##0` ไม่มีทศนิยม ต่างจาก TD_MONEY ที่เป็นเงิน
+   * "คงเหลือ 2,075.00 แผ่น" อ่านแล้วสะดุด เพราะแผ่นครึ่งแผ่นไม่มีจริง */
+  TD_COUNT: 16,
 };
 
 /* ฟอนต์ต้องรองรับภาษาไทย เพราะชื่อวัสดุเป็นไทยเกือบทั้งหมด
  * Tahoma มีอยู่ทุกเครื่อง Windows และแสดงทั้งไทยและละตินได้ครบ */
 const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<numFmts count="1">
+<numFmts count="2">
 <numFmt numFmtId="164" formatCode="#,##0.00"/>
+<numFmt numFmtId="165" formatCode="#,##0"/>
 </numFmts>
 ${/* Angsana New 16pt ตามที่ผู้ใช้กำหนด — เป็นฟอนต์ที่บริษัทใช้กับเอกสารไทย
     * ตัวอักษรเตี้ยกว่า Tahoma มาก ที่ 16pt จึงอ่านพอ ๆ กับ Tahoma 11
@@ -196,7 +200,9 @@ ${/* Angsana New 16pt ตามที่ผู้ใช้กำหนด — �
 <border><left/><right/><top style="thin"/><bottom/><diagonal/></border>
 </borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="16">
+${/* เพิ่มสไตล์ใหม่ได้เฉพาะ **ต่อท้าย** เท่านั้น — ดัชนีใน STYLE อ้างตำแหน่งในลิสต์นี้
+    * แทรกตรงกลางเมื่อไร ใบขอซื้อที่ออกไปแล้วจะเปลี่ยนหน้าตาทั้งใบ */ ''}
+<cellXfs count="17">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf>
 <xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
 <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
@@ -213,6 +219,7 @@ ${/* Angsana New 16pt ตามที่ผู้ใช้กำหนด — �
 <xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+<xf numFmtId="165" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
@@ -303,10 +310,15 @@ export function buildXlsx({
       `header="0.3" footer="0.3"/>`
     : '';
 
-  // paperSize 9 = A4 (ตามตาราง ECMA-376) · orientation portrait
+  /* paperSize 9 = A4 (ตามตาราง ECMA-376)
+   *
+   * `fitToHeight: 0` = **ไม่จำกัดจำนวนหน้าแนวตั้ง** ย่อเฉพาะความกว้างให้ลงกระดาษ
+   * ใช้กับตารางข้อมูลที่ยาวเท่าไรก็ได้ ต่างจากใบขอซื้อที่ต้องลงแผ่นเดียว (= 1)
+   * ถ้าใช้ 1 กับตาราง 138 แถว Excel จะย่อจนตัวอักษรเล็กเท่ามด */
+  const fitH = page?.fitToHeight ?? 1;
   const setupXml = page
     ? `<pageSetup paperSize="9" orientation="${page.orientation ?? 'portrait'}"` +
-      (page.fitToPage ? ' fitToWidth="1" fitToHeight="1"' : '') +
+      (page.fitToPage ? ` fitToWidth="1" fitToHeight="${fitH}"` : '') +
       '/>'
     : '';
 
@@ -318,9 +330,21 @@ export function buildXlsx({
   const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"${sheetNs}>${sheetPr}${cols}<sheetData>${sheetRows}</sheetData>${mergeXml}${marginsXml}${setupXml}${drawingXml}</worksheet>`;
 
+  /* หัวตารางซ้ำทุกหน้าตอนพิมพ์ — จำเป็นเมื่อตารางยาวหลายหน้า ไม่งั้นหน้าที่ 2
+   * เป็นต้นไปจะมีแต่ตัวเลขโดยไม่มีชื่อคอลัมน์ อ่านไม่ออกว่าเลขไหนคืออะไร
+   *
+   * Excel เก็บค่านี้เป็นชื่อพิเศษ `_xlnm.Print_Titles` ใน workbook.xml
+   * ไม่ใช่ในแผ่นงาน และ `<definedNames>` ต้องอยู่ **หลัง** `<sheets>` ตาม schema
+   * ชื่อชีตต้องอยู่ในอัญประกาศเดี่ยว และอัญประกาศในชื่อต้องถูก escape เป็นสองตัว */
+  const safeName = escapeXml(sheetName).slice(0, 31);
+  const titlesXml = page?.repeatRows
+    ? `<definedNames><definedName name="_xlnm.Print_Titles" localSheetId="0">` +
+      `'${safeName.replace(/'/g, "''")}'!$1:$${page.repeatRows}</definedName></definedNames>`
+    : '';
+
   const workbook = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-<sheets><sheet name="${escapeXml(sheetName).slice(0, 31)}" sheetId="1" r:id="rId1"/></sheets>
+<sheets><sheet name="${safeName}" sheetId="1" r:id="rId1"/></sheets>${titlesXml}
 </workbook>`;
 
   /* ── โลโก้ ──

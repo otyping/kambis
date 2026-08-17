@@ -213,6 +213,9 @@ function buildSupply(source, purchaseRequests = [], today = null) {
   }
 
   const needsReorder = [];
+  /* ของที่ชีตตั้งขั้นต่ำไว้ 0 = ไม่ต้องเก็บสต๊อก — หมดแล้วก็ไม่ต้องรีบสั่ง
+   * แยกออกจาก needsReorder เพื่อไม่ให้ยอด "ต้องสั่งซื้อ" เกินจริง (ดูเหตุผลด้านล่าง) */
+  const optionalReorder = [];
   const items = [];
   for (const tab of tabs) {
     const cur = tab.current;
@@ -263,17 +266,30 @@ function buildSupply(source, purchaseRequests = [], today = null) {
       const qty = entry.orderQty ?? Math.max(shortfall, entry.minimum ?? 0, 1);
       // ไม่เอา log ติดไปด้วย ไม่งั้นข้อมูลชุดเดียวกันถูกส่งซ้ำสองรอบ
       const { log, ...withoutLog } = entry;
-      needsReorder.push({
+      const row = {
         ...withoutLog,
         shortfall,
         suggestedQty: qty,
         amount: entry.unitPrice !== null ? qty * entry.unitPrice : null,
-      });
+      };
+
+      /* **ขั้นต่ำ = 0 แปลว่า "ไม่ต้องเก็บสต๊อกไว้" ไม่ใช่ "ขาดของ"**
+       *
+       * ของพวกนี้คงเหลือ 0 · ขั้นต่ำ 0 · Index 0 จึงเข้าเกณฑ์ `index ≤ 0` ไปด้วย
+       * ทั้งที่ไม่มีอะไรต้องรีบ (เครื่องมือที่ซื้อเมื่อพัง ของที่สั่งเฉพาะตอนใช้)
+       * ถ้าปนอยู่ในตารางเดียวกัน ตัวเลข "ต้องสั่งซื้อ" จะเกินจริงทุกวัน
+       * แล้วฝ่ายจัดซื้อจะเลิกเชื่อทั้งตาราง
+       *
+       * แยกออกมาเป็นรายการที่ **เลือกสั่งเองได้** แต่ไม่ติ๊กไว้ให้ และไม่นับเข้ายอด */
+      if (entry.minimum === 0) optionalReorder.push(row);
+      else needsReorder.push(row);
     }
   }
 
   // ขาดหนักสุดขึ้นก่อน — index ยิ่งติดลบยิ่งเร่งด่วน
   needsReorder.sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+  // กลุ่มไม่บังคับเรียงตามชื่อ เพราะไม่มีอะไรเร่งด่วนกว่ากัน
+  optionalReorder.sort((a, b) => String(a.item).localeCompare(String(b.item), 'th'));
 
   const months = [...new Set(logRows.map((r) => r.month).filter(Boolean))].sort(comparePeriod);
 
@@ -301,6 +317,8 @@ function buildSupply(source, purchaseRequests = [], today = null) {
    * ทั้งที่ของก็ยังไม่มาอยู่ดี — ยิ่งชีตค้างนาน ยิ่งต้องเห็นว่ารอนานแล้ว
    * ไม่ส่ง today มา (เช่นในเทสต์) ถึงค่อยถอยไปใช้ asOf */
   attachPendingRequests(needsReorder, items, purchaseRequests, today || asOf);
+  // กลุ่มไม่บังคับก็ต้องรู้ว่าเคยขอไปแล้วเหมือนกัน ไม่งั้นจะขอซ้ำได้เหมือนเดิม
+  attachPendingRequests(optionalReorder, items, purchaseRequests, today || asOf);
 
   return {
     itemCount: items.length,
@@ -308,6 +326,7 @@ function buildSupply(source, purchaseRequests = [], today = null) {
     asOf,
     items,
     needsReorder,
+    optionalReorder,
     months,
     usage,
     received: matrix('received'),

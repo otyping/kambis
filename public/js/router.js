@@ -16,7 +16,13 @@
 /** รายงานและหน้าย่อยที่มีจริง — route ที่ไม่อยู่ในนี้จะถูกส่งกลับหน้าแรก */
 export const ROUTES = {
   dryflower: ['overview', 'production', 'stock', 'sales', 'cost'],
-  supply: ['main'],
+  /* Supply เคยเป็นหน้าเดียว (`main`) แล้วยาว 3,710px ≈ 4.1 หน้าจอ
+   * แยกเป็น 3 หน้าตามงานที่คนมาทำ ไม่ใช่ตามชนิดของตาราง:
+   *   order — วันนี้ต้องสั่งอะไร (รวมใบขอซื้อที่เคยออก เพราะแท็ก PR ในตารางลิงก์ไปหามัน)
+   *   stock — ตอนนี้มีของเท่าไร
+   *   usage — เบิกไปเท่าไร ผิดปกติไหม
+   * ลิงก์เก่า `#/supply` ยังใช้ได้ เพราะ parseHash คืนหน้าแรกให้เมื่อไม่ระบุหน้า */
+  supply: ['order', 'stock', 'usage'],
 };
 
 export const DEFAULT_ROUTE = { report: 'dryflower', page: 'overview' };

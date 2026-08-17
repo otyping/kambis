@@ -86,11 +86,29 @@ export async function fetchText(url, opts = {}) {
 /**
  * สร้าง URL สำหรับดึง tab เป็น CSV
  *
- * ใช้ endpoint gviz เพราะคืน 200 พร้อม CORS header ตรง ๆ
- * ส่วน /export?format=csv จะ 307 redirect ซึ่งเบราว์เซอร์จัดการยากกว่า
+ * **ใช้ `/export?format=csv` ไม่ใช่ `gviz/tq` — ห้ามเปลี่ยนกลับ**
+ *
+ * `gviz/tq` เป็น endpoint ของ Query API มันจะ **เดาเองว่าแถวบน ๆ เป็นหัวตาราง
+ * แล้วตัดทิ้ง** ก่อนคืนผลลัพธ์ จำนวนแถวที่ตัดขึ้นกับว่าคอลัมน์ไหนเป็นตัวเลข
+ * จึงไม่เท่ากันในแต่ละแท็บและคาดเดาไม่ได้ ผลคือกริดที่ได้ **เลื่อนแถว**
+ * ไปจากของจริงในชีต
+ *
+ * เคสจริง ส.ค. 69: ผู้ใช้เติมราคาไว้ที่ H2 ของทุกแท็บในชีต Log Stock
+ * แต่ gviz กลืนแถวนั้นไปเป็น "หัวตาราง" หน้าเว็บจึงขึ้นว่า "ยังไม่ใส่ราคา"
+ * ทั้งที่ในชีตมีเลขอยู่ครบ — ตรวจแล้วพบว่า gviz ตัดแถวหัวทิ้ง **ทุกรายงาน**
+ * (dailyTrim 6 แถว · outbound 8–13 · inbound 4 · sales 2–5 · inventory 1–6)
+ * รายงานอื่นรอดมาได้เพราะ parser หาแถวหัวตารางจากเนื้อความ ไม่ได้ยึดแถวที่ 0
+ *
+ * `/export` ตอบ 307 redirect ซึ่ง `fetchText` ตามให้อยู่แล้ว และคืน **กริดดิบ
+ * ตรงตามชีต** ไม่ตีความอะไรเลย ซึ่งเป็นสิ่งที่ parser ทุกตัวต้องการ
+ *
+ * ตั้ง `CSV_ENDPOINT=gviz` เพื่อกลับไปใช้ของเดิมชั่วคราวเวลาต้องเทียบผล
  */
 export function csvUrl(sheetId, gid) {
-  return `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&gid=${gid}`;
+  const base = `https://docs.google.com/spreadsheets/d/${sheetId}`;
+  return process.env.CSV_ENDPOINT === 'gviz'
+    ? `${base}/gviz/tq?tqx=out:csv&gid=${gid}`
+    : `${base}/export?format=csv&gid=${gid}`;
 }
 
 /**

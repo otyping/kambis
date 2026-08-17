@@ -100,9 +100,11 @@
     padding: var(--sp-4);
   }
 
-  .mini-bar {
+  /* ตารางอยู่ที่ตัวครอบ ไม่ใช่ที่แถว (ดูเหตุผลที่ .mini-bars ใน components.css)
+   * ถ้าเผลอกลับไปตั้งที่ `.mini-bar` กฎนี้จะไม่มีผลเลย เพราะแถวเป็น display:contents */
+  .mini-bars {
     grid-template-columns: minmax(68px, max-content) 1fr auto;
-    gap: var(--sp-2);
+    gap: 7px var(--sp-2);
   }
 
   .mini-bar__value {
@@ -192,6 +194,33 @@
  * ซึ่งแคบเกินกว่าจะวางตัวเลขพาดหัวกับกราฟย่อในใบเดียวกันได้สบาย
  * 3 คอลัมน์เท่ากันทุกความกว้างตั้งแต่ 1280px ขึ้นไป = การ์ดกว้าง ~500px */
 
+/* ── ปฏิทินในแผ่นเลื่อนขึ้นของจอเล็ก ──
+ * สองคอลัมน์ (ปุ่มลัด | ปฏิทิน) ใส่ใน 375px ไม่ได้ ปุ่มลัดจึงขึ้นไปอยู่บนเป็นแถวเลื่อน
+ * เลื่อนอยู่ในกล่องตัวเอง (`overscroll-behavior-x: contain`) จึงไม่กลายเป็น
+ * horizontal scroll ระดับหน้า ซึ่งเป็นข้อห้ามของโปรเจกต์
+ * 767px คือเส้นเดียวกับที่ `popover.js` ใช้สลับเป็น bottom sheet */
+@media (max-width: 767px) {
+  .dp {
+    grid-template-columns: 1fr;
+    gap: var(--sp-3);
+  }
+
+  .dp__presets {
+    flex-direction: row;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    padding-inline-end: 0;
+    padding-bottom: var(--sp-2);
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--glass-border-soft);
+  }
+
+  .dp__preset {
+    flex: none;
+    white-space: nowrap;
+  }
+}
+
 /* ── อุปกรณ์สัมผัส: touch target ต้องใหญ่พอ ── */
 @media (hover: none) {
   /* ช่องกรอกกับ select ก็เป็นเป้ากดเหมือนปุ่ม — เดิมกฎนี้ครอบแค่ .btn
@@ -203,9 +232,18 @@
   .supply-search,
   .filter-year,
   .filter-year__select,
-  .filter-date,
   .filter-pick,
-  .qty-input {
+  .qty-input,
+  .dp__day,
+  .dp__navbtn,
+  .dp__preset,
+  /* โหมดฝังตั้งค่าเตี้ยไว้เพื่อประหยัดที่ในกล่องแคบ (`.dp--inline .dp__day` = 0,2,0)
+   * ซึ่ง **ชนะกฎ 44px ข้างบนที่มี specificity 0,1,0** ไม่ว่าจะอยู่ใน media query หรือไม่
+   * บนอุปกรณ์สัมผัสต้องเขียนทับกลับด้วย specificity ที่เท่ากัน ไม่งั้นเป้ากดในปฏิทิน
+   * เหลือ 32–34px ทั้งที่กฎของโปรเจกต์บอกว่าต้อง 44 */
+  .dp--inline .dp__day,
+  .dp--inline .dp__navbtn,
+  .dp--inline .dp__preset {
     min-height: 44px;
   }
 

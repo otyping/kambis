@@ -28,7 +28,8 @@
  * ของ window ให้ครบ ไม่งั้นจะค้างอยู่ทุกครั้งที่เปิด
  */
 import { t } from '../i18n.js';
-import { esc } from '../format.js';
+import { esc, dateFull } from '../format.js';
+import { inlineDatePicker } from './datepicker.js';
 
 export const SIZE_KEYS = ['XXL', 'XL', 'L', 'M', 'S', 'XS'];
 
@@ -355,6 +356,100 @@ export function closeFilterPopup() {
 }
 
 /**
+ * ช่วงวันที่ — ปุ่มกดแล้วกางปฏิทินออกมาในกล่องเดิม (โครงเดียวกับ multiDropdown)
+ *
+ * ใช้ `.fdrop` ชุดเดียวกับตัวกรองอีกสามตัวที่อยู่ใต้มัน เพื่อให้ทั้ง popup
+ * อ่านเป็นภาษาเดียวกัน และเพื่อไม่ให้ปฏิทินสูง ~300px กางค้างอยู่ตลอดเวลา
+ * จนดันตัวกรองที่เหลือตกขอบล่างของกล่อง
+ *
+ * @returns {{el:HTMLElement, close:()=>void}}
+ */
+function dateRangeDrop({ value, min, max, onOpen, onChange }) {
+  const wrap = document.createElement('div');
+  wrap.className = 'fdrop';
+
+  const panelId = nextId('fdrop-date');
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'fdrop__btn';
+  btn.setAttribute('aria-expanded', 'false');
+  btn.setAttribute('aria-controls', panelId);
+  btn.innerHTML =
+    `<span class="fdrop__name">${esc(t('filter.dateRange'))}</span>` +
+    '<span class="fdrop__value"></span>' +
+    '<span class="fdrop__caret" aria-hidden="true"></span>';
+  const valueEl = btn.querySelector('.fdrop__value');
+
+  const panel = document.createElement('div');
+  panel.className = 'fdrop__panel';
+  panel.id = panelId;
+  panel.hidden = true;
+
+  let current = [value?.[0] || '', value?.[1] || ''];
+
+  const label = () => {
+    const [from, to] = current;
+    if (!from && !to) return t('filter.all');
+    if (from && to) return `${dateFull(from)} – ${dateFull(to)}`;
+    // เลือกข้างเดียวยังเป็นตัวกรองที่ใช้ได้จริง (ตั้งแต่วันนี้เป็นต้นไป / ถึงวันนี้)
+    return from ? `${dateFull(from)} –` : `– ${dateFull(to)}`;
+  };
+  const paint = () => {
+    valueEl.textContent = label();
+  };
+  paint();
+
+  const cal = inlineDatePicker({
+    value: current,
+    mode: 'range',
+    min,
+    max,
+    onChange: (next) => {
+      current = next;
+      paint();
+      onChange(next);
+    },
+  });
+
+  const clear = document.createElement('button');
+  clear.type = 'button';
+  clear.className = 'btn btn--sm dp__clear';
+  clear.textContent = t('date.clearRange');
+  clear.addEventListener('click', () => {
+    current = ['', ''];
+    cal.setValue(current);
+    paint();
+    onChange(current);
+  });
+
+  const foot = document.createElement('div');
+  foot.className = 'dp__foot';
+  foot.appendChild(clear);
+  cal.el.appendChild(foot);
+  panel.appendChild(cal.el);
+
+  const api = {
+    el: wrap,
+    close() {
+      panel.hidden = true;
+      wrap.classList.remove('is-open');
+      btn.setAttribute('aria-expanded', 'false');
+    },
+  };
+
+  btn.addEventListener('click', () => {
+    const open = panel.hidden;
+    if (open) onOpen?.();
+    panel.hidden = !open;
+    wrap.classList.toggle('is-open', open);
+    btn.setAttribute('aria-expanded', String(open));
+  });
+
+  wrap.append(btn, panel);
+  return api;
+}
+
+/**
  * dropdown เลือกได้หลายค่า — ปุ่มกดแล้วกางรายการ checkbox ออกมาในตัว popup เอง
  *
  * ไม่ทำเป็น popup ซ้อน popup เพราะจะต้องคุมตำแหน่งและ focus trap สองชั้น
@@ -542,25 +637,23 @@ function openPopup({ anchor, options, getState, apply, onClosed }) {
     body.innerHTML = '';
     const f = getState();
 
-    // ── ช่วงวันที่ ──
-    const dates = document.createElement('div');
-    dates.className = 'filter-field';
-    dates.innerHTML = `
-      <span class="filter-label">${esc(t('filter.dateRange'))}</span>
-      <div class="filter-dates">
-        <input type="date" class="filter-date" data-k="from" value="${esc(f.from)}"
-               min="${esc(options.minDate ?? '')}" max="${esc(options.maxDate ?? '')}"
-               aria-label="${esc(t('filter.from'))}">
-        <span aria-hidden="true">–</span>
-        <input type="date" class="filter-date" data-k="to" value="${esc(f.to)}"
-               min="${esc(options.minDate ?? '')}" max="${esc(options.maxDate ?? '')}"
-               aria-label="${esc(t('filter.to'))}">
-      </div>`;
-    dates.addEventListener('change', (e) => {
-      const input = e.target.closest('.filter-date');
-      if (input) apply({ ...getState(), [input.dataset.k]: input.value });
+    /* ── ช่วงวันที่ ──
+     *
+     * เดิมเป็น `<input type="date">` สองช่อง ซึ่งเรียกปฏิทินของ Chrome ขึ้นมา —
+     * สีน้ำเงินของระบบ ภาษาอังกฤษ ไม่ตามธีมสว่าง/มืด และย้อมสีไม่ได้เลยสักจุด
+     * (ปฏิทินนั้นเป็น UI ของเบราว์เซอร์ ไม่ใช่ของหน้าเว็บ)
+     *
+     * ตอนนี้กางเป็นปฏิทินของเราเองในกล่องนี้เลย ใช้แบบ accordion เหมือน
+     * multiDropdown ที่อยู่ใต้มัน — **ไม่ใช่ popup ซ้อน popup** ด้วยเหตุผลเดียวกัน */
+    const dates = dateRangeDrop({
+      value: [f.from, f.to],
+      min: options.minDate ?? '',
+      max: options.maxDate ?? '',
+      onOpen: collapseAll,
+      onChange: ([from, to]) => apply({ ...getState(), from, to }),
     });
-    body.appendChild(dates);
+    drops.push(dates);
+    body.appendChild(dates.el);
 
     // ── สถานที่ ──
     const loc = document.createElement('div');

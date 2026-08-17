@@ -11,8 +11,9 @@
  * ถ้าให้ router วาดทั้งหน้าใหม่ทุกครั้ง โฟกัสจะหลุดจากช่องพิมพ์ทันทีที่กดตัวแรก
  */
 import { t } from '../i18n.js';
-import { esc } from '../format.js';
+import { esc, dateFull } from '../format.js';
 import { normalizeItemName } from '../shared/agg-core.js';
+import { datePicker } from './datepicker.js';
 
 /** อ่านตัวกรองจาก URLSearchParams */
 /** วันที่ต้องเป็น YYYY-MM-DD จริง ๆ — ค่าจาก URL เชื่อไม่ได้ */
@@ -121,11 +122,21 @@ export function supplyFilterBar({ filters, options, onChange }) {
   bar.setAttribute('role', 'group');
   bar.setAttribute('aria-label', t('filter.title'));
 
-  const emit = () => onChange({ ...state });
+  const emit = () => {
+    // ปุ่มล้างต้องโผล่/หายตามสถานะจริง — แถบนี้ไม่เคยถูกสร้างใหม่ ถ้าไม่คิดใหม่ตรงนี้
+    // ค่าที่คำนวณตอนสร้างแถบจะค้างไปตลอดอายุของหน้า
+    reset.hidden = !isSupplyFiltered(state);
+    onChange({ ...state });
+  };
+
+  /* แต่ละหน้าย่อยโชว์เฉพาะตัวกรองที่มีผลกับตัวเอง — ตัวกรองที่ไม่มีผลแต่ยังโชว์อยู่
+   * คือคำสัญญาที่ทำไม่ได้ กดแล้วไม่มีอะไรเปลี่ยนจะดูเหมือนระบบพัง
+   * ไม่ส่ง `show` มา = โชว์ครบทุกตัวเหมือนเดิม */
+  const show = options.show ?? { year: true, search: true, group: true, price: true, asOf: true };
 
   // ── ปี ──
   const years = options.years ?? [];
-  if (years.length) {
+  if (show.year && years.length) {
     const wrap = document.createElement('label');
     wrap.className = 'filter-year';
     wrap.innerHTML = `<span class="filter-year__label">${esc(t('filter.year'))}</span>`;
@@ -165,6 +176,8 @@ export function supplyFilterBar({ filters, options, onChange }) {
   bar.appendChild(search);
 
   // ── หมวด / ราคา ──
+  // เก็บ <select> ไว้ด้วย เพราะปุ่ม "ล้างตัวกรอง" ต้องสั่งให้ช่องกลับไปตรงกับสถานะเอง
+  const picks = [];
   const pick = (label, value, choices, key) => {
     const wrap = document.createElement('label');
     wrap.className = 'filter-year';
@@ -182,9 +195,10 @@ export function supplyFilterBar({ filters, options, onChange }) {
     });
     wrap.appendChild(sel);
     bar.appendChild(wrap);
+    picks.push({ sel, key });
   };
 
-  if ((options.groups ?? []).length > 1) {
+  if (show.group && (options.groups ?? []).length > 1) {
     pick(
       t('supply.group'),
       state.group,
@@ -197,16 +211,18 @@ export function supplyFilterBar({ filters, options, onChange }) {
     );
   }
 
-  pick(
-    t('supply.priceFilter'),
-    state.price,
-    [
-      ['all', t('filter.all')],
-      ['with', t('supply.hasPrice')],
-      ['without', t('supply.noPriceOnly')],
-    ],
-    'price'
-  );
+  if (show.price) {
+    pick(
+      t('supply.priceFilter'),
+      state.price,
+      [
+        ['all', t('filter.all')],
+        ['with', t('supply.hasPrice')],
+        ['without', t('supply.noPriceOnly')],
+      ],
+      'price'
+    );
+  }
 
   /* ── ดูสต๊อก ณ วันที่ ──
    *
@@ -216,25 +232,34 @@ export function supplyFilterBar({ filters, options, onChange }) {
    * **ล็อกไม่ให้เลือกวันอนาคตเด็ดขาด** ชีตลงยอดล่วงหน้าไว้ถึงสิ้นปี (19,458 แถว)
    * ซึ่งเป็นยอดยกมา ไม่ใช่ของที่นับได้จริง เลือกได้เมื่อไรก็เท่ากับโชว์ตัวเลขที่ยังไม่เกิด
    */
-  const asOfWrap = document.createElement('label');
-  asOfWrap.className = 'filter-year filter-asof';
-  asOfWrap.innerHTML = `<span class="filter-year__label">${esc(t('supply.asOfPicker'))}</span>`;
-  const asOf = document.createElement('input');
-  asOf.type = 'date';
-  asOf.className = 'filter-date';
-  asOf.value = state.asOf ?? '';
-  if (options.minDate) asOf.min = options.minDate;
-  if (options.maxDate) asOf.max = options.maxDate;
-  asOf.setAttribute('aria-label', t('supply.asOfPicker'));
-  asOf.addEventListener('change', () => {
-    const v = asOf.value;
-    // เบราว์เซอร์บางตัวยอมให้พิมพ์เกิน max — ตัดกลับเองเสมอ ห้ามเชื่อ min/max อย่างเดียว
-    state.asOf = v && options.maxDate && v > options.maxDate ? options.maxDate : v;
-    asOf.value = state.asOf;
-    emit();
+  /* เดิมเป็น `<input type="date">` — เปลี่ยนเป็นปฏิทินของเราเองเพราะช่อง native
+   * ขึ้น `mm/dd/yyyy` ตามภาษาของเครื่อง (บังคับเป็นไทยไม่ได้) ปฏิทินที่เด้งขึ้นมา
+   * เป็นของเบราว์เซอร์ซึ่งไม่ตามธีม และไม่มีที่ให้ใส่ปุ่มลัดอย่าง "สิ้นเดือนที่แล้ว"
+   * ซึ่งเป็นคำถามที่ฟีเจอร์นี้มีไว้ตอบพอดี */
+  const asOf = !show.asOf ? null : datePicker({
+    value: state.asOf ?? '',
+    min: options.minDate,
+    max: options.maxDate,
+    /* "วันนี้" ของปฏิทิน = `maxDate` ซึ่งหน้านี้คำนวณเป็นวันนี้อยู่แล้ว (pages/supply.js)
+     * ผูกไว้ด้วยกันเพื่อไม่ให้วงแหวน "วันนี้" ไปตกบนช่องที่กดไม่ได้ เวลาที่นิยาม
+     * "วันนี้" ของสองฝั่งไม่ตรงกัน (เกิดได้จริงเพราะ maxDate คิดจากเวลา UTC) */
+    today: options.maxDate || undefined,
+    /* ปุ่มนี้ *เป็น* เม็ดยาทั้งใบ ไม่ใช่ของที่วางอยู่ในเม็ดยา — ป้ายกำกับจึงอยู่ในปุ่ม
+     * ถ้าแยกป้ายไว้ข้างนอก ครึ่งซ้ายของเม็ดยาจะกดไม่ได้ทั้งที่ตาเห็นเป็นชิ้นเดียวกัน */
+    label: t('supply.asOfPicker'),
+    className: 'filter-year filter-asof',
+    placeholder: t('date.notSelected'),
+    /* เหตุผลของขอบเขตเป็นเรื่องเฉพาะของชีตนี้ (ลงยอดล่วงหน้าไว้ถึงสิ้นปี)
+     * จึงเป็นข้อความของผู้เรียก ไม่ใช่ของตัวปฏิทิน */
+    note: options.maxDate ? t('date.maxNote').replace('{max}', dateFull(options.maxDate)) : '',
+    onChange: (iso) => {
+      // ด่านสุดท้ายก่อนถึง stockAt() — แถบไม่เชื่อค่าจากตัวเลือกวันที่ไม่ว่าตัวไหน
+      state.asOf = iso && options.maxDate && iso > options.maxDate ? options.maxDate : iso;
+      asOf.__setValue(state.asOf);
+      emit();
+    },
   });
-  asOfWrap.appendChild(asOf);
-  bar.appendChild(asOfWrap);
+  if (asOf) bar.appendChild(asOf);
 
   // ── ปุ่มล้าง (โผล่เฉพาะตอนกรองอยู่จริง) ──
   const reset = document.createElement('button');
@@ -247,6 +272,13 @@ export function supplyFilterBar({ filters, options, onChange }) {
     state.group = 'all';
     state.price = 'all';
     state.asOf = '';
+    /* **ต้องสั่งช่องกรอกให้ตามสถานะเอง** — หน้า Supply วาดใหม่เฉพาะกล่องข้อมูล
+     * (`draw()` ล้างแค่ `dataHost`) แถบตัวกรองถูกสร้างครั้งเดียวแล้วอยู่ยาว
+     * ถ้าไม่เขียนตรงนี้ กด "ล้างตัวกรอง" แล้วตารางจะกลับเป็นทั้งหมด
+     * แต่ช่องค้นหายังมีข้อความค้าง หมวดยังค้าง วันที่ยังค้าง — ขัดกันเองบนจอเดียว */
+    search.value = '';
+    for (const p of picks) p.sel.value = 'all';
+    asOf?.__setValue('');
     emit();
   });
   bar.appendChild(reset);

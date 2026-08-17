@@ -12,6 +12,9 @@ import { pauseBackground } from '../bg/three-bg.js';
 import { sortableTable } from './table.js';
 import { breakdownControls } from './controls.js';
 import { dataGaps, gapList } from './gaps.js';
+import { datePicker } from './datepicker.js';
+import { tabUrl } from './sheet-link.js';
+import { isPopoverOpen, closePopover } from './popover.js';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -30,6 +33,10 @@ export function initModal() {
 
   document.addEventListener('keydown', (e) => {
     if (!backdrop.classList.contains('is-open')) return;
+    /* ปฏิทินเปิดอยู่ = มันเป็นชั้นบนสุด ต้องให้มันคุมคีย์บอร์ดเอง
+     * ไม่งั้นกับดักโฟกัสของ modal จะดึงโฟกัสกลับเข้ามาทุกครั้งที่กด Tab ในปฏิทิน
+     * (Esc ไม่ต้องกันเพราะ popover เรียก stopPropagation ไว้แล้วก่อนถึง document) */
+    if (isPopoverOpen()) return;
     if (e.key === 'Escape') {
       e.preventDefault();
       close();
@@ -52,6 +59,9 @@ export function initModal() {
 }
 
 export function close() {
+  /* ปฏิทินแขวนอยู่ที่ body ไม่ได้อยู่ใน modal — ปิด modal เฉย ๆ จะเหลือปฏิทินลอยค้าง
+   * อยู่กลางจอโดยที่ปุ่มเปิดมันถูกทิ้งไปพร้อม dialog.innerHTML แล้ว */
+  closePopover();
   pauseBackground(false);
   backdrop.classList.remove('is-open');
   backdrop.setAttribute('aria-hidden', 'true');
@@ -158,17 +168,7 @@ function findingsList(parent, findings, sourceIndex) {
     return;
   }
 
-  /**
-   * สร้าง URL ที่เปิดตรงไปยัง tab ที่มีปัญหา
-   * Google Sheets ต้องใส่ gid ทั้งใน query และ fragment ถึงจะเด้งไป tab นั้นจริง
-   */
-  const tabUrl = (sheetUrl, gid) => {
-    if (!sheetUrl) return null;
-    if (gid === null || gid === undefined) return sheetUrl;
-    return `${sheetUrl}?gid=${gid}#gid=${gid}`;
-  };
-
-  /** ป้ายลิงก์หนึ่งอัน: ชื่อไฟล์ชีต › ชื่อ tab */
+  /** ป้ายลิงก์หนึ่งอัน: ชื่อไฟล์ชีต › ชื่อ tab (ตัวสร้าง URL อยู่ที่ ui/sheet-link.js) */
   const sheetTag = (sourceKey, tabName, gid) => {
     const src = sourceIndex?.[sourceKey];
     const name = src ? pick(src, 'title') : sourceKey;
@@ -283,20 +283,35 @@ function filteredTable(parent, rows, columns, { filterKey = 'crop', filterLabel 
   search.placeholder = t('label.search');
   search.setAttribute('aria-label', t('label.search'));
 
-  // ช่วงวันที่ — เฉพาะรายงานที่มีคอลัมน์วันที่จริง
+  /* ช่วงวันที่ — เฉพาะรายงานที่มีคอลัมน์วันที่จริง
+   *
+   * เดิมเป็น `<input type="date">` สองช่อง ซึ่งเรียกปฏิทินสีน้ำเงินของ Chrome ขึ้นมา
+   * ทับกล่อง modal สีเขียวของเรา — ปฏิทินนั้นเป็น UI ของเบราว์เซอร์ ย้อมสีไม่ได้เลย
+   * ตอนนี้ใช้ปฏิทินตัวเดียวกับที่แถบตัวกรองใช้ ต่างแค่ต้องลอยเหนือ modal (z-index) */
   const dates = rows.map((r) => r.date).filter(Boolean).sort();
   const hasDates = dates.length > 0;
-  const from = document.createElement('input');
-  const to = document.createElement('input');
-  for (const [el, val, label] of [
-    [from, dates[0], t('ctl.from')],
-    [to, dates[dates.length - 1], t('ctl.to')],
-  ]) {
-    el.type = 'date';
-    el.value = val ?? '';
-    el.title = label;
-    el.setAttribute('aria-label', label);
-  }
+  const bounds = { min: dates[0] ?? '', max: dates[dates.length - 1] ?? '' };
+  const span = { from: bounds.min, to: bounds.max };
+
+  const dateBtn = (key, labelKey) =>
+    datePicker({
+      value: span[key],
+      min: bounds.min,
+      max: bounds.max,
+      today: bounds.max,
+      label: t(labelKey),
+      className: 'ctl-date',
+      // ปุ่มลัดวันเดียวไม่เข้ากับ "ตั้งแต่/ถึง" ของตารางดิบ — ใช้ปฏิทินเปล่า ๆ
+      presets: [],
+      rootClass: 'filter-pop-root filter-pop-root--over-modal',
+      onChange: (iso) => {
+        span[key] = iso;
+        apply();
+      },
+    });
+
+  const from = hasDates ? dateBtn('from', 'ctl.from') : null;
+  const to = hasDates ? dateBtn('to', 'ctl.to') : null;
 
   const reset = document.createElement('button');
   reset.type = 'button';
@@ -330,8 +345,8 @@ function filteredTable(parent, rows, columns, { filterKey = 'crop', filterLabel 
     const needle = search.value.trim().toLowerCase();
     const chosen = primary.value;
     const strainPick = strain?.value ?? '';
-    const lo = hasDates ? from.value : '';
-    const hi = hasDates ? to.value : '';
+    const lo = hasDates ? span.from : '';
+    const hi = hasDates ? span.to : '';
 
     const next = rows.filter((r) => {
       if (chosen && r[filterKey] !== chosen) return false;
@@ -352,14 +367,14 @@ function filteredTable(parent, rows, columns, { filterKey = 'crop', filterLabel 
   primary.addEventListener('change', apply);
   strain?.addEventListener('change', apply);
   search.addEventListener('input', apply);
-  from.addEventListener('change', apply);
-  to.addEventListener('change', apply);
   reset.addEventListener('click', () => {
     primary.value = '';
     if (strain) strain.value = '';
     search.value = '';
-    from.value = dates[0] ?? '';
-    to.value = dates[dates.length - 1] ?? '';
+    span.from = bounds.min;
+    span.to = bounds.max;
+    from?.__setValue(span.from);
+    to?.__setValue(span.to);
     apply();
   });
 

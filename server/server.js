@@ -29,6 +29,7 @@ import {
   readRequestIndex,
   requestFilePath,
 } from './lib/purchase-request.js';
+import { createStockExport } from './lib/stock-export.js';
 import { createRefreshGate } from './lib/refresh-gate.js';
 import {
   loadAuth,
@@ -729,6 +730,45 @@ async function handleApi(req, res, url, user) {
     return res.end(req.method === 'HEAD' ? undefined : buffer);
   }
 
+  /* ── ดาวน์โหลดตารางสต๊อกเป็น Excel ──
+   *
+   * เบราว์เซอร์บอกได้แค่ **แถวไหน** (ตามที่กรองอยู่บนจอ) กับ **วันที่ไหน**
+   * ตัวเลขทุกช่องเอาจากชีตเสมอ กฎเดียวกับใบขอซื้อ ไม่งั้นใครก็แก้ราคา
+   * ในไฟล์ที่ระบบออกให้ได้จากฝั่ง client */
+  if (route === '/api/supply/stock-export' && req.method === 'POST') {
+    let body;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      return sendJson(res, 400, { error: err.message });
+    }
+
+    const supply = await getLazySource('supplyLog');
+    let file;
+    try {
+      file = createStockExport({
+        items: body?.items,
+        known: supply?.kpi?.items ?? [],
+        asOf: String(body?.asOf ?? ''),
+        asOfSheet: supply?.kpi?.asOf ?? '',
+      });
+    } catch (err) {
+      return sendJson(res, 400, { error: err.message });
+    }
+
+    /* รายการที่จับคู่กับชีตไม่ได้ต้องบอกให้รู้ ไม่ใช่หายไปจากไฟล์เงียบ ๆ
+     * ส่งทาง header เพราะตัว response เป็นไฟล์ — และหน้าเว็บอ่านค่านี้จริง */
+    res.writeHead(200, {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Length': file.buffer.length,
+      'Content-Disposition': `attachment; filename="${file.fileName}"`,
+      'X-Row-Count': String(file.rowCount),
+      'X-Skipped': String(file.skipped.length),
+      'Cache-Control': 'no-store',
+    });
+    return res.end(req.method === 'HEAD' ? undefined : file.buffer);
+  }
+
   // ── ทะเบียนใบขอซื้อที่เคยออก ──
   if (route === '/api/supply/purchase-requests') {
     const index = await readRequestIndex();
@@ -862,6 +902,8 @@ const POST_ROUTES = new Set([
   '/api/auth/login',
   '/api/auth/logout',
   '/api/supply/purchase-request',
+  // ลืมใส่ตรงนี้แล้วจะได้ 405 ทันที (ดู CLAUDE.md §8)
+  '/api/supply/stock-export',
 ]);
 
 const server = http.createServer(async (req, res) => {

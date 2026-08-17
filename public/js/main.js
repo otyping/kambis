@@ -31,6 +31,7 @@ import {
   closeFilterPopup,
   isFiltered,
 } from './ui/filters.js';
+import { closePopover } from './ui/popover.js';
 import { buildKpi } from './shared/kpi.js';
 import { releaseCharts } from './charts/core.js';
 
@@ -295,6 +296,10 @@ function setParams(patch, { silent = false } = {}) {
  * ด้วยเหตุผลเดียวกัน จึง **ห้ามเก็บทุกหน้าไว้ใน DOM แล้วสลับด้วย hidden**
  */
 function renderActivePage(route) {
+  /* ปฏิทินแขวนอยู่ที่ body เหมือน popup ตัวกรอง การล้าง el.page จึงไม่พามันไปด้วย
+   * ถ้าไม่ปิดเอง จะได้ปฏิทินลอยค้างอยู่เหนือหน้าถัดไปโดยที่ปุ่มเปิดมันหายไปแล้ว
+   * (ปิดไม่ได้ ไม่มีอะไรคืนโฟกัสให้ และ listener resize/scroll ยังทำงานอยู่) */
+  closePopover();
   releaseCharts(el.page);
   el.page.innerHTML = '';
 
@@ -333,6 +338,8 @@ function renderActivePage(route) {
       filters,
       // พารามิเตอร์ดิบใน hash — หน้าที่มีตัวกรองของตัวเอง (Supply) อ่านเอง
       params: route.params,
+      // รายงานที่มีหลายหน้าย่อยแต่ใช้ไฟล์เดียว (Supply) ต้องรู้ว่าตอนนี้อยู่หน้าไหน
+      route,
       filtered: isFiltered(filters),
       years: filterChoices.years,
       strainScale,
@@ -363,6 +370,7 @@ async function load({ refresh = false } = {}) {
   el.refresh.disabled = true;
   closeModal();
   closeFilterPopup();
+  closePopover();
 
   /* กดรีเฟรชระหว่างคูลดาวน์ = รู้ล่วงหน้าว่าจะได้ชุดเดิมกลับมาในพริบตา
    * ถ้าเปิดจอโหลดเต็มจอแล้วปิดใน 80 มิลลิวินาที จะดูเหมือนบั๊กมากกว่าไม่ทำอะไร

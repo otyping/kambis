@@ -89,6 +89,40 @@ export function monthYear(ym) {
   return `${monthShort(ym)} ${String(ym).slice(0, 4)}`;
 }
 
+/** ชื่อเดือนเต็มพร้อมปี — `2026-08` → `สิงหาคม 2026` / `August 2026` (หัวปฏิทิน) */
+export function monthLong(ym) {
+  if (!ym) return '';
+  const d = new Date(`${String(ym).slice(0, 7)}-01T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return String(ym);
+  const name = d.toLocaleDateString(getLang() === 'en' ? 'en-GB' : 'th-TH', {
+    month: 'long',
+    timeZone: 'UTC',
+  });
+  return `${name} ${String(ym).slice(0, 4)}`;
+}
+
+/**
+ * วันที่เต็มแบบ ค.ศ. — `2026-07-31` → `31 ก.ค. 2026`
+ *
+ * ต่างจาก `date()` ที่ให้ `31 ก.ค. 69` — ใช้กับ **สายของ "ข้อมูล ณ วันที่"** เท่านั้น
+ * (ช่องเลือกวันบนแถบตัวกรอง · แถบเตือนตอนดูย้อนหลัง · หัวตารางสต๊อก)
+ * เหตุผลเดียวกับ monthYear() ข้างบน: ของพวกนี้อยู่บนแถบเดียวกับช่อง "ปี 2026"
+ * ถ้าเขียน 69 คู่กับ 2026 บนจอเดียวกัน ผู้ใช้จะไม่แน่ใจว่ากำลังดูวันไหนของปีไหน
+ * ส่วน date() ยังเป็น พ.ศ. เหมือนเดิมเพราะตารางกับกราฟอ้างอิงชีตต้นทางที่เป็น พ.ศ.
+ */
+export function dateFull(iso) {
+  if (!iso) return DASH;
+  const d = new Date(iso + (iso.length === 10 ? 'T00:00:00Z' : ''));
+  if (Number.isNaN(d.getTime())) return iso;
+  // ขอ Intl แค่ "วันที่ + ชื่อเดือน" — ไม่ขอปี จึงไม่มีศักราชให้ผิด แล้วต่อปีจากสตริงเอง
+  const dm = d.toLocaleDateString(getLang() === 'en' ? 'en-GB' : 'th-TH', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
+  });
+  return `${dm} ${String(iso).slice(0, 4)}`;
+}
+
 /**
  * ช่วงเดือน — `2026-03-10` + `2026-08-07` → `มี.ค.–ส.ค. 2026`
  * ช่วงข้ามปีบอกปีทั้งสองฝั่ง ไม่งั้นจะอ่านเป็นช่วงในปีเดียว
