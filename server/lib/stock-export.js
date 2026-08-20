@@ -60,7 +60,6 @@ export function buildStockRows(requested, known, asOf = '') {
       unitPrice,
       // มูลค่าคิดได้เฉพาะเมื่อมีทั้งยอดและราคา — ขาดข้างใดข้างหนึ่ง = null ไม่ใช่ 0
       amount: balance !== null && unitPrice !== null ? balance * unitPrice : null,
-      lifetime: src.lifetimeText ?? '',
     });
   }
 
@@ -94,7 +93,7 @@ export function createStockExport({ items, known, asOf = '', asOfSheet = '', now
   const iso = (s) => (ISO_DATE_RE.test(s) ? `${s.slice(8)}/${s.slice(5, 7)}/${s.slice(0, 4)}` : '');
 
   const dataDate = asOf ? iso(asOf) : iso(asOfSheet) || stamp(now);
-  const COLS = 6;
+  const COLS = 5;
 
   const sheet = [];
   // หัวเอกสาร — merge ให้เต็มความกว้างตาราง ไม่งั้นถูกคอลัมน์ถัดไปตัดหัวทิ้ง
@@ -109,7 +108,7 @@ export function createStockExport({ items, known, asOf = '', asOfSheet = '', now
   ]);
 
   sheet.push(
-    ['รายการ', 'คงเหลือ', 'หน่วย', 'ราคา/หน่วย', 'มูลค่า', 'ระยะเวลาใช้งาน'].map((v) => ({
+    ['รายการ', 'คงเหลือ', 'หน่วย', 'ราคา/หน่วย', 'มูลค่า'].map((v) => ({
       v,
       s: STYLE.TH,
     }))
@@ -127,7 +126,6 @@ export function createStockExport({ items, known, asOf = '', asOfSheet = '', now
         ? { v: 'ยังไม่ใส่ราคา', s: STYLE.TD_C }
         : { v: r.unitPrice, s: STYLE.TD_MONEY },
       { v: r.amount === null ? '' : r.amount, s: STYLE.TD_MONEY },
-      { v: r.lifetime, s: STYLE.TD_C },
     ]);
   }
 
@@ -147,7 +145,6 @@ export function createStockExport({ items, known, asOf = '', asOfSheet = '', now
     { v: '', s: STYLE.TOTAL_LABEL },
     { v: '', s: STYLE.TOTAL_LABEL },
     { v: total, s: STYLE.TOTAL_VALUE },
-    { v: '', s: STYLE.TOTAL_LABEL },
   ]);
 
   const buffer = buildXlsx({
@@ -156,7 +153,7 @@ export function createStockExport({ items, known, asOf = '', asOfSheet = '', now
     /* A4 **แนวตั้ง** แคบกว่าแนวนอนราว 30% คอลัมน์จึงต้องแคบลงตาม ไม่งั้น
      * `fitToWidth` จะย่อทั้งแผ่นจนตัวอักษรเล็กเกินอ่าน — ยอมให้ชื่อรายการยาว ๆ
      * ตัดบรรทัดแทน (STYLE.TD ตั้ง wrapText ไว้แล้ว) ดีกว่าย่อทั้งหน้า */
-    columnWidths: [34, 10, 8, 11, 13, 12],
+    columnWidths: [36, 11, 9, 12, 14],
     merges: [
       `A1:${String.fromCharCode(64 + COLS)}1`,
       `A2:${String.fromCharCode(64 + COLS)}2`,

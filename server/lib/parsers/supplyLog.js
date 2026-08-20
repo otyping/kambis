@@ -546,17 +546,6 @@ function parseItemTab(tab, sourceKey, todayIso, group) {
         };
   const orderPack = parseOrderPack(note, stockUnit);
 
-  /* ตัวคูณที่ "รู้จริง" ของแท็บนี้ — canonUnit(หน่วย) → เท่ากับกี่หน่วยสต๊อก
-   * หน่วยที่ยังเดาไม่ได้ (sizeSource 'assumed' / null) ห้ามใส่ ไม่งั้นฝั่ง kpi
-   * จะเอาไปคูณแล้วสั่งของผิดจำนวนโดยไม่มีอะไรบอก */
-  const unitPacks = {};
-  if (stockUnit) unitPacks[canonUnit(stockUnit)] = 1;
-  if (pricePack && pricePack.unit && pricePack.sizeSource === 'note') {
-    unitPacks[canonUnit(pricePack.unit)] = pricePack.size;
-  }
-  if (orderPack && orderPack.size !== null) {
-    unitPacks[canonUnit(orderPack.unit)] = orderPack.size;
-  }
 
   return {
     records,
@@ -578,11 +567,6 @@ function parseItemTab(tab, sourceKey, todayIso, group) {
       unitPrice: pricePack ? pricePack.price / pricePack.size : null,
       pricePack,
       orderPack,
-      /* ตารางสั่งของรายเดือนมีคอลัมน์หน่วยของตัวเอง และ 3 รายการเขียนคนละหน่วย
-       * กับแท็บ log (ทิชชู่ `1 ลัง` แต่หน่วยสต๊อกเป็น `ห่อ`) — ตารางนี้ให้ kpi.js
-       * แปลงหน่วยได้โดยไม่ต้องไปแกะข้อความไทยซ้ำอีกฝั่ง (กฎ: โน้ตถูกอ่านที่ไฟล์นี้ที่เดียว)
-       * ใส่เฉพาะหน่วยที่ **รู้ตัวคูณจริง** เท่านั้น หน่วยที่เดาไม่ได้ต้องไม่มีในนี้ */
-      unitPacks,
       priceLabel: price.priceLabel,
       priceUnit: price.priceUnit,
       priceQty: price.priceQty,

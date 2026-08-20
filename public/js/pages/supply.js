@@ -609,7 +609,6 @@ function renderStockTable(host, items, asOf = '', sheet = {}) {
             return v === null ? `<span class="muted">${DASH}</span>` : `<b>${n(v, 2)}</b>`;
           },
         },
-        { label: t('supply.lifetime'), get: (r) => r.lifetimeText ?? '' },
       ],
       items,
       {
@@ -625,7 +624,7 @@ function renderStockTable(host, items, asOf = '', sheet = {}) {
           const priced = rows.filter((r) => valueOf(r) !== null);
           const total = priced.reduce((s, r) => s + valueOf(r), 0);
           const missing = rows.length - priced.length;
-          const cells = Array(6).fill('');
+          const cells = Array(5).fill('');
           cells[0] = `<b>${esc(t('supply.stockValueTotal'))}</b>`;
           cells[3] = missing
             ? `<span class="cell-missing">${esc(
