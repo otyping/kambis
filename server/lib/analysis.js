@@ -1010,6 +1010,79 @@ function checkSupply(source, out, now) {
   for (const tab of source.tabs || []) {
     if (tab.skipped || tab.role === 'order') continue;
 
+    /* หน่วยราคาไม่ตรงกับหน่วยที่ใช้นับ และหมายเหตุไม่ได้บอกตัวคูณไว้
+     *
+     * ผู้ใช้กำหนดว่า **ห้ามทิ้งราคา** ให้ใช้ 1:1 ต่อไปก่อน (7 แท็บที่เป็นแบบนี้เป็นคำพ้อง
+     * ความหมายจริง เช่น ท่อ/ถัง · อัน/เครื่อง) แต่ต้องไม่เงียบ เพราะถ้าวันหนึ่งมีคนเพิ่ม
+     * รายการที่ซื้อเป็นแพ็คจริงแล้วลืมเขียนตัวคูณ มูลค่าจะเกินจริงแบบเดียวกับกระดาษทิชชู่
+     * ที่เคยเกินไป 24 เท่า — และไม่มีอะไรจับได้นอกจากคน */
+    if (tab.pricePack && tab.pricePack.sizeSource === 'assumed' && tab.unitPrice !== null) {
+      out.push(
+        finding('supply.priceUnitAssumed', 'warning', {
+          source: source.key,
+          tab: tab.name,
+          field: 'H1 (ป้ายราคา) และ A3 (หมายเหตุ)',
+          messageTh:
+            `${tab.item}: ป้ายราคาเขียนว่า "ราคา/${tab.pricePack.unit}" แต่คอลัมน์หน่วยนับเป็น ` +
+            `"${tab.unit ?? '—'}" และหมายเหตุไม่ได้บอกว่า 1 ${tab.pricePack.unit} เท่ากับกี่ ` +
+            `${tab.unit ?? 'หน่วย'} — ระบบใช้ ${tab.pricePack.price} บาทต่อ 1 ${tab.unit ?? 'หน่วย'} ` +
+            `ไปก่อน ถ้าไม่ใช่ ให้เขียนในหมายเหตุว่า "1 ${tab.pricePack.unit} มี N ${tab.unit ?? 'หน่วย'}"`,
+          messageEn:
+            `${tab.item}: the price label reads "ราคา/${tab.pricePack.unit}" but the unit column ` +
+            `counts "${tab.unit ?? '—'}", and the note does not say how many ${tab.unit ?? 'units'} ` +
+            `are in one ${tab.pricePack.unit}. ${tab.pricePack.price} is being used per one ` +
+            `${tab.unit ?? 'unit'}. If that is wrong, write "1 ${tab.pricePack.unit} มี N ` +
+            `${tab.unit ?? 'หน่วย'}" in the note cell.`,
+          actual: tab.pricePack.unit,
+          expected: tab.unit ?? null,
+        })
+      );
+    }
+
+    /* หารราคาให้แล้ว — ขึ้นเป็น info เพื่อให้ตรวจย้อนได้
+     * คนเปิดชีตเห็น 799 แล้วหน้าจอเขียน 33.29 ต้องมีที่ให้ดูว่าเลขนี้มาจากไหน */
+    if (tab.pricePack && tab.pricePack.sizeSource === 'note') {
+      out.push(
+        finding('supply.priceUnitConverted', 'info', {
+          source: source.key,
+          tab: tab.name,
+          field: 'H1/H2 (ราคา) และ A3 (ขนาดแพ็ค)',
+          messageTh:
+            `${tab.item}: ชีตเขียนราคา ${tab.pricePack.price} บาท/${tab.pricePack.unit} และหมายเหตุ ` +
+            `บอกว่า 1 ${tab.pricePack.unit} = ${tab.pricePack.size} ${tab.unit} → ` +
+            `ระบบคิดมูลค่าด้วย ${tab.unitPrice.toFixed(2)} บาท/${tab.unit}`,
+          messageEn:
+            `${tab.item}: the sheet lists ${tab.pricePack.price} per ${tab.pricePack.unit} and the ` +
+            `note says 1 ${tab.pricePack.unit} = ${tab.pricePack.size} ${tab.unit}, so ` +
+            `${tab.unitPrice.toFixed(2)} per ${tab.unit} is used for all values`,
+          expected: tab.pricePack.price,
+          actual: Number(tab.unitPrice.toFixed(4)),
+        })
+      );
+    }
+
+    /* รู้ว่าเขาสั่งทีละกี่หน่วย แต่ไม่รู้ว่าหน่วยนั้นเท่ากับกี่หน่วยสต๊อก
+     * ระบบจึงยังไม่ปัดจำนวนในใบขอซื้อให้ — ต้องบอก ไม่ใช่เงียบ */
+    if (tab.orderPack && tab.orderPack.size === null) {
+      out.push(
+        finding('supply.orderPackUnknown', 'info', {
+          source: source.key,
+          tab: tab.name,
+          field: 'A3 (หมายเหตุ)',
+          messageTh:
+            `${tab.item}: หมายเหตุเขียนว่าสั่งครั้งละ ${tab.orderPack.moq} ${tab.orderPack.unit} ` +
+            `แต่ไม่รู้ว่า 1 ${tab.orderPack.unit} เท่ากับกี่ ${tab.unit ?? 'หน่วย'} ` +
+            `ระบบจึงยังไม่ปัดจำนวนที่ขอซื้อเป็นแพ็คให้ — ให้เขียนเพิ่มว่า ` +
+            `"1 ${tab.orderPack.unit} มี N ${tab.unit ?? 'หน่วย'}"`,
+          messageEn:
+            `${tab.item}: the note says to order ${tab.orderPack.moq} ${tab.orderPack.unit} at a ` +
+            `time, but how many ${tab.unit ?? 'units'} that is is unknown, so purchase quantities ` +
+            `are not rounded to whole packs. Add "1 ${tab.orderPack.unit} มี N ${tab.unit ?? 'หน่วย'}".`,
+          actual: tab.orderPack.unit,
+        })
+      );
+    }
+
     if (tab.current && tab.current.minimum === null) {
       out.push(
         finding('supply.noMinimum', 'info', {

@@ -15,6 +15,8 @@ import {
   parse as parseSupplyLog,
   normalizeItemName,
   parseLeadTimeDays,
+  parsePackSize,
+  parseOrderPack,
 } from '../server/lib/parsers/supplyLog.js';
 import { analyze, verifyPresentation } from '../server/lib/analysis.js';
 import { buildStockRows, createStockExport } from '../server/lib/stock-export.js';
@@ -23,11 +25,12 @@ import { comparePeriod, parseSheetDate } from '../server/lib/normalize.js';
 import { buildXlsx, columnLetter, escapeXml } from '../server/lib/xlsx.js';
 import { validateItems, splitByForm, requestFilePath } from '../server/lib/purchase-request.js';
 import { recentRequests } from '../server/lib/loader.js';
-import { stockAt } from '../public/js/shared/kpi.js';
+import { stockAt, usageValueByMonth } from '../public/js/shared/kpi.js';
 import {
   readSupplyFilters,
   supplyFilterParams,
   isSupplyFiltered,
+  supplyLookup,
 } from '../public/js/ui/supply-filters.js';
 
 /** แท็บรายการจำลอง — หัวตาราง 1 แถว แล้วตามด้วยข้อมูล */
@@ -1022,6 +1025,118 @@ describe('ใบขอซื้อ (.xlsx)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────
+/* ── มูลค่าของที่เบิกต่อเดือน (กราฟบนหน้า "การเบิก") ──
+ *
+ * ตารางจำนวนเบิกบอกได้แค่ "กี่ชิ้น" ซึ่งของคนละหน่วยเอามาบวกกันไม่ได้
+ * แปลงเป็นเงินก่อนถึงจะรวมข้ามรายการได้ — แต่ต้องไม่เผลอนับรายการที่ยังไม่มีราคาเป็น 0
+ */
+describe('มูลค่าของที่เบิกต่อเดือน', () => {
+  const head = ['แบบฟอร์ม', 'รับ', 'เบิก', 'คงเหลือ', 'หน่วย', 'ขั้นต่ำ', 'Index', 'ราคา/หน่วย'];
+  const noPriceHead = head.slice(0, 7);
+
+  /** แท็บรายการหนึ่งอัน — price = null คือแท็บที่ยังไม่ได้กรอกราคาในคอลัมน์ H */
+  const tab = (name, price, rows) => ({
+    gid: name,
+    name,
+    rows: [
+      price === null ? noPriceHead : head,
+      ...rows.map(([date, issued, balance], i) =>
+        price === null
+          ? [date, '', String(issued), String(balance), 'ชิ้น', '5', String(balance - 5)]
+          : [date, '', String(issued), String(balance), 'ชิ้น', '5', String(balance - 5),
+             i === 0 ? String(price) : '']
+      ),
+    ],
+  });
+
+  const kpiOf = (tabs) => {
+    const parsed = parseSupplyLog({ tabs, today: '2026-08-31' });
+    return buildKpi(
+      {
+        supplyLog: {
+          key: 'supplyLog',
+          kind: 'supply',
+          status: 'ok',
+          rows: parsed.rows,
+          tabs: parsed.tabs,
+          rowCount: parsed.rows.length,
+        },
+      },
+      { score: null, counts: {}, total: 0, bySource: {} }
+    ).supply;
+  };
+
+  const kpi = kpiOf([
+    // วัสดุทั่วไป มีราคา — เบิกทั้งสองเดือน
+    tab('1.ถุงมือ', 100, [
+      ['02/07/2569', 5, 45],
+      ['02/08/2569', 2, 43],
+    ]),
+    // ปุ๋ย มีราคา — เบิกเดือนกรกฎาคมอย่างเดียว
+    tab('COCO', 164, [['03/07/2569', 10, 90]]),
+    // ยังไม่ได้ใส่ราคาในชีต — ห้ามคิดเป็น 0 แล้วกลืนหายไปในยอดรวม
+    tab('2.ไม่มีราคา', null, [['04/07/2569', 3, 27]]),
+    // ไม่มีราคาเหมือนกัน แต่เบิกนอกช่วงที่กำลังดู
+    tab('3.เบิกปีก่อน', null, [['04/12/2568', 9, 21]]),
+  ]);
+
+  const lookup = supplyLookup(kpi.items);
+
+  test('มูลค่า = จำนวนเบิก × ราคา/หน่วย แยกตามเดือนและหมวด', () => {
+    const { rows, total } = usageValueByMonth(kpi.usage, ['2026-07', '2026-08'], lookup);
+    assert.deepEqual(rows.map((r) => r.month), ['2026-07', '2026-08']);
+    assert.deepEqual(rows[0].byGroup, { item: 500, nutrient: 1640 });
+    assert.equal(rows[0].total, 2140);
+    assert.deepEqual(rows[1].byGroup, { item: 200 });
+    assert.equal(rows[1].total, 200);
+    // ยอดบนหัวแผงต้องเท่ากับผลรวมของแท่งที่เห็นเสมอ
+    assert.equal(total, rows.reduce((s, r) => s + r.total, 0));
+  });
+
+  /* เดือนที่ไม่ได้แสดงต้องไม่ถูกนับ ไม่งั้นกรองปีแล้วยอดบนกราฟจะไม่ตรงกับคอลัมน์
+   * ของตารางที่อยู่ใต้มัน (เป็นเหตุผลเดียวกับที่ตารางไม่ใช้ r.total ของ server) */
+  test('นับเฉพาะเดือนที่แสดงอยู่ ไม่ใช่ยอดตลอดกาล', () => {
+    const { rows, total } = usageValueByMonth(kpi.usage, ['2026-08'], lookup);
+    assert.equal(rows.length, 1);
+    assert.equal(total, 200, 'เดือนกรกฎาคมต้องไม่ปนเข้ามา');
+  });
+
+  /* **ข้อสำคัญที่สุดของชุดนี้** — ของที่ยังไม่มีราคาต้องหายไปจากยอด พร้อมบอกชื่อกลับมา
+   * ถ้าเผลอคิดเป็น 0 ยอดจะต่ำกว่าจริงโดยไม่มีอะไรบอก (กฎเดียวกับมูลค่าสต๊อก) */
+  test('รายการที่ยังไม่มีราคาไม่ถูกคิดเป็น 0 แต่ถูกรายงานกลับมา', () => {
+    const { rows, priced, unpriced } = usageValueByMonth(kpi.usage, ['2026-07'], lookup);
+    assert.deepEqual(unpriced, ['ไม่มีราคา']);
+    assert.equal(priced.length, 2);
+    assert.equal(rows[0].total, 2140, 'ของที่ไม่มีราคาต้องไม่ทำให้ยอดขยับ');
+  });
+
+  /* ตัวเลข "ยังไม่รวม N รายการ" ต้องเป็นของช่วงที่กำลังดูเท่านั้น
+   * ไม่งั้นเลือกปีนี้แล้วขึ้นว่าขาดไป 40 รายการ ทั้งที่ 39 อันนั้นเบิกกันเมื่อปีที่แล้ว */
+  test('รายการที่ไม่ได้เบิกในช่วงที่แสดง ไม่ถูกนับว่าทำให้ยอดขาด', () => {
+    const { unpriced } = usageValueByMonth(kpi.usage, ['2026-07', '2026-08'], lookup);
+    assert.ok(!unpriced.includes('เบิกปีก่อน'), 'เบิกนอกช่วงที่ดูอยู่ ไม่เกี่ยวกับยอดของช่วงนี้');
+  });
+
+  test('ไม่มีเดือนให้แสดง หรือไม่มีการเบิกเลย = ยอดเป็น 0 ไม่ใช่พัง', () => {
+    assert.deepEqual(usageValueByMonth(kpi.usage, [], lookup), {
+      rows: [], total: 0, priced: [], unpriced: [],
+    });
+    assert.equal(usageValueByMonth([], ['2026-07'], lookup).total, 0);
+    assert.equal(usageValueByMonth(undefined, undefined, undefined).total, 0);
+  });
+
+  /* หมวดที่จับไม่ได้ต้องมีช่องของตัวเอง ('') ห้ามไปกองรวมกับหมวดใดหมวดหนึ่ง
+   * ไม่งั้นกราฟจะบอกว่าเดือนนั้นซื้อปุ๋ยเยอะทั้งที่ไม่รู้ด้วยซ้ำว่าของชิ้นนั้นคืออะไร */
+  test('รายการที่ไม่รู้หมวด ไปอยู่ช่องของตัวเอง', () => {
+    const { rows } = usageValueByMonth(
+      [{ item: 'ของแปลก', byMonth: { '2026-07': 2 } }],
+      ['2026-07'],
+      { priceOf: () => 50, groupOf: () => null }
+    );
+    assert.deepEqual(rows[0].byGroup, { '': 100 });
+  });
+});
+
 describe('เกณฑ์ของที่ต้องสั่งซื้อ และการจับการเบิกผิดปกติ', () => {
   const tab = (name, rows) => ({ gid: name, name, rows });
   const head = ['h', 'รับ', 'เบิก', 'คงเหลือ', 'หน่วย', 'ขั้นต่ำ', 'Index'];
@@ -1147,5 +1262,267 @@ describe('เกณฑ์ของที่ต้องสั่งซื้อ 
     assert.equal(hit.direction, 'high');
     assert.equal(hit.current, 15);
     assert.ok(hit.ratio >= 4, `อัตราควรสูงกว่าปกติหลายเท่า (ได้ ${hit.ratio})`);
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   สามหน่วยต่อหนึ่งรายการ: หน่วยสต๊อก · หน่วยราคา · หน่วยซื้อ
+   ═══════════════════════════════════════════════════════════════
+
+   เคสจริงที่ผู้ใช้จับได้ ส.ค. 69 — กระดาษทิชชู่เช็ดมือ ป้ายราคาเขียน `ราคา/ลัง` = 799
+   แต่คอลัมน์หน่วยนับเป็น `ห่อ` มูลค่าสต๊อกจึงเกินจริง **24 เท่า** (31,161 แทนที่จะเป็น 1,298)
+   ระบบไม่มีอะไรจับได้เลย ผู้ใช้เป็นคนเห็นเอง
+
+   fixture ในชุดนี้ใช้ **เลย์เอาต์จริงของชีต 4 แถว** ต่างจาก fixture เดิมทั้งไฟล์ที่วาง
+   หัวตารางไว้แถวแรก ซึ่งเป็นรูปร่างสมัยดึงด้วย gviz (ที่กินแถวบนทิ้ง 2 แถว) และเป็น
+   เหตุผลเดียวที่บั๊ก "อ่านหมายเหตุจาก rows[0][0]" รอดมาได้โดยไม่มี test ไหนฟ้อง */
+describe('หน่วยราคา · หน่วยสต๊อก · หน่วยซื้อ', () => {
+  const HEAD = [
+    'วัน/เดือน/ปี ',
+    'จำนวน\nรับของ',
+    'จำนวนเบิก',
+    'จำนวน\nคงเหลือ',
+    'หน่วย',
+    'ขั้นต่ำ',
+    'Index',
+  ];
+  const TITLE = 'แบบฟอร์มเบิกของและของคงเหลือ (33)';
+
+  /** แท็บตามเลย์เอาต์จริง: หัวเอกสาร+ป้ายราคา · ตัวเลขราคา · หมายเหตุ · หัวตาราง · ข้อมูล */
+  const realTab = (name, priceLabel, price, note, rows) => ({
+    gid: name,
+    name,
+    rows: [
+      [TITLE, '', '', '', '', '', '', priceLabel],
+      ['', '', '', '', '', '', '', price],
+      [note, '', '', '', '', '', '', ''],
+      HEAD,
+      ...rows,
+    ],
+  });
+
+  const TISSUE_NOTE =
+    'กระดาษทิชชู่เช็ดมือ (250แผ่น/24ห่อ/ลัง): ใช้ 1ลัง/เดือน  สั่งครั้งละ 1 ลัง Lead time 7 days ';
+  const tissue = (rows) => realTab('30.กระดาษทิชชู่เช็ดมือ', 'ราคา/ลัง', '799', TISSUE_NOTE, rows);
+
+  const parseOne = (tab, today = '2026-08-20') => parseSupplyLog({ tabs: [tab], today }).tabs[0];
+
+  test('หมายเหตุอ่านจากแถวเหนือหัวตาราง ไม่ใช่แถวแรก', () => {
+    const t = parseOne(tissue([['01/07/2569', '0', '', '75', 'ห่อ', '20', '55']]));
+    assert.match(t.note, /24ห่อ\/ลัง/, 'ต้องได้หมายเหตุจริงที่แถวที่ 3');
+    assert.doesNotMatch(
+      t.note,
+      /^แบบฟอร์มเบิกของและของคงเหลือ \(\d+\)$/,
+      'ห้ามหยิบหัวกระดาษมาเป็นหมายเหตุ — เคยพลาดตรงนี้แล้ว leadTimeDays หายทั้ง 136 รายการ'
+    );
+    assert.equal(t.leadTimeDays, 7);
+  });
+
+  test('ราคา/ลัง ต้องกลายเป็นราคาต่อห่อ ไม่ใช่ 799', () => {
+    const t = parseOne(tissue([['01/07/2569', '0', '', '39', 'ห่อ', '20', '19']]));
+    assert.equal(t.unit, 'ห่อ');
+    assert.notEqual(t.unitPrice, 799, '799 เป็นราคาต่อลัง เอามาคูณจำนวนห่อไม่ได้');
+    assert.ok(Math.abs(t.unitPrice - 799 / 24) < 1e-9, `ควรได้ ${799 / 24} แต่ได้ ${t.unitPrice}`);
+    assert.deepEqual(t.pricePack, { price: 799, unit: 'ลัง', size: 24, sizeSource: 'note' });
+    // มูลค่าสต๊อกต้องไม่ใช่ 31,161 ซึ่งเป็นตัวเลขที่ผู้ใช้ทักท้วง
+    const value = 39 * t.unitPrice;
+    assert.ok(value > 1290 && value < 1300, `ควรราว 1,298 บาท แต่ได้ ${value}`);
+  });
+
+  test('ราคาดิบตามที่ชีตเขียนยังเก็บไว้ครบ เพื่ออธิบายที่มาบนหน้าจอ', () => {
+    const t = parseOne(tissue([['01/07/2569', '0', '', '39', 'ห่อ', '20', '19']]));
+    assert.equal(t.pricePack.price, 799, 'ต้องคืนเลขที่คนเปิดชีตเห็นได้ ไม่งั้นเขาจะไม่เชื่อ 33.29');
+    assert.equal(t.priceLabel, 'ราคา/ลัง');
+  });
+
+  test('หน่วยเดียวกันต้องไม่ถูกหาร แม้หมายเหตุจะมีตัวเลขเต็มไปหมด', () => {
+    const t = parseOne(
+      realTab(
+        '44.ใบมีดผ่าตัดเบอร์ 11',
+        'ราคา/ใบ',
+        '7.5',
+        'ใบมีดผ่าตัดเบอร์ 11 (100 ใบ/กล่อง): ใช้ 5 ใบ/ crop สั่งครั้งละ 1 กล่อง Lead time 7 days',
+        [['01/07/2569', '0', '', '20', 'ใบ', '5', '15']]
+      )
+    );
+    assert.equal(t.unitPrice, 7.5, 'ราคาต่อใบอยู่แล้ว ห้ามหารด้วย 100');
+    assert.equal(t.pricePack.sizeSource, 'sameUnit');
+    // แต่หน่วยที่ซื้อจริงเป็นกล่อง — คนละแกนกับราคา ห้ามเอามาปนกัน
+    assert.equal(t.orderPack.unit, 'กล่อง');
+    assert.equal(t.orderPack.size, 100);
+  });
+
+  test('ไม่มีหมายเหตุ = ไม่มี lead time ไม่มีตัวคูณ ห้ามเดา', () => {
+    const t = parseOne(
+      realTab('9.อะไรสักอย่าง', 'ราคา/ถุง', '50', '', [
+        ['01/07/2569', '0', '', '4', 'ถุง', '1', '3'],
+      ])
+    );
+    assert.equal(t.note, null);
+    assert.equal(t.leadTimeDays, null, 'ห้ามเป็น 0');
+    assert.equal(t.orderPack, null);
+    assert.equal(t.unitPrice, 50);
+  });
+
+  test('หน่วยต่างกันแต่หมายเหตุไม่บอกตัวคูณ → ใช้ 1:1 ต่อไป แต่ติดธงไว้', () => {
+    const t = parseOne(
+      realTab('CO2', 'ราคา/ท่อ', '390', 'Co2    Lead Time 5 Days จะสั่งครั้งละ 80 ถัง', [
+        ['01/07/2569', '0', '', '6', 'ถัง', '2', '4'],
+      ])
+    );
+    assert.equal(t.unitPrice, 390, 'ห้ามลบราคาทิ้ง — 7 แท็บที่เป็นแบบนี้เป็นคำพ้องความหมายจริง');
+    assert.equal(t.pricePack.sizeSource, 'assumed', 'ต้องติดธงให้หน้าเว็บมาร์กแถวได้');
+  });
+
+  test('parsePackSize อ่านได้ทั้งสี่แบบที่คนเขียนจริงในชีต', () => {
+    const cases = [
+      ['(250แผ่น/24ห่อ/ลัง)', 'ลัง', 'ห่อ', 24],
+      ['ผ้าไมโครไฟเบอร์ (50 ผืน/แพค)', 'แพ็ค', 'ผืน', 50],
+      ['ปากกา 2 หัว 1 แพ็คมี 10 ด้าม', 'แพ็ค', 'ด้าม', 10],
+      ['เทปกาวลบคำผิด  แพ็คละ 3 อัน', 'แพ็ค', 'อัน', 3],
+      ['1 แพ็ค=50 ผืน/ 4 เดือน', 'แพ็ค', 'ผืน', 50],
+      ['จะสั่งครั้งละ 2  ลัง (1 ลังมี 20 แผง)', 'ลัง', 'แผง', 20],
+    ];
+    for (const [note, from, to, want] of cases) {
+      const r = parsePackSize(note, from, to);
+      assert.equal(r.size, want, `${note} → 1 ${from} ควรเท่ากับ ${want} ${to}`);
+      assert.equal(r.source, 'note');
+    }
+  });
+
+  test('ชื่อหน่วยที่สะกดต่างกันต้องนับเป็นหน่วยเดียวกัน', () => {
+    // ชีตจริงมี แพ็ค / แพค / แพ็็ค ปนกัน 6 แท็บ ถ้าไม่ล้างวรรณยุกต์จะได้ mismatch ปลอม
+    for (const u of ['แพค', 'แพ็็ค', 'แพ็ค=5 กิโล']) {
+      assert.equal(parsePackSize('', 'แพ็ค', u).source, 'sameUnit', `แพ็ค ควรเท่ากับ ${u}`);
+    }
+    // แต่คำที่ต่อท้ายด้วยตัวอักษรไทยเป็นคนละหน่วย ห้ามเหมารวม
+    assert.equal(parsePackSize('', 'ห่อ', 'ห่อใหญ่').source, 'assumed');
+  });
+
+  test('สั่งครั้งละ N — จับเฉพาะที่เป็นจำนวนสั่งจริง', () => {
+    assert.equal(parseOrderPack('สั่งครั้งละ 1 ลัง', 'ลัง').moq, 1);
+    assert.equal(parseOrderPack('จะสั่งครั้งละ 2  ลัง (1 ลังมี 20 แผง)', 'แผง').size, 20);
+    assert.equal(parseOrderPack('สั่งครั้งละ 2 กล่องๆ ละ 15 คน', 'กล่อง').unit, 'กล่อง');
+    // ประโยคที่มีคำว่า "สั่ง" แต่ไม่ใช่จำนวนสั่งขั้นต่ำ ต้องไม่ถูกจับ
+    assert.equal(parseOrderPack('สั่งตามจำนวนถังดับเพลิงที่หมดอายุ', 'ถัง'), null);
+    assert.equal(parseOrderPack('สั่งเมื่อ ถาดเพาะชำเสื่อม แตก', 'ถาด'), null);
+    assert.equal(parseOrderPack(null, 'ถัง'), null);
+  });
+
+  test('หน่วยซื้อเล็กกว่าหน่วยสต๊อก และไม่รู้ตัวคูณ → ต้องทิ้ง MOQ ห้ามเดา 1:1', () => {
+    /* เคสจริง 80.หัวหยดน้ำ — `สั่งครั้งละ 500 ชิ้น` แต่หน่วยสต๊อกเป็น `แพ็ค`
+     * ถ้าเดาว่า 1 ชิ้น = 1 แพ็ค ระบบจะเสนอให้ซื้อ 500 แพ็ค = 280,000 บาท */
+    const p = parseOrderPack('สั่งครั้งละ 500 ชิ้น (1 แพ็ค=100 ชิ้น) Lead Time 10 days', 'แพ็ค');
+    assert.equal(p.size, null, 'ไม่รู้ตัวคูณต้องเป็น null ไม่ใช่ 1');
+    assert.equal(p.sizeSource, null);
+  });
+
+  test('แถวที่ต้องสั่งซื้อคิดเป็นแพ็คเต็ม และยอดต้องตรงกันทั้งสองทาง', () => {
+    const kpi = buildKpi(
+      {
+        supplyLog: {
+          key: 'supplyLog',
+          kind: 'supply',
+          status: 'ok',
+          ...(() => {
+            const parsed = parseSupplyLog({
+              tabs: [tissue([['01/08/2569', '0', '', '0', 'ห่อ', '20', '-20']])],
+              today: '2026-08-20',
+            });
+            return { rows: parsed.rows, tabs: parsed.tabs };
+          })(),
+        },
+      },
+      { score: 0, findings: [], counts: {} },
+      { today: '2026-08-20' }
+    ).supply;
+
+    const row = kpi.needsReorder.find((r) => r.item === 'กระดาษทิชชู่เช็ดมือ');
+    assert.ok(row, 'ของขาด 20 ห่อ ต้องเข้ารายการที่ต้องสั่งซื้อ');
+    assert.equal(row.suggestedPacks, 1, 'ขาด 20 ห่อ = สั่ง 1 ลัง (24 ห่อ)');
+    assert.equal(row.orderStockQty, 24);
+    assert.equal(row.purchaseUnit, 'ลัง');
+    assert.ok(Math.abs(row.amount - 799) < 1e-9, `ควรได้ 799 แต่ได้ ${row.amount}`);
+    // invariant ของสองแกน — ถ้าสองฝั่งนี้หลุดจากกันเมื่อไร แปลว่ามีที่ไหนคูณซ้ำ
+    assert.ok(
+      Math.abs(row.suggestedPacks * row.purchaseUnitPrice - row.orderStockQty * row.unitPrice) < 1e-9
+    );
+  });
+});
+
+describe('ใบขอซื้อคิดเป็นหน่วยที่ซื้อจริง', () => {
+  const known = [
+    {
+      item: 'กระดาษทิชชู่เช็ดมือ',
+      unit: 'ห่อ',
+      unitPrice: 799 / 24,
+      purchaseUnit: 'ลัง',
+      purchasePackSize: 24,
+      purchaseUnitPrice: 799,
+      pack: { sizeSource: 'note' },
+      balance: 0,
+      minimum: 20,
+      group: 'item',
+    },
+    {
+      item: 'ใบมีดผ่าตัดเบอร์ 11',
+      unit: 'ใบ',
+      unitPrice: 7.5,
+      purchaseUnit: 'กล่อง',
+      purchasePackSize: 100,
+      purchaseUnitPrice: 750,
+      pack: { sizeSource: 'sameUnit' },
+      balance: 0,
+      minimum: 5,
+      group: 'item',
+    },
+  ];
+
+  test('ทิชชู่ต้องออกใบเป็น 1 ลัง × 799 ไม่ใช่ 24 ห่อ × 33.29', () => {
+    const { items, errors } = validateItems([{ item: 'กระดาษทิชชู่เช็ดมือ', packs: 1 }], known);
+    assert.deepEqual(errors, []);
+    assert.equal(items[0].packs, 1);
+    assert.equal(items[0].purchaseUnit, 'ลัง');
+    assert.equal(items[0].purchaseUnitPrice, 799);
+    assert.ok(Math.abs(items[0].amount - 799) < 1e-9);
+    // หน่วยสต๊อกยังต้องติดไปด้วย ไม่งั้นสถานะ "รอของ" เทียบกับคอลัมน์ "รับ" ไม่ได้
+    assert.equal(items[0].qty, 24);
+    assert.equal(items[0].unit, 'ห่อ');
+  });
+
+  test('ราคาต่อกล่องคิดจากราคาต่อใบ ไม่ใช่คูณซ้ำสองรอบ', () => {
+    const { items } = validateItems([{ item: 'ใบมีดผ่าตัดเบอร์ 11', packs: 1 }], known);
+    assert.equal(items[0].purchaseUnitPrice, 750, 'ห้ามได้ 7.5 (ลืมคูณ) หรือ 75,000 (คูณซ้ำ)');
+    assert.equal(items[0].qty, 100);
+  });
+
+  test('client รุ่นเก่าที่ยังส่ง qty เป็นหน่วยสต๊อก ต้องได้ยอดเท่ากัน', () => {
+    const { items } = validateItems([{ item: 'กระดาษทิชชู่เช็ดมือ', qty: 24 }], known);
+    assert.equal(items[0].packs, 1);
+    assert.ok(Math.abs(items[0].amount - 799) < 1e-9);
+  });
+
+  test('ส่งมาทั้ง packs และ qty = ปฏิเสธ ห้ามเดาว่าอันไหนคือหน่วยไหน', () => {
+    const { items, errors } = validateItems(
+      [{ item: 'กระดาษทิชชู่เช็ดมือ', packs: 1, qty: 24 }],
+      known
+    );
+    assert.equal(items.length, 0);
+    assert.match(errors[0], /packs และ qty/);
+  });
+
+  test('ซื้อครึ่งลังไม่ได้', () => {
+    const { items, errors } = validateItems([{ item: 'กระดาษทิชชู่เช็ดมือ', packs: 0.5 }], known);
+    assert.equal(items.length, 0);
+    assert.ok(errors.length > 0);
+  });
+
+  test('ขนาดแพ็คต้องมาจากชีต ไม่ใช่จากที่เบราว์เซอร์ส่งมา', () => {
+    const { items } = validateItems(
+      [{ item: 'กระดาษทิชชู่เช็ดมือ', packs: 1, purchasePackSize: 1, purchaseUnitPrice: 1 }],
+      known
+    );
+    assert.equal(items[0].purchasePackSize, 24, 'แก้ขนาดแพ็คจากฝั่ง client ไม่ได้');
+    assert.equal(items[0].purchaseUnitPrice, 799);
   });
 });

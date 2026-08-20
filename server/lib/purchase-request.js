@@ -156,9 +156,30 @@ export function validateItems(requested, known) {
     }
     seen.add(name);
 
-    const qty = Number(raw?.qty);
+    /* เบราว์เซอร์ส่ง `packs` = จำนวน **หน่วยซื้อ** (ลัง/กล่อง/แพ็ค)
+     * ส่วน `qty` แบบเดิมเป็นหน่วยสต๊อก ยังรับไว้ให้ client รุ่นเก่ายิงได้
+     *
+     * **ห้ามตีความ qty เป็นแพ็คเด็ดขาด** ใบขอซื้อของกระดาษทิชชู่จะเพี้ยนไป 24 เท่า
+     * โดยไม่มีใครทันสังเกต เพราะเอกสารถูกส่งไปให้เซ็นแล้ว — ส่งมาทั้งคู่ = ปฏิเสธ */
+    const hasPacks = raw?.packs !== undefined && raw?.packs !== null;
+    const hasQty = raw?.qty !== undefined && raw?.qty !== null;
+    if (hasPacks && hasQty) {
+      errors.push(`รายการ "${name}" ส่งมาทั้ง packs และ qty — บอกไม่ได้ว่าเป็นหน่วยไหน`);
+      continue;
+    }
+
+    /* ขนาดแพ็คเอาจากชีตเสมอ เหมือนราคา — ไม่งั้นแก้จากฝั่ง client แล้วสั่งของผิดจำนวนได้ */
+    const packSize = source.purchasePackSize || 1;
+    const packs = hasPacks ? Number(raw.packs) : Number(raw?.qty) / packSize;
+    const qty = hasPacks ? Number(raw.packs) * packSize : Number(raw?.qty);
+
     if (!Number.isFinite(qty) || qty <= 0 || qty > MAX_QTY) {
       errors.push(`จำนวนของ "${name}" ต้องเป็นตัวเลขมากกว่า 0`);
+      continue;
+    }
+    // ซื้อครึ่งลังไม่ได้ — จำนวนหน่วยซื้อที่ส่งมาต้องเป็นจำนวนเต็ม
+    if (hasPacks && (!Number.isInteger(packs) || packs <= 0)) {
+      errors.push(`จำนวนของ "${name}" ต้องเป็นจำนวนเต็มของหน่วยที่ซื้อ`);
       continue;
     }
 
@@ -167,9 +188,18 @@ export function validateItems(requested, known) {
     const unitPrice = source.unitPrice ?? null;
     items.push({
       item: name,
+      // หน่วยสต๊อก + จำนวนหน่วยสต๊อก — **ความหมายเดิม ห้ามเปลี่ยน**
+      // ทะเบียนใบขอซื้อกับ attachPendingRequests() เทียบกับคอลัมน์ "รับ" ซึ่งเป็นหน่วยสต๊อก
       unit: source.unit ?? null,
       qty,
       unitPrice,
+      // หน่วยที่ซื้อจริง — บรรทัดในเอกสารใช้ชุดนี้ (1 ลัง × 799 ไม่ใช่ 24 ห่อ × 33.29)
+      packs,
+      purchaseUnit: source.purchaseUnit ?? source.unit ?? null,
+      purchasePackSize: packSize,
+      purchaseUnitPrice: source.purchaseUnitPrice ?? null,
+      packSizeSource: source.pack?.sizeSource ?? null,
+      // คิดจากหน่วยสต๊อกเสมอ — สูตรเดียวกับที่หน้าจอใช้ กันสองฝั่งเพี้ยนจากกัน
       amount: unitPrice === null ? null : qty * unitPrice,
       balance: source.balance ?? null,
       minimum: source.minimum ?? null,
@@ -307,16 +337,26 @@ function buildCompanyForm({ form, items, docNo, dateText, requestedBy, totalAmou
     }))
   );
 
+  /* บรรทัดในเอกสารเขียนเป็น **หน่วยที่ซื้อจริง** ไม่ใช่หน่วยที่ใช้นับสต๊อก
+   *
+   * กระดาษทิชชู่นับคงเหลือเป็น "ห่อ" แต่ผู้ขายขายเป็น "ลัง" เท่านั้น (1 ลัง = 24 ห่อ)
+   * ใบขอซื้อจึงต้องเขียน `1 ลัง × 799` ไม่ใช่ `24 ห่อ × 33.29` — คนที่ถือใบนี้ไปสั่งของ
+   * ต้องอ่านแล้วสั่งได้เลยโดยไม่ต้องแปลงหน่วยเอง และ 799 คือเลขที่เขียนอยู่ในชีตจริง ๆ
+   *
+   * ยอดรวมยังคิดจากหน่วยสต๊อก (qty × unitPrice) ซึ่งเท่ากับ packs × ราคาต่อหน่วยซื้อ
+   * โดยนิยาม — คิดทางเดียวกันทั้งระบบ จะได้ไม่มีทางเพี้ยนจากหน้าจอ */
   items.forEach((item, i) => {
-    const unit = item.unit ? ` (${item.unit})` : '';
+    const unit = item.purchaseUnit ? ` (${item.purchaseUnit})` : '';
     rows.push([
       { v: i + 1, s: STYLE.TD_C },
       { v: item.item + unit, s: STYLE.TD },
       // ช่องติ๊กเวลาส่งของ — ระบบไม่รู้ว่าตกลงกันกี่วัน ต้องให้คนกาเอง
       ...Array(LEAD).fill(blank(STYLE.TD_C)),
-      { v: item.qty, s: STYLE.TD_C },
+      { v: item.packs, s: STYLE.TD_C },
       // ไม่มีราคาในชีตให้เว้นว่าง ห้ามใส่ 0 เพราะยอดรวมจะดูเหมือนถูกต้องทั้งที่ขาด
-      item.unitPrice === null ? blank(STYLE.TD_C) : { v: item.unitPrice, s: STYLE.TD_MONEY },
+      item.purchaseUnitPrice === null
+        ? blank(STYLE.TD_C)
+        : { v: item.purchaseUnitPrice, s: STYLE.TD_MONEY },
       item.amount === null ? blank(STYLE.TD_C) : { v: item.amount, s: STYLE.TD_MONEY },
     ]);
   });
@@ -512,9 +552,16 @@ export async function createPurchaseRequests({
         totalAmount: doc.totalAmount,
         items: doc.items.map((i) => ({
           item: i.item,
+          /* `qty`/`unit` เป็น **หน่วยสต๊อก** เหมือนเดิมเสมอ ห้ามเปลี่ยนความหมาย
+           * `attachPendingRequests()` เอาไปเทียบกับคอลัมน์ "รับ" ของ log เพื่อปิดสถานะ
+           * "รอของ" ให้เอง ถ้าเปลี่ยนเป็นหน่วยซื้อเมื่อไร ใบขอซื้อจะค้างเป็น "รอของ" ตลอดไป
+           * ส่วนหน่วยซื้อเก็บเพิ่มต่างหาก — ใบเก่าที่ไม่มีฟิลด์นี้ต้องยังอ่านได้ */
           qty: i.qty,
           unit: i.unit ?? null,
           unitPrice: i.unitPrice,
+          packs: i.packs ?? null,
+          purchaseUnit: i.purchaseUnit ?? null,
+          purchaseUnitPrice: i.purchaseUnitPrice ?? null,
           balanceAtRequest: i.balance ?? null,
           minimumAtRequest: i.minimum ?? null,
         })),

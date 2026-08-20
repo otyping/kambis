@@ -476,6 +476,16 @@ const STRINGS = {
   'supply.noPriceTip': ['ไม่มีราคาในแท็บสั่งของรายเดือน', 'No price in the monthly order tab'],
   'supply.missingPriceWarn': ['มี {n} รายการที่ยังไม่มีราคาในชีต มูลค่ารวมจึงยังไม่ครบ', '{n} items have no price in the sheet, so the total is incomplete'],
   'supply.unpricedNote': ['(ไม่รวม {n} รายการที่ไม่มีราคา)', '(excludes {n} items with no price)'],
+  'supply.usageValueTitle': ['มูลค่าของที่เบิกต่อเดือน', 'Value of stock used per month'],
+  'supply.usageValueIntro': [
+    'คิดจาก จำนวนเบิก × ราคา/หน่วยปัจจุบันในชีต (คอลัมน์ H ของแท็บรายการ) จึงเป็นมูลค่าของที่เบิกไปตามราคาวันนี้ ไม่ใช่ยอดเงินที่จ่ายจริงในเดือนนั้น เพราะชีตเก็บราคาไว้ช่องเดียวต่อรายการ ไม่มีประวัติราคา',
+    'Quantity issued × the current unit price in the sheet (column H of each item tab) — the value of what was used at today price, not the money actually spent that month, because the sheet keeps one price per item with no history',
+  ],
+  'supply.usageValueNoPrice': [
+    'ยังคิดมูลค่าไม่ได้ — รายการที่เบิกในช่วงนี้ยังไม่มีราคาในชีตสักรายการ',
+    'Cannot value this yet — none of the items used in this period has a price in the sheet',
+  ],
+  'supply.usageValueFuture': ['ล่วงหน้า', 'Future'],
   'supply.usageTitle': ['จำนวนเบิกต่อเดือน', 'Stock usage summary'],
   'supply.usageNote': ['แถวคือรายการ คอลัมน์คือเดือน', 'Rows are items, columns are months'],
   'supply.noUsage': ['ยังไม่มีการเบิกในช่วงที่มีข้อมูล', 'No withdrawals in the recorded period'],
@@ -504,6 +514,18 @@ const STRINGS = {
     'Balances from each item’s log tab · value = balance × unit price · prices are read from column H of that tab’s header, which is not filled in for every item',
   ],
   'supply.noPrice': ['*ยังไม่ใส่ราคา', '*price not set'],
+
+  /* ── หน่วยราคา · หน่วยสต๊อก · หน่วยซื้อ เป็นคนละหน่วยกันได้ ──────────────
+   * ชีตเขียนราคาไว้ต่อ "ลัง" แต่ตารางนับเป็น "ห่อ" ตัวเลขบนจอจึงไม่ใช่เลขในชีต
+   * ทุกที่ที่แสดงราคาที่ระบบหารมาเอง ต้องบอกที่มาเสมอ ไม่งั้นคนจะเลิกเชื่อทั้งตาราง */
+  'supply.priceFromPack': ['จาก {price} ฿/{packUnit} ÷ {size}', 'from {price} ฿/{packUnit} ÷ {size}'],
+  'supply.priceUnitAssumedTip': [
+    'ชีตเขียนราคาต่อ "{packUnit}" แต่คอลัมน์หน่วยนับเป็น "{unit}" และหมายเหตุไม่ได้บอกตัวคูณ — ระบบใช้ 1:1 ไปก่อน ให้เขียนในหมายเหตุว่า "1 {packUnit} มี N {unit}"',
+    'The sheet prices per "{packUnit}" but the unit column counts "{unit}", and the note gives no factor — 1:1 is assumed. Write "1 {packUnit} มี N {unit}" in the note.',
+  ],
+  'supply.packEquiv': ['= {qty} {unit}', '= {qty} {unit}'],
+  'supply.perStockUnit': ['= {price} ฿/{unit}', '= {price} ฿/{unit}'],
+  'supply.purchaseUnitPrice': ['ราคา/หน่วยซื้อ', 'Price per purchase unit'],
   'supply.stockValueTotal': ['มูลค่าสต๊อกรวม', 'Total stock value'],
   /* ต้องบอกว่ายอดนี้ยังไม่ครบ ไม่งั้นคนจะอ่านว่าเป็นมูลค่าสต๊อกทั้งหมด */
   'supply.stockValueMissing': [

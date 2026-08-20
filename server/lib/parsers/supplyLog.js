@@ -67,6 +67,66 @@ export function parseLeadTimeDays(text) {
   return Number.isFinite(days) && days > 0 ? days : null;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   หมายเหตุของรายการ — เซลล์ merge A–G เหนือหัวตาราง
+   ═══════════════════════════════════════════════════════════════
+
+   เป็นแหล่งของทั้ง Lead Time และ "ขนาดแพ็ค" จึงต้องหาให้เจอทุกครั้ง
+   หน้าตาที่เจอจริง (แท็บกระดาษทิชชู่):
+
+       แถว 0   แบบฟอร์มเบิกของและของคงเหลือ (33)   │  ราคา/ลัง
+       แถว 1                                       │  799
+       แถว 2   กระดาษทิชชู่เช็ดมือ (250แผ่น/24ห่อ/ลัง): ใช้ 1ลัง/เดือน สั่งครั้งละ 1 ลัง Lead time 7 days
+       แถว 3   วัน/เดือน/ปี │ จำนวนรับของ │ …
+
+   **เคยพังมาแล้ว:** โค้ดเดิมอ่าน `rows[0][0]` ตรง ๆ ซึ่งใช้ได้สมัยดึงด้วย `gviz`
+   เพราะ gviz กินแถวหัวทิ้ง 2 แถวพอดี แถวแรกที่เหลือจึงบังเอิญเป็นหมายเหตุ
+   พอเปลี่ยนมาใช้ `/export?format=csv` ที่คืนกริดดิบ (ดู §1 ของ CLAUDE.md)
+   `rows[0][0]` กลายเป็นหัวกระดาษ → `leadTimeDays` เป็น null ทั้ง 136 รายการ
+   ทั้งที่ 125 แท็บมีเขียนไว้ คอลัมน์ Lead Time ว่างทั้งตาราง สถานะ "รอของเลยกำหนด"
+   ตายเงียบ และ **fixture ของ test ทุกตัวใส่หมายเหตุไว้แถว 0 จึงไม่มีอะไรจับได้**
+
+   จึงต้องหาจากเนื้อหา ไม่ใช่ตำแหน่งตายตัว */
+
+/** หัวกระดาษที่ซ้ำกันทุกแท็บ — ไม่ใช่หมายเหตุของรายการ */
+/* ป้ายหัวเอกสารที่ 137 จาก 139 แท็บเขียนเหมือนกันเป๊ะ — ไม่ใช่โน้ตของรายการ
+ * **ต้อง anchor ด้วย `$`** เพราะบางแท็บเขียนต่อท้ายป้ายนี้ว่าเป็นของอะไร
+ * แล้วบรรทัดนั้นกลายเป็นโน้ตจริง (`…และของคงเหลือ Rockwool Lead Time - 5 Days`)
+ * ถ้าตัดแบบ `/^แบบฟอร์ม/` จะทิ้งโน้ตของแท็บพวกนั้นไปด้วย */
+const BOILERPLATE_RE = /^แบบฟอร์มเบิกของและของคงเหลือ\s*(?:\(\s*\d+\s*\))?$/;
+
+/** สั้นกว่านี้ไม่ใช่ประโยคบรรยาย เป็นเศษข้อความหรือหัวคอลัมน์ */
+const NOTE_MIN_LEN = 20;
+
+/** ลายเซ็นว่าเซลล์นี้เป็นข้อความบรรยายจริง ไม่ใช่ป้ายหัวคอลัมน์ */
+const NOTE_SIGNATURE_RE = /lead\s*-?\s*time|สั่งครั้ง|ใช้\s*\d|\/\s*(?:crop|เดือน|ปี)/i;
+
+/**
+ * หาหมายเหตุของรายการจากคอลัมน์ A ของแถวเหนือหัวตาราง
+ *
+ * @param {Array<Array>} rows แถวดิบทั้งแท็บ
+ * @param {number} dataStart แถวแรกที่เป็นข้อมูลจริง (ขอบล่างของการค้น)
+ * @returns {string|null} ไม่เจอ = null **ห้ามตกไปใช้ `rows[0][0]`** เพราะจะได้หัวกระดาษ
+ */
+export function readItemNote(rows, dataStart = 0) {
+  const clean = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
+  const usable = (t) =>
+    t.length >= NOTE_MIN_LEN && !BOILERPLATE_RE.test(t) && !DATE_CELL_RE.test(t) && num(t) === null;
+
+  /* ไล่จากแถวที่ "ติดหัวตารางที่สุด" ขึ้นไป แล้วเอาอันแรกที่ใช้ได้
+   * เริ่มที่ dataStart-2 เพื่อ **ข้ามแถวหัวตาราง** (dataStart-1) ซึ่งขึ้นต้นด้วย
+   * `วัน/เดือน/ปี` และไม่ใช่โน้ต */
+  for (let r = dataStart - 2; r >= 0; r--) {
+    const text = clean(rows[r]?.[0]);
+    if (usable(text)) return text;
+  }
+
+  /* ทางสำรองสำหรับแท็บที่หัวตารางเหลือแถวเดียว — ยอมอ่านจากแถวหัวตารางได้
+   * **เฉพาะเมื่อมีลายเซ็นของข้อความบรรยาย** ป้าย `วัน/เดือน/ปี` ไม่มีทางเข้าเงื่อนไขนี้ */
+  const head = clean(rows[dataStart - 1]?.[0]);
+  return usable(head) && NOTE_SIGNATURE_RE.test(head) ? head : null;
+}
+
 const ORDER_COL = {
   seq: 0,
   item: 1,
@@ -126,10 +186,12 @@ const PRICE_SCAN_ROWS = 3;
  * @param {Array<Array>} rows แถวดิบทั้งแท็บ
  * @param {number} priceCol คอลัมน์ราคา (ถัดจาก Index — คิดจากตำแหน่ง ไม่ใช่ชื่อหัว)
  * @param {number} headerEnd แถวแรกที่เป็นข้อมูลจริง (ใช้เป็นขอบล่างเมื่อหัวตารางยาวกว่าปกติ)
- * @returns {{unitPrice:number|null, priceLabel:string|null, priceUnit:string|null, priceQty:number|null}}
+ * @returns {{price:number|null, priceLabel:string|null, priceUnit:string|null, priceQty:number|null}}
+ *   `price` = ตัวเลขดิบตามที่ชีตเขียน **ยังไม่ได้หารเป็นราคาต่อหน่วยสต๊อก**
+ *   ผู้เรียกต้องหารด้วย pricePack.size เอง (ดู parsePackSize)
  */
 export function readUnitPrice(rows, priceCol, headerEnd = 0) {
-  const empty = { unitPrice: null, priceLabel: null, priceUnit: null, priceQty: null };
+  const empty = { price: null, priceLabel: null, priceUnit: null, priceQty: null };
   if (!Number.isInteger(priceCol) || priceCol < 0) return empty;
 
   // ป้ายอยู่ในบล็อกหัวตาราง — เผื่อไว้ถึงแถวที่ 3 เสมอ เพราะแท็บหัวแถวเดียวก็มีป้ายได้
@@ -164,18 +226,128 @@ export function readUnitPrice(rows, priceCol, headerEnd = 0) {
   }
 
   return {
-    // ราคาของหลายหน่วย → บอกไม่ได้ว่าหน่วยละเท่าไร ต้องให้คนไปแก้ป้ายที่ชีต
-    unitPrice: priceQty !== null && priceQty > 1 ? null : value,
+    /* คืนตัวเลขดิบเสมอ แม้ป้ายจะบอกราคาของหลายหน่วย (`ราคา/5 ถุง`)
+     * เดิมทิ้งราคาไปเลยเมื่อเจอแบบนี้ ซึ่งเสียข้อมูลทั้งที่อ่านออก — ตอนนี้ priceQty
+     * กลายเป็นตัวคูณของแพ็ค ผู้เรียกหารเองได้เลย ไม่ต้องทิ้ง */
+    price: value,
     priceLabel,
     priceUnit: unitText,
     priceQty: priceQty !== null && priceQty > 1 ? priceQty : null,
   };
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   สามหน่วยต่อหนึ่งรายการ — ห้ามคิดว่าเป็นหน่วยเดียวกัน
+   ═══════════════════════════════════════════════════════════════
+
+   ชีตนี้เก็บหน่วยไว้สามที่ และคนกรอกไม่ได้ทำให้ตรงกัน:
+
+     หน่วยสต๊อก   คอลัมน์ `หน่วย` ในตาราง   นับคงเหลือ/ขั้นต่ำ/เบิก   ห่อ
+     หน่วยราคา    ป้าย `ราคา/<X>` ที่ H1     ตัวเลขที่ H2 เป็นของหน่วยนี้  ลัง (799)
+     หน่วยซื้อ    หมายเหตุ `สั่งครั้งละ N <X>`  หน่วยที่สั่งกับผู้ขายจริง   ลัง
+
+   **เคสจริงที่ผู้ใช้จับได้ ส.ค. 69** — กระดาษทิชชู่เช็ดมือ ป้ายเขียน `ราคา/ลัง` = 799
+   แต่คอลัมน์หน่วยนับเป็น `ห่อ` เอา 39 ห่อ × 799 = 31,161 บาท ซึ่งเกินจริง **24 เท่า**
+   (ความจริง 39 × 799÷24 = 1,298) หมายเหตุบอกตัวคูณไว้แล้วว่า `(250แผ่น/24ห่อ/ลัง)`
+
+   **กับดักที่ต้องกัน: แปลงซ้ำสองรอบ** — ใบมีดผ่าตัดเขียน `ราคา/ใบ` = 7.5 ซึ่งตรงกับ
+   หน่วยสต๊อก `ใบ` อยู่แล้ว (ไม่ต้องหาร) แต่ซื้อเป็นกล่อง ๆ ละ 100 ใบ
+   ถ้าใช้ "แพ็ค" ตัวเดียวรวบทั้งราคาและการสั่งซื้อ จะได้ 7.5 บาท/กล่อง ทันที
+
+   จึงแยกเป็น **สองแกนที่คิดคนละที่** แล้วเก็บทุกอย่างต่อหน่วยสต๊อกเป็นฐานเดียว:
+
+       หน่วยราคา ──(pricePack.size)──▶ หน่วยสต๊อก ◀──(orderPack.size)── หน่วยซื้อ
+
+   `unitPrice` จึงยังแปลว่า "ราคาต่อ 1 หน่วยสต๊อก" เหมือนเดิมทุกตัวอักษร
+   ผู้ใช้เดิมทุกจุด (มูลค่าสต๊อก · มูลค่าเบิก · Excel · กราฟ · แชท) ถูกต้องทันที
+   ส่วนราคาต่อหน่วยซื้อ = `unitPrice × orderPack.size` ใช้ที่ใบขอซื้อจุดเดียว */
+
+/**
+ * หาตัวคูณ "1 <fromUnit> เท่ากับกี่ <toUnit>" จากข้อความหมายเหตุ
+ *
+ * สี่แพตเทิร์นนี้มาจากการกวาดหมายเหตุจริงทั้ง 133 แท็บ ครอบทุกเคสที่มีตัวคูณเขียนไว้:
+ *
+ *   N<to>/<from>        `(250แผ่น/24ห่อ/ลัง)` → 24   ·  `(50 ผืน/แพค)` → 50
+ *   1 <from> มี N <to>  `1 แพ็คมี 10 ด้าม` → 10      ·  `1 ลังมี 20 แผง` → 20
+ *   <from>ละ N <to>     `แพ็คละ 3 อัน` → 3
+ *   1 <from> = N <to>   `1 แพ็ค=50 ผืน` → 50         ·  `1 แพ็ค=100 ชิ้น` → 100
+ *
+ * เทียบบนรูป canonical ของทั้งสองฝั่ง เพราะคนสะกดหน่วยไม่ตรงกันแม้ในแท็บเดียวกัน
+ *
+ * @returns {{size:number, source:'sameUnit'|'note'|'assumed'}}
+ *   `assumed` = หน่วยต่างกันแต่หาตัวคูณไม่เจอ → ใช้ 1:1 ไปก่อน **แต่ต้องออก finding**
+ *   ห้ามคืน null แล้วทิ้งราคา เพราะ 7 แท็บที่เป็นแบบนี้เป็นคำพ้องความหมาย 1:1 จริง
+ *   (ท่อ/ถัง · อัน/เครื่อง · ชิ้น/ถาด · ชุด/กล่อง · ด้าม/อัน · แผ่น 98 หลุม/แผง)
+ */
+export function parsePackSize(note, fromUnit, toUnit) {
+  if (sameUnit(fromUnit, toUnit)) return { size: 1, source: 'sameUnit' };
+
+  const from = canonUnit(fromUnit);
+  const to = canonUnit(toUnit);
+  if (!from || !to) return { size: 1, source: 'assumed' };
+
+  const text = canonUnit(note).replace(/,/g, '');
+  const NUM = '([0-9]+(?:\\.[0-9]+)?)';
+  const patterns = [
+    NUM + to + '/' + from,
+    '1?' + from + 'มี' + NUM + to,
+    from + 'ละ' + NUM + to,
+    '1?' + from + '=' + NUM + to,
+  ];
+  for (const src of patterns) {
+    const hit = new RegExp(src).exec(text);
+    const size = hit ? Number(hit[1]) : null;
+    if (size !== null && Number.isFinite(size) && size > 0) return { size, source: 'note' };
+  }
+  return { size: 1, source: 'assumed' };
+}
+
+/* หน่วยซื้อ + จำนวนขั้นต่ำต่อครั้ง จากหมายเหตุ
+ *
+ * รูปแบบที่เจอจริง: `สั่งครั้งละ 1 ลัง` · `จะสั่งครั้งละ 2  ลัง` (เว้นวรรคสองครั้ง)
+ * · `สั่งครั้ง 5 ตะกร้า` (ตก "ละ") · `สั่งครั้งละ 2 กล่องๆ ละ 15 คน`
+ * เข้าเงื่อนไข 126 จาก 133 หมายเหตุ
+ *
+ * **ที่เหลือต้องเป็น null ห้ามเดา** — `สั่งเมื่อ ถาดเพาะชำเสื่อม แตก` และ
+ * `สั่งตามจำนวนถังดับเพลิงที่หมดอายุ` ไม่ใช่จำนวนสั่งขั้นต่ำ เดาแล้วจะไปปัดยอดในใบขอซื้อผิด */
+const MOQ_RE = /(?:จะ)?สั่ง\s*ครั้ง(?:ละ)?\s*([0-9]+(?:\.[0-9]+)?)\s*([ก-๙]+)/;
+
+/**
+ * @returns {{unit:string, moq:number, size:number, sizeSource:string}|null}
+ *   ไม่มีหมายเหตุ / ไม่เข้าแพตเทิร์น = null (แปลว่าซื้อเป็นหน่วยสต๊อกตรง ๆ)
+ */
+export function parseOrderPack(note, stockUnit) {
+  const hit = MOQ_RE.exec(String(note ?? ''));
+  if (!hit) return null;
+
+  const moq = Number(hit[1]);
+  if (!Number.isFinite(moq) || moq <= 0) return null;
+
+  /* ตัดหางของหน่วยออกก่อน — `กล่องๆ ละ 15 คน` จับได้เป็น `กล่องๆ`
+   * และบางอันติดคำเชื่อมมาด้วย (`ลังจะ`) ซึ่งไม่ใช่ส่วนหนึ่งของชื่อหน่วย */
+  const unit = hit[2].replace(/ๆ.*$/, '').replace(/(ละ|จะ|และ)$/, '').trim();
+  if (!unit) return null;
+
+  const { size, source } = parsePackSize(note, unit, stockUnit);
+
+  /* **หน่วยซื้อต่างจากหน่วยสต๊อกแล้วหาตัวคูณไม่เจอ = ทิ้ง MOQ ไปเลย ห้ามเดา 1:1**
+   *
+   * ต่างจากแกนราคาที่ผู้ใช้สั่งให้เดา 1:1 ต่อไปได้ เพราะตรงนั้นเดาผิดแล้วมูลค่าเพี้ยน
+   * แต่ตรงนี้เดาผิดแล้ว **สั่งของผิด** ซึ่งเสียเงินจริง
+   *
+   * เคสจริง 80.หัวหยดน้ำ — หน่วยสต๊อกเป็น `แพ็ค` แต่โน้ตเขียน `สั่งครั้งละ 500 ชิ้น
+   * (1 แพ็ค=100 ชิ้น)` หน่วยซื้อเล็กกว่าหน่วยสต๊อก 100 เท่า ถ้าเดาว่า 1 ชิ้น = 1 แพ็ค
+   * ระบบจะเสนอให้ซื้อ 500 แพ็ค = 280,000 บาท จากของที่ขาดอยู่ไม่กี่แพ็ค
+   *
+   * ไม่รู้ = ไม่ใช้ MOQ (ปัดตามหน่วยสต๊อกแบบเดิม) แล้วออก finding ให้คนไปเขียนตัวคูณที่ชีต */
+  if (source === 'assumed') return { unit, moq, size: null, sizeSource: null };
+  return { unit, moq, size, sizeSource: source };
+}
+
 /* normalizeItemName ย้ายไปอยู่ไฟล์ร่วม เพราะทั้งฝั่ง server และเบราว์เซอร์
  * ต้องจับคู่ชื่อรายการด้วยกฎเดียวกัน */
 export { normalizeItemName } from '../../../public/js/shared/agg-core.js';
-import { normalizeItemName } from '../../../public/js/shared/agg-core.js';
+import { normalizeItemName, canonUnit, sameUnit } from '../../../public/js/shared/agg-core.js';
 
 /** ชื่อรายการที่เอาไว้แสดงผล — ตัดแค่เลขลำดับนำหน้าออก */
 function displayItemName(tabName) {
@@ -282,7 +454,8 @@ function parseItemTab(tab, sourceKey, todayIso, group) {
   const col = columnsFor(probe.dateCol, best.valueOffset);
   const item = displayItemName(tab.name);
   const itemNo = NUMBERED_TAB_RE.exec(tab.name)?.[1] ?? null;
-  const note = String(rows[0]?.[0] ?? '').replace(/\s+/g, ' ').trim() || null;
+  // หมายเหตุอยู่เหนือหัวตาราง ไม่ใช่แถวแรก — ดูเหตุผลที่ readItemNote()
+  const note = readItemNote(rows, probe.dataStart);
   /* ราคาอยู่คอลัมน์ถัดจาก Index (= H ในเลย์เอาต์มาตรฐาน)
    * คิดจากตำแหน่งเหมือนคอลัมน์อื่นทั้งหมด ไม่ได้ตรึงเป็น 7 ตายตัว
    * แท็บที่คอลัมน์ตัวเลขเลื่อนไปหนึ่งช่อง (valueOffset 2/3) ช่องราคาก็เลื่อนตาม */
@@ -345,6 +518,46 @@ function parseItemTab(tab, sourceKey, todayIso, group) {
     );
   }
 
+  /* แปลงราคาให้เป็น "ต่อ 1 หน่วยสต๊อก" — หน่วยสต๊อกเพิ่งรู้ครบตอนวนแถวจบ
+   *
+   * `priceQty` (ป้ายที่ขึ้นต้นด้วยตัวเลข เช่น `ราคา/5 ถุง`) ถูกกลืนเข้ามาเป็นตัวคูณ
+   * ของแพ็คด้วย เพราะความหมายเหมือนกันเป๊ะ: ราคาก้อนนี้ครอบของกี่หน่วย
+   * เดิมโค้ดทิ้งราคาไปเลยเมื่อเจอแบบนี้ ซึ่งเสียข้อมูลทั้งที่อ่านออก */
+  const stockUnit = current?.unit ?? unit;
+  const fromNote = parsePackSize(note, price.priceUnit, stockUnit);
+
+  /* ป้ายที่ขึ้นต้นด้วยจำนวน (`ราคา/ 5 แพ็ค=5 กิโล` = 420) ยัง **ไม่ใช้ราคาเหมือนเดิม**
+   *
+   * ต่างจากเคส `ราคา/ลัง` ที่หมายเหตุบอกตัวคูณไว้ชัดเจนว่า 1 ลัง = 24 ห่อ —
+   * ป้ายแบบนี้ตีความได้หลายทาง (420 ต่อ 5 แพ็ค? ต่อ 5 กิโล? หรือ 5 แพ็คที่หนักแพ็คละ 5 กิโล?)
+   * การหารเองจึงเป็นการเดาความหมาย ไม่ใช่การอ่าน — คืน null แล้วออก finding
+   * `supply.priceNotPerUnit` ให้คนไปเขียนราคาต่อ 1 หน่วยที่ชีต (กฎเดิม ห้ามผ่อน)
+   *
+   * ตอนนี้ไม่มีแท็บไหนเข้าเงื่อนไขนี้แล้ว เพราะผู้ใช้แก้ป้ายเป็น `ราคา/ แพ็ค=5 กิโล`
+   * ซึ่งอ่านได้ตรง ๆ ว่า 420 ต่อ 1 แพ็ค — แต่กฎต้องอยู่ กันคนพิมพ์กลับมาแบบเดิม */
+  const pricePack =
+    price.price === null || price.priceQty
+      ? null
+      : {
+          price: price.price,
+          unit: price.priceUnit,
+          size: fromNote.size,
+          sizeSource: fromNote.source,
+        };
+  const orderPack = parseOrderPack(note, stockUnit);
+
+  /* ตัวคูณที่ "รู้จริง" ของแท็บนี้ — canonUnit(หน่วย) → เท่ากับกี่หน่วยสต๊อก
+   * หน่วยที่ยังเดาไม่ได้ (sizeSource 'assumed' / null) ห้ามใส่ ไม่งั้นฝั่ง kpi
+   * จะเอาไปคูณแล้วสั่งของผิดจำนวนโดยไม่มีอะไรบอก */
+  const unitPacks = {};
+  if (stockUnit) unitPacks[canonUnit(stockUnit)] = 1;
+  if (pricePack && pricePack.unit && pricePack.sizeSource === 'note') {
+    unitPacks[canonUnit(pricePack.unit)] = pricePack.size;
+  }
+  if (orderPack && orderPack.size !== null) {
+    unitPacks[canonUnit(orderPack.unit)] = orderPack.size;
+  }
+
   return {
     records,
     summary: {
@@ -354,12 +567,22 @@ function parseItemTab(tab, sourceKey, todayIso, group) {
       itemNo,
       group,
       note,
-      // อ่านจากหัวตารางเดียวกับ note — ชีตไม่มีคอลัมน์แยกให้
+      // อ่านจากหมายเหตุเดียวกับ note — ชีตไม่มีคอลัมน์แยกให้
       leadTimeDays: parseLeadTimeDays(note),
       unit,
       /* ราคา/หน่วยจากหัวตารางของแท็บนี้เอง — เลิกใช้ช่องราคาในแท็บ "สั่งของรายเดือน" แล้ว
-       * priceUnit/priceQty เก็บไว้ให้ analysis.js เทียบกับคอลัมน์หน่วยได้ */
-      unitPrice: price.unitPrice,
+       *
+       * **unitPrice = ราคาต่อ 1 หน่วยสต๊อก เสมอ** ความหมายไม่เคยเปลี่ยน
+       * ผู้ใช้ปลายทางทุกตัว (มูลค่าสต๊อก · มูลค่าเบิก · Excel · กราฟ · แชท) จึงไม่ต้องแก้
+       * ส่วนราคาดิบที่ชีตเขียนไว้เก็บครบใน pricePack เพื่อย้อนกลับไปอธิบายบนหน้าจอได้ */
+      unitPrice: pricePack ? pricePack.price / pricePack.size : null,
+      pricePack,
+      orderPack,
+      /* ตารางสั่งของรายเดือนมีคอลัมน์หน่วยของตัวเอง และ 3 รายการเขียนคนละหน่วย
+       * กับแท็บ log (ทิชชู่ `1 ลัง` แต่หน่วยสต๊อกเป็น `ห่อ`) — ตารางนี้ให้ kpi.js
+       * แปลงหน่วยได้โดยไม่ต้องไปแกะข้อความไทยซ้ำอีกฝั่ง (กฎ: โน้ตถูกอ่านที่ไฟล์นี้ที่เดียว)
+       * ใส่เฉพาะหน่วยที่ **รู้ตัวคูณจริง** เท่านั้น หน่วยที่เดาไม่ได้ต้องไม่มีในนี้ */
+      unitPacks,
       priceLabel: price.priceLabel,
       priceUnit: price.priceUnit,
       priceQty: price.priceQty,

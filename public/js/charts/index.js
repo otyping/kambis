@@ -674,7 +674,7 @@ export function stackedBars(container, rows, opts = {}) {
     const hit = hits.find((s) => mx >= s.x0 && mx <= s.x1);
     if (!hit || !hit.total) return null;
 
-    const fmt = (v) => (unit === 'g' ? weight(v) : n(v));
+    const fmt = (v) => fmtValue(v, unit);
     const share = (v) => pct((v / hit.total) * 100);
     const row = (html) => `<span class="chart-tip__row">${html}</span>`;
     const sub = (html) => `<span class="chart-tip__sub">${html}</span>`;

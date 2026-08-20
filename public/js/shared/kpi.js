@@ -21,6 +21,8 @@ import {
   monthlySeries,
   dailySeries,
   normalizeItemName,
+  canonUnit,
+  sameUnit,
 } from './agg-core.js';
 
 /**
@@ -68,6 +70,65 @@ export function stockAt(log, asOf) {
 }
 
 /**
+ * มูลค่าของที่เบิกในแต่ละเดือน = Σ (จำนวนเบิก × ราคา/หน่วย) แยกตามหมวด
+ *
+ * คิดในเบราว์เซอร์จาก `kpi.usage` ที่ส่งมาแล้ว ด้วยเหตุผลเดียวกับ `stockAt()`:
+ * ตัวเลขต้องเดินตามตัวกรองของหน้า (ปี · คำค้น · หมวด) ซึ่ง server ไม่รู้จัก
+ *
+ * **ราคาเป็นราคาปัจจุบันจากคอลัมน์ H ของแท็บนั้น ไม่ใช่ราคาที่ซื้อจริงในเดือนนั้น**
+ * ชีตเก็บราคาไว้ช่องเดียวต่อรายการ ไม่มีประวัติราคา ตัวเลขนี้จึงตอบว่า "ของที่เบิกไป
+ * เดือนนั้น ถ้าซื้อวันนี้ต้องจ่ายเท่าไร" ผู้เรียกต้องเขียนกำกับบนหน้าจอเสมอ
+ * ห้ามปล่อยให้อ่านเหมือนยอดจ่ายจริงของเดือนนั้น
+ *
+ * **รายการที่ไม่มีราคาไม่ถูกนับเป็น 0** แต่คืนชื่อออกมาทาง `unpriced` ให้ผู้เรียก
+ * บอกผู้ใช้ว่ายอดยังไม่ครบกี่รายการ (กฎเดียวกับมูลค่าสต๊อกในตารางสต๊อก)
+ *
+ * @param {Array<{item:string, byMonth:Record<string,number>}>} usage แถวการเบิกที่กรองแล้ว
+ * @param {string[]} months เดือนที่จะแสดง เรียงมาแล้ว (YYYY-MM)
+ * @param {{priceOf:(name:string)=>number|null, groupOf:(name:string)=>string|null}} lookup
+ * @returns {{rows:{month:string, byGroup:Record<string,number>, total:number}[],
+ *            total:number, priced:string[], unpriced:string[]}}
+ */
+export function usageValueByMonth(usage = [], months = [], lookup = {}) {
+  const priceOf = lookup.priceOf ?? (() => null);
+  const groupOf = lookup.groupOf ?? (() => null);
+
+  const rows = months.map((month) => ({ month, byGroup: {}, total: 0 }));
+  const byMonth = new Map(rows.map((r) => [r.month, r]));
+  const priced = [];
+  const unpriced = [];
+  let total = 0;
+
+  for (const row of usage) {
+    /* นับเฉพาะรายการที่เบิกจริงในเดือนที่กำลังแสดงอยู่ — รายการที่ไม่ได้เบิกในช่วงนี้
+     * ไม่ควรถูกนับเป็น "รายการที่ยังไม่มีราคา" เพราะไม่ได้ทำให้ยอดของช่วงนี้ขาดไป */
+    const qty = months.reduce((s, m) => s + (row?.byMonth?.[m] ?? 0), 0);
+    if (!qty) continue;
+
+    const price = priceOf(row.item);
+    if (price === null || price === undefined) {
+      unpriced.push(row.item);
+      continue;
+    }
+    priced.push(row.item);
+
+    // หมวดที่จับไม่ได้ต้องมีที่อยู่ของตัวเอง ('') ไม่ใช่ไปกองรวมกับหมวดใดหมวดหนึ่ง
+    const group = groupOf(row.item) ?? '';
+    for (const month of months) {
+      const qtyOfMonth = row.byMonth?.[month];
+      if (!qtyOfMonth) continue;
+      const value = qtyOfMonth * price;
+      const bucket = byMonth.get(month);
+      bucket.byGroup[group] = (bucket.byGroup[group] ?? 0) + value;
+      bucket.total += value;
+      total += value;
+    }
+  }
+
+  return { rows, total, priced, unpriced };
+}
+
+/**
  * ติดสถานะ "ขอซื้อไปแล้ว รอของ" ให้รายการที่ต้องสั่งซื้อ
  *
  * ปัญหาที่แก้: ของที่ขอซื้อไปแล้วยังต่ำกว่าขั้นต่ำอยู่จนกว่าของจะมาถึง
@@ -101,6 +162,7 @@ function attachPendingRequests(needsReorder, items, purchaseRequests, asOf) {
     }
     if (latest) lastReceived.set(entry.item, latest);
   }
+
 
   /* ใบล่าสุดของแต่ละรายการที่ยังไม่มีของเข้ามาหลังวันที่ขอ
    * ไล่จากใหม่ไปเก่า เจอใบที่ยังเปิดอยู่ใบแรกก็พอ — ใบเก่ากว่านั้นไม่มีความหมาย
@@ -143,6 +205,24 @@ function attachPendingRequests(needsReorder, items, purchaseRequests, asOf) {
           : daysAgo > row.leadTimeDays,
     };
   }
+}
+
+/**
+ * จำนวนสั่งซื้อจากตารางสั่งของรายเดือน แปลงเป็น "หน่วยสต๊อก"
+ *
+ * ตารางนั้นมีคอลัมน์หน่วยของตัวเอง ซึ่งไม่จำเป็นต้องตรงกับหน่วยในแท็บ log
+ * วัดจากชีตจริง: ตรงกัน 51 · ต่างกัน 3 (ทิชชู่ ลัง/ห่อ · ปากกาเขียนป้าย ด้าม/แพ็ค ·
+ * เดทตอล แกลอน/แกลลอน ซึ่งเป็นแค่การสะกดต่างกัน)
+ *
+ * **แปลงไม่ได้ = คืน null ห้ามเดา** แล้วให้ผู้เรียกตกไปใช้ส่วนที่ขาดแทน
+ * (ปากกาเขียนป้าย: ชีตเขียน 20 ด้าม ถ้าเข้าใจว่าเป็น 20 แพ็ค จะสั่งเกิน 10 เท่า)
+ * และห้ามจับคู่หน่วยแบบเดาสะกด — `แกลอน` กับ `แกลลอน` ต้องไปแก้ที่ชีต
+ */
+function convertOrderQty(order, entry) {
+  if (!order || order.orderQty === null || order.orderQty === undefined) return null;
+  if (sameUnit(order.unit, entry.unit)) return order.orderQty;
+  const size = entry.unitPacks?.[canonUnit(order.unit)];
+  return size ? order.orderQty * size : null;
 }
 
 function buildSupply(source, purchaseRequests = [], today = null) {
@@ -220,6 +300,12 @@ function buildSupply(source, purchaseRequests = [], today = null) {
   for (const tab of tabs) {
     const cur = tab.current;
     const order = lookupOrder(tab.item);
+    /* ใช้ MOQ จากโน้ตได้ต่อเมื่อ **รู้ตัวคูณจริง** เท่านั้น
+     * parser คืน size = null เมื่อหน่วยซื้อต่างจากหน่วยสต๊อกแล้วโน้ตไม่ได้บอกตัวคูณ
+     * (เจอจริง 80.หัวหยดน้ำ `สั่งครั้งละ 500 ชิ้น` หน่วยสต๊อกเป็น `แพ็ค`)
+     * ตกลงมาที่หน่วยสต๊อกตรง ๆ ปลอดภัยกว่าเดาแล้วสั่งเกิน 100 เท่า */
+    const usableOrder = Boolean(tab.orderPack && tab.orderPack.size !== null);
+    const purchasePackSize = usableOrder ? tab.orderPack.size : 1;
     const entry = {
       item: tab.item,
       itemNo: tab.itemNo ?? null,
@@ -244,6 +330,20 @@ function buildSupply(source, purchaseRequests = [], today = null) {
       unitPrice: tab.unitPrice ?? null,
       priceUnit: tab.priceUnit ?? null,
       priceQty: tab.priceQty ?? null,
+      /* ราคาดิบตามที่ชีตเขียน + ตัวคูณแพ็ค — เก็บไว้ให้หน้าเว็บอธิบายที่มาของ unitPrice ได้
+       * คนเปิดชีตเห็น 799 แล้วหน้าจอเขียน 33.29 ถ้าไม่บอกที่มาเขาจะเลิกเชื่อทั้งตาราง */
+      pack: tab.pricePack ?? null,
+      order: tab.orderPack ?? null,
+      unitPacks: tab.unitPacks ?? null,
+      /* **หน่วยที่ซื้อจริง** ต่างจากหน่วยสต๊อกได้ (ทิชชู่นับเป็นห่อ แต่ซื้อเป็นลัง)
+       * ใบขอซื้อกับช่องจำนวนบนตารางใช้หน่วยนี้ ส่วนคงเหลือ/ขั้นต่ำ/Index ยังเป็นหน่วยสต๊อก
+       * ไม่รู้ขนาดแพ็ค = ซื้อเป็นหน่วยสต๊อกตรง ๆ (packSize 1) ไม่ใช่เดาว่า 1 แพ็ค = 1 หน่วย */
+      purchaseUnit: usableOrder ? tab.orderPack.unit : (cur?.unit ?? tab.unit ?? null),
+      purchasePackSize: purchasePackSize,
+      /* ราคาต่อ 1 หน่วยซื้อ — **คูณก่อนหาร** ไม่งั้น 799/24×24 = 799.0000000000001 */
+      purchaseUnitPrice:
+        tab.pricePack == null ? null : (tab.pricePack.price * purchasePackSize) / tab.pricePack.size,
+      moq: usableOrder ? tab.orderPack.moq : null,
       orderQty: order?.orderQty ?? null,
       lastOrderedText: order?.lastOrderedText ?? null,
       lifetimeText: order?.lifetimeText ?? null,
@@ -263,14 +363,37 @@ function buildSupply(source, purchaseRequests = [], today = null) {
     if (entry.index !== null && entry.index <= 0) {
       // จำนวนที่ควรสั่ง: ใช้ที่ฝ่ายจัดซื้อกำหนดไว้ก่อน ถ้าไม่มีค่อยคิดจากส่วนที่ขาด
       const shortfall = -entry.index;
-      const qty = entry.orderQty ?? Math.max(shortfall, entry.minimum ?? 0, 1);
+      /* **แปลงหน่วยของ orderQty ก่อนเสมอ** ตารางสั่งของรายเดือนมีคอลัมน์หน่วยของตัวเอง
+       * และเขียนคนละหน่วยกับแท็บ log อยู่ 3 รายการ (ทิชชู่ `1 ลัง` แต่นับเป็น `ห่อ`)
+       *
+       * เดิมเอา 1 ไปคูณราคา 799 แล้วได้ 799 ซึ่ง **ถูกโดยบังเอิญ** เพราะจำนวนน้อยไป 24 เท่า
+       * ไปหักล้างกับราคาที่มากไป 24 เท่าพอดี พอราคาถูกต้องเป็น 33.29 ความบังเอิญนั้นหายไป
+       * ถ้าไม่แปลงตรงนี้ ใบขอซื้อทิชชู่จะกลายเป็น 33 บาทแทนที่จะเป็น 799 */
+      const orderStock = convertOrderQty(order, entry);
+      const needStock = orderStock ?? Math.max(shortfall, entry.minimum ?? 0, 1);
+
+      /* ปัดขึ้นเป็นแพ็คเต็ม แล้วปัดต่อให้เป็นพหุคูณของ "สั่งครั้งละ N" ที่ชีตเขียนไว้
+       * ซื้อครึ่งลังไม่ได้ และผู้ขายก็ไม่ขายต่ำกว่าขั้นต่ำ */
+      const size = entry.purchasePackSize || 1;
+      let packs = Math.max(1, Math.ceil(needStock / size));
+      if (entry.moq) packs = Math.ceil(packs / entry.moq) * entry.moq;
+      const orderStockQty = packs * size;
+
       // ไม่เอา log ติดไปด้วย ไม่งั้นข้อมูลชุดเดียวกันถูกส่งซ้ำสองรอบ
       const { log, ...withoutLog } = entry;
       const row = {
         ...withoutLog,
         shortfall,
-        suggestedQty: qty,
-        amount: entry.unitPrice !== null ? qty * entry.unitPrice : null,
+        // ที่ขาดจริงก่อนปัดเป็นแพ็ค (หน่วยสต๊อก) — ใช้บอกผู้ใช้ว่าทำไมถึงสั่งเกินที่ขาด
+        suggestedStockQty: needStock,
+        // **suggestedQty เป็นหน่วยซื้อแล้ว** คือเลขที่ขึ้นในช่องกรอกและในใบขอซื้อ
+        suggestedQty: packs,
+        suggestedPacks: packs,
+        // เทียบเท่ากี่หน่วยสต๊อก — แสดงใต้ช่องกรอกให้เห็นว่าสั่งไปแล้วได้ของเท่าไร
+        orderStockQty,
+        /* คิดจากหน่วยสต๊อกเสมอ เป็นสูตรเดียวที่กันการคูณซ้ำสองแกน
+         * (ใบมีดผ่าตัด: 7.5/ใบ + สั่งครั้งละ 1 กล่อง = 100 ใบ → 750 ไม่ใช่ 7.5 และไม่ใช่ 75,000) */
+        amount: entry.unitPrice !== null ? orderStockQty * entry.unitPrice : null,
       };
 
       /* **ขั้นต่ำ = 0 แปลว่า "ไม่ต้องเก็บสต๊อกไว้" ไม่ใช่ "ขาดของ"**

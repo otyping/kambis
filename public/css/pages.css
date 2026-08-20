@@ -1294,12 +1294,12 @@ body.has-nav-open {
   opacity: 1;
 }
 
-/* ทั้งแถวกดได้ ไม่ต้องเล็งชื่อรายการ — ตัวเลขก็กดไปแท็บเดียวกันได้ */
-.usage-table tbody tr[data-key] {
+/* ทั้งแถวกดได้ ไม่ต้องเล็งชื่อรายการ — ใช้ทั้งตารางการเบิกและตารางสต๊อก */
+.sheet-rows tbody tr[data-key] {
   cursor: pointer;
 }
 
-.usage-table tbody tr[data-key]:hover {
+.sheet-rows tbody tr[data-key]:hover {
   background: var(--well-inset);
 }
 
@@ -1389,6 +1389,26 @@ body.has-nav-open {
   color: var(--sev-critical);
   font-weight: 600;
   white-space: nowrap;
+}
+
+/* ที่มาของราคาที่ระบบหารมาเอง — ต้องอยู่ติดตัวเลข ไม่ใช่ซ่อนใน tooltip อย่างเดียว
+ * ชีตเขียน 799 ฿/ลัง แต่ตารางนับเป็นห่อจึงขึ้น 33.29 ถ้าไม่บอกที่มา คนที่เปิดชีต
+ * มาเทียบจะคิดว่าระบบอ่านผิด แล้วเลิกเชื่อทั้งตาราง */
+.cell-derived {
+  display: block;
+  font-size: var(--fs-3xs);
+  color: var(--ink-mute);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+/* หน่วยราคาไม่ตรงกับหน่วยนับ และชีตไม่ได้บอกตัวคูณ — ใช้ 1:1 ไปก่อน
+ * เป็น **สัญลักษณ์** ไม่ใช่แค่สี ตามกฎเดียวกับตัวเลขติดลบ: แคปหน้าจอขาวดำ
+ * และผู้ใช้ตาบอดสีต้องยังเห็นว่าช่องนี้มีข้อสังเกต */
+.cell-assumed {
+  color: var(--sev-warning);
+  font-weight: 700;
+  cursor: help;
 }
 
 /* ── หน้า Supply: ตารางของที่ต้องสั่งซื้อ ────────────────── */

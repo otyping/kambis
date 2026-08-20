@@ -4,7 +4,7 @@
  * ลำดับบนหน้าตามที่ผู้ใช้กำหนด:
  *   ① ของที่ต้องสั่งซื้อ  — บนสุด เพราะเป็นสิ่งเดียวที่ต้องลงมือทำต่อทันที
  *      พร้อมปุ่มออกใบขอซื้อเป็นไฟล์ .xlsx
- *   ② จำนวนเบิกต่อเดือน (รายการ × เดือน)
+ *   ② มูลค่าของที่เบิกต่อเดือน (กราฟแท่ง) แล้วตามด้วยจำนวนเบิกต่อเดือน (รายการ × เดือน)
  *   ③ มูลค่าการสั่งซื้อ
  *   ④ คุณภาพข้อมูล — ใบสุดท้ายของหน้าเสมอ
  *
@@ -22,9 +22,11 @@ import { t } from '../i18n.js';
 import { n, esc, DASH, date as fmtDate, dateFull as fmtDateFull } from '../format.js';
 import { sortableTable } from '../ui/table.js';
 import { tabUrl, sheetUrlOf } from '../ui/sheet-link.js';
-import { pageHeader, panel, tiles, emptyNote, appendQualityCard } from './shared.js';
+import { pageHeader, panel, well, tiles, emptyNote, appendQualityCard } from './shared.js';
 import { comparePeriod } from '../shared/agg-core.js';
-import { stockAt } from '../shared/kpi.js';
+import { stockAt, usageValueByMonth } from '../shared/kpi.js';
+import * as charts from '../charts/index.js';
+import { releaseCharts } from '../charts/core.js';
 import {
   readSupplyFilters,
   supplyFilterParams,
@@ -183,8 +185,21 @@ export function render(ctx) {
   host.appendChild(bar);
   host.appendChild(dataHost);
 
+  /* กราฟวาดได้ต่อเมื่อกล่องอยู่ใน DOM แล้วเท่านั้น — setupCanvas() คืน null เมื่อกว้าง 0
+   * แล้วกราฟ bail เงียบ ๆ (ดูกฎ 5 ขั้นตอนใน CLAUDE.md §6.5)
+   *
+   * รอบแรกหน้ายังไม่ถูกใส่ลง DOM (main.js appendChild ทีหลัง) จึงต้องฝากไว้ใน drawLater
+   * ส่วนรอบต่อ ๆ ไปที่มาจากการกดตัวกรอง กล่องอยู่ใน DOM แล้วและ **runDeferred ถูกรัน
+   * ไปนานแล้ว** ฝากไว้อีกก็ไม่มีใครมารัน ต้องวาดทันที */
+  const drawChart = (node, run) => {
+    if (node.isConnected) run();
+    else drawLater?.push({ node, run });
+  };
+
   /** วาดเฉพาะแผงข้อมูล — แถบตัวกรองกับการ์ดคุณภาพข้อมูลอยู่นอกกล่องนี้ */
   const draw = () => {
+    // ปล่อย ResizeObserver + bitmap ของกราฟรอบก่อนเสมอ ไม่งั้นรั่วทุกครั้งที่ขยับตัวกรอง
+    releaseCharts(dataHost);
     dataHost.innerHTML = '';
 
     /* ตัวกรองที่หน้านี้ไม่ได้โชว์ ต้องไม่มีผลกับตัวเลข — แต่ยังเก็บไว้ใน URL
@@ -252,7 +267,7 @@ export function render(ctx) {
     if (page === 'order') {
       /* หน้านี้ไม่มีช่องเลือกวันแล้ว จึงส่ง asOf เป็นค่าว่างเสมอ —
        * แถบเตือน "แผงนี้ยึดวันนี้เสมอ" ไม่จำเป็นอีกต่อไปเพราะไม่มีวันอื่นให้สับสน */
-      renderReorder(dataHost, reorder, kpi, requestSupply, '');
+      renderReorder(dataHost, reorder, kpi, requestSupply, '', { sheet });
 
       /* ของที่ชีตตั้งขั้นต่ำไว้ 0 = ไม่ต้องเก็บสต๊อก หมดแล้วก็ยังไม่ต้องรีบสั่ง
        * แยกแผงออกมา ไม่ติ๊กไว้ให้ และไม่นับเข้าช่อง "ต้องสั่งซื้อ" ด้านบน
@@ -264,17 +279,30 @@ export function render(ctx) {
         defaultOn: false,
         hideWhenEmpty: true,
         idPrefix: 'pr-opt',
+        sheet,
       });
     }
 
     if (page === 'usage') {
+      /* เดือนที่แสดง — คิดที่เดียวแล้วส่งให้ทั้งกราฟมูลค่าและตารางจำนวน
+       * สองแผงนี้วางซ้อนกันอยู่ ถ้าต่างคนต่างคิดช่วงเวลาเอง วันหนึ่งกฎ resolve ปี
+       * ถูกแก้ที่เดียวแล้วกราฟกับตารางจะนับคนละช่วงโดยไม่มีอะไรฟ้อง
+       *
+       * ยังไม่ได้เลือกปีเอง = ปีล่าสุดที่มีการเบิกจริง (ไม่ใช่ปีปฏิทินปัจจุบัน
+       * เพราะต้นปีที่ยังไม่มีใครเบิกของ ตารางจะว่างเปล่าทั้งที่ปีก่อนมีข้อมูลอยู่) */
+      const year = applied.year === 'all' ? null : applied.year || options.years[0] || null;
+      const shownMonths = (
+        year ? monthsWithUsage.filter((m) => m.startsWith(year)) : monthsWithUsage
+      ).sort(comparePeriod);
+
       renderAnomalies(dataHost, kpi.usageAnomalies, match);
-      renderUsage(dataHost, usage, monthsWithUsage, applied, options, sheet);
+      renderUsageValue(dataHost, usage, shownMonths, lookup, drawChart);
+      renderUsage(dataHost, usage, shownMonths, year, sheet);
     }
 
     if (page === 'stock') {
       // ตารางสต๊อกใช้แถวจากแท็บ log (ยอดคงเหลือจริง) ไม่ใช่ orderItems ที่เป็นแผนสั่งซื้อ
-      renderStockTable(dataHost, shownItems, applied.asOf);
+      renderStockTable(dataHost, shownItems, applied.asOf, sheet);
     }
   };
 
@@ -308,20 +336,150 @@ export function render(ctx) {
 }
 
 /**
+ * ลิงก์ไปแท็บของรายการนั้นในชีต — ใช้ร่วมกันระหว่างตารางการเบิกกับตารางสต๊อก
+ *
+ * สองตารางนี้มีคีย์เป็นชื่อรายการเหมือนกัน และตอบคำถามเดียวกันคือ "ของชิ้นนี้มี
+ * ประวัติอะไรบ้าง" ซึ่งอยู่ในแท็บ log ของมัน กดจากตารางไปดูได้เลยจึงตัดขั้นตอน
+ * "เปิดชีต → ไล่หาแท็บใน 138 อัน" ออกไปทั้งดุ้น
+ *
+ * `gidOf` คืน `null` ได้เมื่อจับคู่แท็บไม่เจอ — กรณีนั้นต้องเป็นข้อความธรรมดา
+ * **ห้ามสร้างลิงก์หลอกที่กดแล้วไปโผล่แท็บแรก** (กฎเดียวกับ finding ใน §10)
+ */
+function sheetLinkOf(sheet, item) {
+  return tabUrl(sheet?.sheetUrl, sheet?.gidOf?.(item));
+}
+
+/** ช่องชื่อรายการที่กดได้ — คืน render() ให้ sortableTable ใช้ */
+function itemCell(sheet) {
+  return (r) => {
+    const href = sheetLinkOf(sheet, r.item);
+    if (!href) return esc(r.item);
+    return `<a class="sheet-link" href="${esc(href)}" target="_blank" rel="noopener"
+      title="${esc(t('supply.openTab'))}">${esc(r.item)}<span class="sheet-link__arrow" aria-hidden="true">↗</span></a>`;
+  };
+}
+
+/**
+ * ทำให้ทั้งแถวกดได้ ไม่ต้องเล็งชื่อรายการ
+ *
+ * ผูกแบบ delegate ที่ตัวตาราง ไม่ใช่ทีละแถว เพราะ `sortableTable` วาด tbody ใหม่
+ * ทุกครั้งที่เรียงคอลัมน์ใหม่ — listener ที่ผูกกับ <tr> เดิมจะหลุดไปพร้อมกัน
+ *
+ * ไม่ทำให้ทุกช่องเป็น `<a>` เพราะ screen reader จะอ่าน "ลิงก์ 480 ลิงก์ 199…"
+ * ซ้ำหลายครั้งต่อแถว — ลิงก์จริงมีอันเดียวที่ชื่อรายการ ตรงนี้เป็นทางลัดของเมาส์
+ */
+function wireSheetRows(body, sheet) {
+  const el = body.querySelector('.table-wrap');
+  if (!el) return;
+  el.classList.add('sheet-rows');
+  el.addEventListener('click', (e) => {
+    if (e.target.closest('a')) return; // ลิงก์จริงทำงานของมันเอง
+    const tr = e.target.closest('tbody tr[data-key]');
+    if (!tr) return;
+    // กำลังลากเลือกตัวเลขอยู่ ไม่ใช่ตั้งใจกด — อย่าเด้งออกไปกลางคัน
+    if (String(window.getSelection?.() ?? '').length) return;
+    const href = sheetLinkOf(sheet, tr.dataset.key);
+    if (href) window.open(href, '_blank', 'noopener');
+  });
+}
+
+/* หมวดของวัสดุ — **ลำดับตายตัว ไม่ได้มาจากข้อมูล** เพราะสีของแท่งผูกกับตำแหน่งในลิสต์นี้
+ * ถ้าเรียงตามยอดของข้อมูลที่กรองแล้ว พอเปลี่ยนตัวกรองทีสีจะสลับกันทั้งกราฟ
+ * (กฎเดียวกับ topCategories ใน CLAUDE.md §9 — สีต้องผูกกับหมวด ไม่ใช่กับอันดับของมัน)
+ *
+ * ป้ายเป็นฟังก์ชันเพราะ t() อ่านภาษาปัจจุบันตอนเรียก ถ้าเก็บเป็นสตริงตั้งแต่ import
+ * ป้ายจะค้างเป็นภาษาที่เปิดหน้าเว็บครั้งแรกตลอดอายุแท็บ
+ *
+ * `''` = จับหมวดไม่ได้ ต้องมีช่องของตัวเอง ห้ามยัดเข้าหมวดใดหมวดหนึ่ง ไม่งั้นยอดของ
+ * หมวดนั้นจะเกินจริงโดยไม่มีอะไรบอก */
+const GROUP_ORDER = [
+  { code: 'item', label: () => t('supply.groupItem') },
+  { code: 'nutrient', label: () => t('supply.groupNutrient') },
+  { code: '', label: () => t('label.other') },
+];
+
+/**
+ * ② มูลค่าของที่เบิกต่อเดือน — แท่งซ้อนแยกตามหมวด
+ *
+ * ตอบคำถาม "เดือนที่แล้วเบิกของไปเป็นเงินเท่าไร" ซึ่งตารางจำนวนด้านล่างตอบไม่ได้
+ * เพราะของคนละรายการคนละหน่วยเอามาบวกกันไม่ได้ (ถุง + แผ่น + ลัง) ต้องแปลงเป็นเงินก่อน
+ *
+ * **ไม่ใช่ยอดเงินที่จ่ายจริงในเดือนนั้น** — ชีตเก็บราคาไว้ช่องเดียวต่อรายการ (คอลัมน์ H
+ * ของแท็บนั้น) ไม่มีประวัติราคา ตัวเลขนี้จึงเป็นของที่เบิกไปตีตามราคาวันนี้
+ * และ **เงินก้อนนี้ห้ามเอาไปบวกกับงบในชีตต้นทุน** เพราะคนละขอบเขตกัน (CLAUDE.md §11)
+ * ข้อความกำกับใต้หัวแผงจึงตัดออกไม่ได้
+ *
+ * รายการที่ยังไม่มีราคาถูกตัดออกจากยอด **ไม่ใช่คิดเป็น 0** แล้วบอกจำนวนที่ตัดออกไว้
+ * ด้วยข้อความเดียวกับตารางสต๊อก ไม่งั้นคนจะอ่านแท่งเตี้ย ๆ ว่าเดือนนั้นใช้ของน้อย
+ */
+function renderUsageValue(host, usage, shown, lookup, drawChart) {
+  /* ไม่มีการเบิกเลย หรือปีที่เลือกไม่มีเดือนไหนเลย — ปล่อยให้ตารางด้านล่างเป็นคนอธิบาย
+   * ไม่ต้องขึ้นแผงว่างเปล่าซ้อนกันสองใบที่บอกเรื่องเดียวกัน */
+  if (!usage.length || !shown.length) return;
+
+  const { rows, total, priced, unpriced } = usageValueByMonth(usage, shown, lookup);
+
+  const body = panel(host, t('supply.usageValueTitle'), `${t('label.total')} ${n(total)} ฿`, {
+    wide: true,
+  });
+
+  const intro = document.createElement('p');
+  intro.className = 'panel-intro';
+  intro.textContent = unpriced.length
+    ? `${t('supply.usageValueIntro')} ${t('supply.unpricedNote').replace(
+        '{n}',
+        String(unpriced.length)
+      )}`
+    : t('supply.usageValueIntro');
+  body.appendChild(intro);
+
+  // มีการเบิกอยู่ แต่ยังไม่มีรายการไหนใส่ราคาไว้เลย — บอกตรง ๆ ดีกว่ากราฟที่ทุกแท่งเป็น 0
+  if (!priced.length) {
+    emptyNote(body, t('supply.usageValueNoPrice'));
+    return;
+  }
+
+  /* **ห้ามตัดหมวดที่ยังไม่มีข้อมูลออกจาก keys** สีของชั้นในแท่งมาจากตำแหน่งในลิสต์นี้
+   * ถ้าตัด พอกรองเหลือเฉพาะปุ๋ย ปุ๋ยจะเลื่อนขึ้นมาเป็นช่องแรกแล้วเปลี่ยนเป็นสีของวัสดุทั่วไป
+   * (กฎ "สีผูกกับหมวด ไม่ใช่กับอันดับในชุดที่กำลังดู" — CLAUDE.md §9)
+   * ชั้นที่เป็น 0 ถูกข้ามอยู่แล้ว และ legend ก็ขึ้นเฉพาะหมวดที่มีข้อมูลจริง */
+  const keys = GROUP_ORDER.map((g) => g.label());
+  const thisMonth = new Date().toISOString().slice(0, 7);
+
+  const data = rows.map((r) => ({
+    key: r.month,
+    /* เดือนที่ยังมาไม่ถึงต้องมีป้ายกำกับ ชีตลงยอดล่วงหน้าไว้ ถ้าปล่อยเปล่า ๆ แท่งเตี้ย ๆ
+     * ของเดือนหน้าจะอ่านเหมือนแนวโน้มการใช้ของกำลังดิ่งลง ทั้งที่เดือนนั้นยังไม่เกิด */
+    sub: r.month > thisMonth ? t('supply.usageValueFuture') : '',
+    parts: Object.fromEntries(GROUP_ORDER.map((g) => [g.label(), r.byGroup[g.code] ?? 0])),
+  }));
+
+  const box = well(body);
+  drawChart(box, () =>
+    charts.stackedBars(box, data, {
+      keys,
+      height: 260,
+      // unit: '฿' — ไม่ส่งแล้วทั้งแกน Y และ tooltip จะคิดว่าเป็นน้ำหนักแล้วขึ้นเป็น kg
+      unit: '฿',
+      /* ป้ายเดือนเป็นคีย์ดิบ (`2026-07`) ไม่ใช่ `ก.ค. 69` แบบกราฟอื่น เพราะกราฟนี้วางอยู่
+       * เหนือตารางที่ใช้เดือนเป็นหัวคอลัมน์ในรูปแบบนั้นพอดี และแถบตัวกรองข้างบนก็เขียน
+       * "ปี 2026" — ถ้าใช้ พ.ศ. เฉพาะกราฟ ผู้ใช้ต้องแปลงศักราชในหัวทุกครั้งที่กวาดตา
+       * ระหว่างสองแผงที่พูดถึงเดือนเดียวกัน */
+      labelFormat: 'raw',
+      // ตัดท้ายไม่ได้ ต้องเท่ากับคอลัมน์ของตารางด้านล่างเสมอ ไม่งั้นสองแผงบอกคนละช่วง
+      max: data.length,
+    })
+  );
+}
+
+/**
  * ③ ตารางจำนวนเบิกต่อเดือน — แถวคือรายการ คอลัมน์คือเดือน
  *
  * แสดงเฉพาะเดือนที่มีการเบิกจริง ชีตมีแถวลงวันที่ล่วงหน้าถึงสิ้นปี
  * ถ้าเอาทุกเดือนที่ปรากฏในข้อมูลมาทำคอลัมน์ จะได้คอลัมน์ว่างเปล่าอีกครึ่งตาราง
  */
-function renderUsage(host, usage, monthsWithUsage, filters, options, sheet = {}) {
+function renderUsage(host, usage, shown, year, sheet = {}) {
   const body = panel(host, t('supply.usageTitle'), t('supply.usageNote'), { wide: true });
-
-  // ปีที่ดูอยู่ — ยังไม่ได้เลือกเอง = ปีล่าสุดที่มีการเบิกจริง (ไม่ใช่ปีปฏิทินปัจจุบัน
-  // เพราะต้นปีที่ยังไม่มีใครเบิกของ ตารางจะว่างเปล่าทั้งที่ปีก่อนมีข้อมูลอยู่)
-  const year = filters.year === 'all' ? null : filters.year || options.years[0] || null;
-  const shown = (year ? monthsWithUsage.filter((m) => m.startsWith(year)) : monthsWithUsage).sort(
-    comparePeriod
-  );
 
   if (!usage.length) {
     emptyNote(body, t('supply.noUsage'));
@@ -336,30 +494,12 @@ function renderUsage(host, usage, monthsWithUsage, filters, options, sheet = {})
    * เพราะนั่นเป็นยอดตลอดกาล พอกรองปีแล้วแถวจะรวมไม่ตรงกับคอลัมน์ที่เห็น */
   const totalOf = (r) => shown.reduce((sum, m) => sum + (r.byMonth[m] ?? 0), 0);
 
-  /* ── ลิงก์ไปแท็บของรายการนั้นในชีต ──
-   *
-   * ตารางนี้บอกว่า "เบิกไปเท่าไร" แต่ไม่ได้บอกว่า "เบิกวันไหนบ้าง" ซึ่งอยู่ในแท็บ log
-   * ของรายการนั้น การให้กดจากตรงนี้ไปดูได้เลยตัดขั้นตอน "เปิดชีต → หาแท็บใน 138 อัน"
-   *
-   * `gidOf` คืน `null` ได้เมื่อจับคู่แท็บไม่เจอ — กรณีนั้นต้องเป็นข้อความธรรมดา
-   * **ห้ามสร้างลิงก์หลอกที่กดแล้วไปโผล่แท็บแรก** (กฎเดียวกับ finding ใน §10) */
-  const linkOf = (item) => tabUrl(sheet.sheetUrl, sheet.gidOf?.(item));
-
   body.appendChild(
     sortableTable(
       /* หน่วยอยู่ท้ายสุด ต่อจากคอลัมน์รวม — คอลัมน์เดือนคือของที่ต้องกวาดตาเทียบกัน
        * แทรกคอลัมน์ข้อความคั่นระหว่างชื่อรายการกับตัวเลขทำให้สายตาสะดุดทุกแถว */
       [
-        {
-          label: t('supply.item'),
-          get: (r) => r.item,
-          render: (r) => {
-            const href = linkOf(r.item);
-            if (!href) return esc(r.item);
-            return `<a class="sheet-link" href="${esc(href)}" target="_blank" rel="noopener"
-              title="${esc(t('supply.openTab'))}">${esc(r.item)}<span class="sheet-link__arrow" aria-hidden="true">↗</span></a>`;
-          },
-        },
+        { label: t('supply.item'), get: (r) => r.item, render: itemCell(sheet) },
         ...shown.map((m) => ({
           label: m,
           align: 'n',
@@ -381,24 +521,7 @@ function renderUsage(host, usage, monthsWithUsage, filters, options, sheet = {})
     )
   );
 
-  /* กดที่ตัวเลขในแถวก็ไปแท็บเดียวกันได้ ไม่ต้องเล็งชื่อรายการ
-   *
-   * ทำเป็น delegate ที่ตัวตาราง ไม่ใช่ผูกทีละแถว เพราะ `sortableTable` วาด tbody
-   * ใหม่ทุกครั้งที่เรียงคอลัมน์ใหม่ — listener ที่ผูกกับ <tr> เดิมจะหลุดไปพร้อมกัน
-   *
-   * ไม่ทำให้ตัวเลขทุกช่องเป็น `<a>` เพราะ screen reader จะอ่าน "ลิงก์ 480 ลิงก์ 199…"
-   * ซ้ำกันสี่ครั้งต่อแถว — ลิงก์จริงมีอันเดียวที่ชื่อรายการ ส่วนตรงนี้เป็นทางลัดของเมาส์ */
-  const tableEl = body.querySelector('.table-wrap');
-  tableEl?.classList.add('usage-table');
-  tableEl?.addEventListener('click', (e) => {
-    if (e.target.closest('a')) return; // ลิงก์จริงทำงานของมันเอง
-    const tr = e.target.closest('tbody tr[data-key]');
-    if (!tr) return;
-    // กำลังลากเลือกตัวเลขอยู่ ไม่ใช่ตั้งใจกด — อย่าเด้งออกไปกลางคัน
-    if (String(window.getSelection?.() ?? '').length) return;
-    const href = linkOf(tr.dataset.key);
-    if (href) window.open(href, '_blank', 'noopener');
-  });
+  wireSheetRows(body, sheet);
 }
 
 /**
@@ -412,7 +535,7 @@ function renderUsage(host, usage, monthsWithUsage, filters, options, sheet = {})
  * ต้องขึ้นว่า "ยังไม่ใส่ราคา" ให้เห็นชัด **ห้ามเดาราคาหรือคิดเป็น 0**
  * ไม่งั้นมูลค่ารวมของสต๊อกจะต่ำกว่าความจริงโดยไม่มีอะไรบอก
  */
-function renderStockTable(host, items, asOf = '') {
+function renderStockTable(host, items, asOf = '', sheet = {}) {
   /* หัวแผงต้องบอกวันที่เมื่อดูย้อนหลัง ไม่งั้นแคปหน้าจอส่งต่อแล้วไม่มีใครรู้ว่าเป็นของวันไหน */
   const title = asOf
     ? t('supply.stockTableAsOf').replace('{date}', fmtDateFull(asOf))
@@ -432,7 +555,7 @@ function renderStockTable(host, items, asOf = '') {
   body.appendChild(
     sortableTable(
       [
-        { label: t('supply.item'), get: (r) => r.item },
+        { label: t('supply.item'), get: (r) => r.item, render: itemCell(sheet) },
         {
           label: t('supply.balance'),
           align: 'n',
@@ -444,10 +567,38 @@ function renderStockTable(host, items, asOf = '') {
           label: t('supply.unitPrice'),
           align: 'n',
           get: (r) => r.unitPrice,
-          render: (r) =>
-            r.unitPrice === null
-              ? `<span class="cell-missing">${esc(t('supply.noPrice'))}</span>`
-              : n(r.unitPrice, 2),
+          /* ราคาที่ขึ้นตรงนี้เป็น "ต่อ 1 หน่วยสต๊อก" ซึ่งบางรายการ **ไม่ใช่เลขที่เขียนในชีต**
+           * กระดาษทิชชู่: ชีตเขียน 799 ฿/ลัง แต่ตารางนับเป็นห่อ จึงขึ้น 33.29
+           * ถ้าไม่บอกที่มา คนที่เปิดชีตเทียบจะคิดว่าระบบอ่านผิดแล้วเลิกเชื่อทั้งตาราง */
+          render: (r) => {
+            if (r.unitPrice === null)
+              return `<span class="cell-missing">${esc(t('supply.noPrice'))}</span>`;
+            const p = r.pack;
+            if (p && p.sizeSource === 'note') {
+              return (
+                n(r.unitPrice, 2) +
+                `<small class="cell-derived">${esc(
+                  t('supply.priceFromPack')
+                    .replace('{price}', n(p.price, 2))
+                    .replace('{packUnit}', p.unit ?? '')
+                    .replace('{size}', n(p.size))
+                )}</small>`
+              );
+            }
+            if (p && p.sizeSource === 'assumed') {
+              /* มาร์กด้วย "สัญลักษณ์" ไม่ใช่สีอย่างเดียว — แคปหน้าจอขาวดำและตาบอดสี
+               * ต้องยังเห็น (กฎเดียวกับตัวเลขติดลบใน §9 ของ CLAUDE.md) */
+              return (
+                n(r.unitPrice, 2) +
+                `<span class="cell-assumed" title="${esc(
+                  t('supply.priceUnitAssumedTip')
+                    .replace('{packUnit}', p.unit ?? '')
+                    .replace('{unit}', r.unit ?? '')
+                )}">&nbsp;≈</span>`
+              );
+            }
+            return n(r.unitPrice, 2);
+          },
         },
         {
           label: t('supply.amount'),
@@ -464,6 +615,7 @@ function renderStockTable(host, items, asOf = '') {
       {
         sortIndex: 4,
         sortDir: 'desc',
+        rowKey: (r) => r.item,
         /* ยอดรวมมูลค่าสต๊อกท้ายตาราง
          *
          * **ต้องบอกด้วยว่ารวมมาจากกี่รายการ** เพราะรายการที่ยังไม่ใส่ราคาถูกข้ามไป
@@ -486,6 +638,8 @@ function renderStockTable(host, items, asOf = '') {
       }
     )
   );
+
+  wireSheetRows(body, sheet);
 }
 
 /**
@@ -761,6 +915,10 @@ function renderReorder(host, reorder, kpi, requestSupply, asOf = '', opts = {}) 
     // ว่างแล้วซ่อนทั้งแผงไปเลย ไม่ต้องขึ้นกล่องเปล่า
     hideWhenEmpty = false,
     idPrefix = 'pr',
+    /* ลิงก์ไปแท็บของรายการในชีต — ตารางนี้ให้กด **เฉพาะชื่อรายการ** ไม่ใช่ทั้งแถว
+     * ต่างจากตารางการเบิกกับตารางสต๊อก เพราะแถวนี้มีช่องติ๊กกับช่องจำนวนอยู่ด้วย
+     * ถ้าทั้งแถวกดได้ การติ๊กเลือกหรือแก้จำนวนจะเด้งออกไปเปิดชีตแทน */
+    sheet = {},
   } = opts;
 
   if (hideWhenEmpty && !reorder.length) return;
@@ -833,7 +991,7 @@ function renderReorder(host, reorder, kpi, requestSupply, asOf = '', opts = {}) 
           <th scope="col" style="text-align:right" title="${esc(t('supply.indexTip'))}">${esc(t('supply.index'))}</th>
           <th scope="col" style="text-align:right" title="${esc(t('supply.leadTimeTip'))}">${esc(t('supply.leadTime'))}</th>
           <th scope="col" style="text-align:right">${esc(t('supply.orderQtyEditable'))}</th>
-          <th scope="col" style="text-align:right">${esc(t('supply.unitPrice'))}</th>
+          <th scope="col" style="text-align:right">${esc(t('supply.purchaseUnitPrice'))}</th>
           <th scope="col" style="text-align:right">${esc(t('supply.amount'))}</th>
         </tr>
       </thead>
@@ -866,7 +1024,7 @@ function renderReorder(host, reorder, kpi, requestSupply, asOf = '', opts = {}) 
         picked.get(r.item).on ? ' checked' : ''
       } data-role="pick" aria-label="${esc(r.item)}"></td>
       <td>${esc(fmtDate(r.date))}</td>
-      <td>${esc(r.item)}</td>
+      <td>${itemCell(sheet)(r)}</td>
       <td>${pendingCell(r)}</td>
       <td style="text-align:right" class="num">${n(r.balance)}</td>
       <td>${esc(r.unit ?? '')}</td>
@@ -881,9 +1039,31 @@ function renderReorder(host, reorder, kpi, requestSupply, asOf = '', opts = {}) 
       <td style="text-align:right">
         <input type="number" class="qty-input" min="1" step="1" value="${r.suggestedQty}"
                data-role="qty" aria-label="${esc(t('supply.orderQtyEditable'))} ${esc(r.item)}">
+        ${
+          /* หน่วยซื้อต่างจากหน่วยนับได้ (นับเป็นห่อ แต่ซื้อเป็นลัง) — ต้องบอกทั้งสองอย่าง
+           * ไม่งั้นคนกรอก 24 เพราะคิดว่าเป็นห่อ แล้วได้ของมา 24 ลัง */
+          r.purchasePackSize > 1
+            ? `<small class="cell-derived" data-role="equiv">${esc(
+                r.purchaseUnit ?? ''
+              )} ${esc(
+                t('supply.packEquiv')
+                  .replace('{qty}', n(r.orderStockQty))
+                  .replace('{unit}', r.unit ?? '')
+              )}</small>`
+            : ''
+        }
       </td>
       <td style="text-align:right" class="num">${
-        r.unitPrice === null ? `<span class="muted" title="${esc(t('supply.noPriceTip'))}">${DASH}</span>` : n(r.unitPrice, 2)
+        r.purchaseUnitPrice === null || r.purchaseUnitPrice === undefined
+          ? `<span class="muted" title="${esc(t('supply.noPriceTip'))}">${DASH}</span>`
+          : n(r.purchaseUnitPrice, 2) +
+            (r.purchasePackSize > 1
+              ? `<small class="cell-derived">${esc(
+                  t('supply.perStockUnit')
+                    .replace('{price}', n(r.unitPrice, 2))
+                    .replace('{unit}', r.unit ?? '')
+                )}</small>`
+              : '')
       }</td>
       <td style="text-align:right" class="num" data-role="amount">${
         r.amount === null ? `<span class="muted">${DASH}</span>` : n(r.amount, 2)
@@ -908,7 +1088,19 @@ function renderReorder(host, reorder, kpi, requestSupply, asOf = '', opts = {}) 
   actions.append(button, status);
   body.appendChild(actions);
 
-  const priceOf = new Map(reorder.map((r) => [r.item, r.unitPrice]));
+  /* เก็บทั้งชุดไม่ใช่แค่ราคา เพราะยอดต้องคิดจาก "จำนวนหน่วยซื้อ × ราคาต่อหน่วยซื้อ"
+   * ให้ตรงกับที่เขียนในใบขอซื้อและกับที่ server คิดใหม่ */
+  const packOf = new Map(
+    reorder.map((r) => [
+      r.item,
+      {
+        price: r.purchaseUnitPrice ?? null,
+        size: r.purchasePackSize || 1,
+        unit: r.unit ?? '',
+        purchaseUnit: r.purchaseUnit ?? '',
+      },
+    ])
+  );
 
   const refresh = () => {
     let count = 0;
@@ -917,7 +1109,7 @@ function renderReorder(host, reorder, kpi, requestSupply, asOf = '', opts = {}) 
     for (const [item, state] of picked) {
       if (!state.on) continue;
       count++;
-      const price = priceOf.get(item);
+      const price = packOf.get(item)?.price;
       if (price === null || price === undefined) unpriced++;
       else total += price * state.qty;
     }
@@ -955,12 +1147,21 @@ function renderReorder(host, reorder, kpi, requestSupply, asOf = '', opts = {}) 
       // จำนวนต้องเป็นบวกเสมอ — ค่าที่ไม่ถูกต้องดีดกลับทันที ไม่ปล่อยไปถึง server
       state.qty = Number.isFinite(v) && v > 0 ? Math.floor(v) : 1;
       e.target.value = String(state.qty);
-      const price = priceOf.get(tr.dataset.item);
+      const meta = packOf.get(tr.dataset.item);
       const cell = tr.querySelector('[data-role="amount"]');
       cell.innerHTML =
-        price === null || price === undefined
+        meta?.price === null || meta?.price === undefined
           ? `<span class="muted">${DASH}</span>`
-          : n(price * state.qty, 2);
+          : n(meta.price * state.qty, 2);
+      // อัปเดตบรรทัด "= N หน่วยสต๊อก" ให้เดินตามจำนวนที่เพิ่งพิมพ์
+      const equiv = tr.querySelector('[data-role="equiv"]');
+      if (equiv && meta) {
+        equiv.textContent =
+          `${meta.purchaseUnit} ` +
+          t('supply.packEquiv')
+            .replace('{qty}', n(state.qty * meta.size))
+            .replace('{unit}', meta.unit);
+      }
     }
     refresh();
   });
@@ -975,7 +1176,9 @@ function renderReorder(host, reorder, kpi, requestSupply, asOf = '', opts = {}) 
   button.addEventListener('click', async () => {
     const items = [...picked.entries()]
       .filter(([, s]) => s.on)
-      .map(([item, s]) => ({ item, qty: s.qty }));
+      // ส่งเป็น **หน่วยซื้อ** (packs) — server แปลงกลับเป็นหน่วยสต๊อกด้วยขนาดแพ็คจากชีตเอง
+      // ห้ามส่ง qty คู่มาด้วย server จะปฏิเสธ เพราะบอกไม่ได้ว่าเลขนั้นเป็นหน่วยไหน
+      .map(([item, s]) => ({ item, packs: s.qty }));
     if (!items.length) return;
 
     button.disabled = true;

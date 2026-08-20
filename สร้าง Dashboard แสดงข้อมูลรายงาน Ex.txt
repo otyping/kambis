@@ -15,3 +15,4 @@ Requirements:
 - มี Loading Screen เวลากำลังโหลดข้อมูลเพิ่อมาแสดงผล
 - ใช้ Vanilla JavaScript ไม่ใช้ Framework
 - ธีมสี ใช้ "https://colorhunt.co/palette/ffbf00fff78d467235283f24"
+
