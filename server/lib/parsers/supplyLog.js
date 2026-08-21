@@ -40,6 +40,30 @@ const NUTRIENT_TABS = new Set(
   )
 );
 
+/* ปุ๋ยตัวเดียวกันถูกแยกเป็นหลายแท็บตามสูตร A/B — `Bloom` กลายเป็น `Bloom A` + `Bloom B`
+ *
+ * **เคสจริง ส.ค. 69** ผู้ใช้เปลี่ยนจากปุ๋ยผงมาเป็นปุ๋ยน้ำสองส่วน แท็บ `Core` ถูกเปลี่ยนชื่อ
+ * เป็น `Bloom B` และ `Cleanse` เป็น `Grow B` (gid เดิม) ส่วน `Bloom A/B` เดิมกลายเป็น `Bloom A`
+ *
+ * ชื่อพวกนี้ไม่ตรงกับลิสต์แบบเป๊ะ ๆ และไม่มีเลขนำหน้า จึงตกไปเป็น `unknown-tab`
+ * ถูกข้ามทั้งแท็บ — ทั้ง 4 รายการหายจากมูลค่าสต๊อกและจากตารางของที่ต้องสั่งซื้อ
+ * ทั้งที่ทุกอันต่ำกว่าขั้นต่ำอยู่ (Index −11 · −6 · −6 · −1)
+ *
+ * ที่จริง `Bloom A/B` กับ `Grow A/B` **ถูกข้ามมาตั้งแต่ก่อนหน้านี้แล้ว** ไม่ใช่เพิ่งพัง
+ * รอบนี้แค่หนักขึ้นเพราะ Core/Cleanse ที่เคยอ่านได้ ถูกเอาไปตั้งเป็น Bloom B/Grow B
+ *
+ * ตัดหางที่เป็น **ตัวอักษรเดี่ยว** ออกก่อนเทียบ (`bloom a` · `bloom a/b` → `bloom`)
+ * ต้องมีช่องว่างคั่นเสมอ ไม่งั้น `coco` จะโดนตัด `o` ท้ายกลายเป็น `coc` แล้วหลุดลิสต์
+ * และ `pH Up` ปลอดภัยเพราะ `up` มีสองตัวอักษร */
+const NUTRIENT_SUFFIX_RE = /\s+[a-z](\s*\/\s*[a-z])*$/i;
+
+function isNutrientTab(name) {
+  const full = String(name ?? '').trim().toLowerCase();
+  if (!full) return false;
+  if (NUTRIENT_TABS.has(full)) return true;
+  return NUTRIENT_TABS.has(full.replace(NUTRIENT_SUFFIX_RE, '').trim());
+}
+
 const ORDER_TAB_RE = /สั่งของรายเดือน/;
 const NUMBERED_TAB_RE = /^\s*(\d+)\s*\./;
 const TEMPLATE_TAB_RE = /^(ต้นฉบับ|สำเนาของ|สำเนา|copy of)/i;
@@ -644,7 +668,7 @@ export function parse({ tabs, sourceKey = 'supplyLog', today = null }) {
       result = parseOrderSummary(tab, sourceKey);
     } else if (NUMBERED_TAB_RE.test(name)) {
       result = parseItemTab(tab, sourceKey, todayIso, 'item');
-    } else if (NUTRIENT_TABS.has(name.toLowerCase())) {
+    } else if (isNutrientTab(name)) {
       result = parseItemTab(tab, sourceKey, todayIso, 'nutrient');
     } else if (TEMPLATE_TAB_RE.test(name)) {
       tabSummaries.push({ gid: tab.gid, name: tab.name, skipped: 'template', rowCount: 0 });
