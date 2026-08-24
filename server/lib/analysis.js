@@ -1500,8 +1500,48 @@ export function verifyPresentation(analysis, kpi, sources = null) {
     const sup = kpi?.supply;
     if (sup?.items?.length) {
       const shown = (sup.needsReorder ?? []).length;
+      /* **ต้องนับด้วยกฎเดียวกับที่หน้าเว็บใช้ ไม่ใช่แค่ `Index ≤ 0`**
+       *
+       * ของที่ชีตตั้งขั้นต่ำไว้ 0 แปลว่า "ไม่ต้องเก็บสต๊อก" ไม่ใช่ "ขาดของ" —
+       * คงเหลือ 0 · ขั้นต่ำ 0 · Index 0 จึงเข้าเกณฑ์ `Index ≤ 0` ไปด้วยทั้งที่ไม่มีอะไรต้องรีบ
+       * `buildSupply()` แยกพวกนี้ออกเป็น `optionalReorder` ตั้งแต่แรกแล้ว (ดู §7 ข้อ 11.5)
+       *
+       * ตัวตรวจนี้ยังนับรวมอยู่ จึงฟ้องว่า "Dashboard แสดง 14 แต่ควรเป็น 19" ทุกวัน
+       * ทั้งที่ 5 รายการที่ต่างกันคือของที่ตั้งใจแยกออก — เป็น false alarm ระดับ critical
+       * ที่เขียนว่า "เป็นข้อผิดพลาดของ Dashboard เอง" ซึ่งทำให้คนเลิกเชื่อการ์ดคุณภาพทั้งใบ
+       *
+       * ยังนับด้วยลูปธรรมดาจาก `items` เหมือนเดิม ไม่ได้เรียกฟังก์ชันชุดเดียวกับ buildKpi
+       * จึงยังจับได้อยู่ถ้ามีรายการตกหล่น นับซ้ำ หรือเข้ากลุ่มผิด */
       let actual = 0;
-      for (const it of sup.items) if (it.index !== null && it.index <= 0) actual++;
+      let optionalActual = 0;
+      for (const it of sup.items) {
+        if (it.index === null || it.index > 0) continue;
+        if (it.minimum === 0) optionalActual++;
+        else actual++;
+      }
+      const optionalShown = (sup.optionalReorder ?? []).length;
+      if (optionalShown !== optionalActual) {
+        extra.push({
+          id: 'presentation.totalMismatch',
+          severity: 'critical',
+          source: 'supplyLog',
+          tab: null,
+          gid: null,
+          row: null,
+          field: 'optionalReorder',
+          messageTh:
+            `รายการที่หมดสต๊อกแต่ยังไม่ต้องสั่ง: Dashboard แสดง ${optionalShown} รายการ ` +
+            `แต่นับใหม่จากเกณฑ์ Index ≤ 0 และขั้นต่ำ = 0 ได้ ${optionalActual} รายการ — ` +
+            `เป็นข้อผิดพลาดของ Dashboard เอง`,
+          messageEn:
+            `Out of stock but not required: the dashboard shows ${optionalShown} but recounting ` +
+            `with Index ≤ 0 and minimum = 0 gives ${optionalActual} — this is a dashboard bug`,
+          expected: optionalActual,
+          actual: optionalShown,
+          delta: optionalShown - optionalActual,
+          related: [],
+        });
+      }
       if (shown !== actual) {
         extra.push({
           id: 'presentation.totalMismatch',
@@ -1513,10 +1553,10 @@ export function verifyPresentation(analysis, kpi, sources = null) {
           field: 'needsReorder',
           messageTh:
             `จำนวนของที่ต้องสั่งซื้อ: Dashboard แสดง ${shown} รายการ แต่นับใหม่จากเกณฑ์ ` +
-            `Index ≤ 0 ได้ ${actual} รายการ — เป็นข้อผิดพลาดของ Dashboard เอง`,
+            `Index ≤ 0 และขั้นต่ำ > 0 ได้ ${actual} รายการ — เป็นข้อผิดพลาดของ Dashboard เอง`,
           messageEn:
             `Items needing reorder: the dashboard shows ${shown} but recounting with the ` +
-            `Index ≤ 0 rule gives ${actual} — this is a dashboard bug`,
+            `Index ≤ 0 and minimum > 0 rule gives ${actual} — this is a dashboard bug`,
           expected: actual,
           actual: shown,
           delta: shown - actual,

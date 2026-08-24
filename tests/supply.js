@@ -1644,3 +1644,86 @@ describe('แท็บปุ๋ยที่แยกเป็นสูตร A/B
     assert.equal(out.tabs[0].skipped, 'unknown-tab', 'ห้ามรับแท็บแปลกหน้าเข้ามาเงียบ ๆ');
   });
 });
+
+describe('ตัวตรวจจำนวนของที่ต้องสั่งซื้อ ต้องนับด้วยกฎเดียวกับหน้าเว็บ', () => {
+  /* เคสจริง ส.ค. 69 — การ์ดคุณภาพข้อมูลขึ้น critical ว่า
+   * "Dashboard แสดง 14 รายการ แต่นับใหม่จากเกณฑ์ Index ≤ 0 ได้ 19 รายการ"
+   *
+   * ความจริงคือ Dashboard ถูก ตัวตรวจผิดเอง — 5 รายการที่ต่างกันคือของที่ตั้งขั้นต่ำ = 0
+   * ("ไม่ต้องเก็บสต๊อก") ซึ่ง buildSupply แยกออกเป็น optionalReorder ตั้งแต่แรกแล้ว
+   * ตัวตรวจยังนับรวมอยู่ จึงฟ้องทุกวันว่า "เป็นข้อผิดพลาดของ Dashboard เอง"
+   * ซึ่งเป็น false alarm ระดับ critical ที่ทำให้คนเลิกเชื่อการ์ดคุณภาพทั้งใบ */
+  const tab = (name, rows) => ({ gid: name, name, rows });
+  const head = ['h', 'รับ', 'เบิก', 'คงเหลือ', 'หน่วย', 'ขั้นต่ำ', 'Index'];
+
+  const kpiFrom = (tabs, today = '2026-08-21') => {
+    const parsed = parseSupplyLog({ tabs, today });
+    return buildKpi(
+      {
+        supplyLog: {
+          key: 'supplyLog',
+          kind: 'supply',
+          status: 'ok',
+          rows: parsed.rows,
+          tabs: parsed.tabs,
+        },
+      },
+      { score: 0, findings: [], counts: {} },
+      { today }
+    );
+  };
+
+  const mismatches = (tabs) => {
+    const parsed = parseSupplyLog({ tabs, today: '2026-08-21' });
+    const sources = {
+      supplyLog: {
+        key: 'supplyLog',
+        kind: 'supply',
+        label: 'Log Stock',
+        status: 'ok',
+        rows: parsed.rows,
+        tabs: parsed.tabs,
+      },
+    };
+    const analysis = analyze(sources);
+    const kpi = kpiFrom(tabs);
+    const out = verifyPresentation(analysis, kpi, sources);
+    return (out.findings ?? []).filter((f) => f.id === 'presentation.totalMismatch');
+  };
+
+  test('ของที่ขั้นต่ำ = 0 ต้องไม่ถูกนับว่า Dashboard นับผิด', () => {
+    const tabs = [
+      // ขาดจริง — ต้องเข้า needsReorder
+      tab('1.ขาดจริง', [head, ['01/08/2569', '', '', '0', 'ชิ้น', '5', '-5']]),
+      // ขั้นต่ำ 0 = ไม่ต้องเก็บสต๊อก — เข้า optionalReorder ไม่ใช่ needsReorder
+      tab('2.ไม่ต้องเก็บ', [head, ['01/08/2569', '', '', '0', 'ชิ้น', '0', '0']]),
+      tab('3.ไม่ต้องเก็บ', [head, ['01/08/2569', '', '', '0', 'ชิ้น', '0', '0']]),
+    ];
+    const kpi = kpiFrom(tabs).supply;
+    assert.equal(kpi.needsReorder.length, 1);
+    assert.equal(kpi.optionalReorder.length, 2);
+    assert.deepEqual(
+      mismatches(tabs),
+      [],
+      'Dashboard แยกกลุ่มถูกแล้ว ตัวตรวจต้องไม่ฟ้องว่าผิด — ไม่งั้นเป็น false alarm ระดับ critical'
+    );
+  });
+
+  test('ยังจับได้จริงถ้ามีรายการตกหล่นไปจากตาราง', () => {
+    const tabs = [
+      tab('1.ขาดจริง', [head, ['01/08/2569', '', '', '0', 'ชิ้น', '5', '-5']]),
+      tab('2.ขาดจริง', [head, ['01/08/2569', '', '', '0', 'ชิ้น', '5', '-5']]),
+    ];
+    const parsed = parseSupplyLog({ tabs, today: '2026-08-21' });
+    const sources = {
+      supplyLog: { key: 'supplyLog', kind: 'supply', label: 'Log Stock', status: 'ok', rows: parsed.rows, tabs: parsed.tabs },
+    };
+    const kpi = kpiFrom(tabs);
+    // จำลองว่ามีรายการหลุดหายไปจาก needsReorder หนึ่งอัน
+    kpi.supply.needsReorder = kpi.supply.needsReorder.slice(1);
+    const out = verifyPresentation(analyze(sources), kpi, sources);
+    const hit = (out.findings ?? []).filter((f) => f.id === 'presentation.totalMismatch');
+    assert.equal(hit.length, 1, 'ตัวตรวจต้องยังจับของหายได้ ไม่ใช่ปิดเสียงทิ้งไปเลย');
+    assert.equal(hit[0].field, 'needsReorder');
+  });
+});
