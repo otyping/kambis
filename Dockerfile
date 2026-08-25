@@ -33,9 +33,18 @@ USER node
 
 EXPOSE 5173
 
-# ใช้ /api/health ที่มีอยู่แล้ว — ตอบได้แม้ตอนเสิร์ฟชุดสำรอง (degraded)
-# start-period ยาวเพราะรอบโหลดแรกดึง Google Sheets หลายสิบแท็บ
-HEALTHCHECK --interval=60s --timeout=10s --start-period=180s --retries=3 CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||5173)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+# ยิง /api/health แล้ว **นับ 401 ว่าสุขภาพดีด้วย**
+#
+# endpoint นี้อยู่หลังด่านล็อกอิน (server.js กั้นก่อนทุก route โดยตั้งใจ) การยิงจาก
+# ในคอนเทนเนอร์โดยไม่มีคุกกี้จึงได้ 401 เสมอ — ถ้าเช็คแค่ r.ok คอนเทนเนอร์จะถูก
+# มาร์กเป็น unhealthy ตลอดกาลทั้งที่ทำงานปกติดี (เจอตอนรันจริง ไม่ใช่ตอนเขียน)
+#
+# 401 พิสูจน์ได้ครบว่าโปรเซสยังอยู่ · HTTP ตอบได้ · ด่านล็อกอินทำงาน
+# ส่วนที่ไม่ครอบคือคุณภาพข้อมูล ซึ่งมี dataHealth ใน payload ให้ตัวเฝ้าระวัง
+# ภายนอกอ่านอยู่แล้ว (ต้องล็อกอิน — ดู deploy/README.md)
+#
+# start-period ยาวเพราะรอบโหลดแรกดึง Google Sheets หลายร้อยแท็บ
+HEALTHCHECK --interval=60s --timeout=10s --start-period=180s --retries=3 CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||5173)+'/api/health').then(r=>process.exit(r.status===200||r.status===401?0:1)).catch(()=>process.exit(1))"
 
 # เรียก node ตรง ๆ ไม่ผ่าน npm — ไม่งั้นจะมี process ซ้อนที่กิน SIGTERM แทน
 # แล้ว docker stop จะต้องรอ timeout ทุกครั้งก่อนฆ่าทิ้ง
