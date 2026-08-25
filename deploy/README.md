@@ -110,7 +110,11 @@ docker compose run --rm kambis node scripts/manage-users.js list
 ```bash
 docker compose up -d
 docker compose logs -f kambis        # ต้องเห็น "ล็อกอิน: เปิดใช้งาน — ผู้ใช้ N คน"
-curl -s localhost:5173/api/health
+
+# /api/health อยู่หลังด่านล็อกอิน จึงตอบ 401 เมื่อยิงโดยไม่มี session
+# — นั่นคือคำตอบที่ถูกต้อง ไม่ใช่อาการพัง (ดู CLAUDE.md §8)
+curl -si localhost:5173/api/health | head -1     # ต้องได้ 401
+docker inspect kambis --format '{{.State.Health.Status}}'   # ต้องเป็น healthy หลัง ~3 นาที
 ```
 
 จากนั้นวาง nginx:

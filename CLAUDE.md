@@ -1116,7 +1116,7 @@ const needStock = Math.max(shortfall, entry.minimum ?? 0, 1);   // ห้าม�
 | `GET /api/supply/purchase-request/:docNo` | โหลดสำเนาใบเดิม (.xlsx) — เลขที่มาจาก URL **ตรวจ `/^PR-\d{8}-\d{3}$/` ก่อนแตะดิสก์เสมอ** · 404 แยก `NOT_FOUND` กับ `FILE_MISSING` |
 | `GET /api/analysis` | ผลวิเคราะห์อย่างเดียว |
 | `GET /api/progress` | SSE ความคืบหน้าการโหลด (ขับ loading screen) |
-| `GET /api/health` | uptime, อายุ cache, คะแนนคุณภาพข้อมูล, `dataHealth`, `degraded` |
+| `GET /api/health` | uptime, อายุ cache, คะแนนคุณภาพข้อมูล, `dataHealth`, `degraded` — **ต้องล็อกอิน** |
 | `GET /api/auth/status` | เปิดระบบล็อกอินไหม + ใครล็อกอินอยู่ (เข้าได้โดยไม่ต้องล็อกอิน) |
 | `POST /api/auth/login` | `{username, password}` → ตั้งคุกกี้ session |
 | `POST /api/auth/logout` | ล้างคุกกี้ |
@@ -1147,7 +1147,16 @@ const needStock = Math.max(shortfall, entry.minimum ?? 0, 1);   // ห้าม�
   ส่วน `readSnapshot` ตกไปใช้ `.prev` เองพร้อม**ตรวจรูปร่าง** (`meta` + `sources`/`source`)
   ไม่ใช่แค่ `JSON.parse` ผ่าน
 - ตอนเสิร์ฟชุดสำรอง `meta.health` ถูกแทนด้วยผลของ **รอบที่เพิ่งพยายาม** ไม่ใช่ของชุดสำรอง
-  เพื่อให้ `/api/health` รายงาน `dataHealth: 'bad'` ให้ตัวเฝ้าระวังภายนอกเห็นว่าตอนนี้ดึงไม่ได้
+  เพื่อให้ `/api/health` รายงาน `dataHealth: 'bad'` ว่าตอนนี้ดึงข้อมูลไม่ได้
+
+> **`/api/health` อยู่หลังด่านล็อกอินเหมือน endpoint อื่นทุกตัว** (ผู้ใช้ตัดสิน ส.ค. 69)
+> ตัวเฝ้าระวังภายนอกที่ไม่มี session จะได้ `401` ไม่ใช่ตัวเลข — ถ้าวันหนึ่งต้องการ
+> ให้ระบบ monitoring อ่านได้ ต้องเป็นการตัดสินใจใหม่ ไม่ใช่แอบเติมลง `OPEN_PATHS`
+>
+> ด้วยเหตุนี้ `HEALTHCHECK` ใน Dockerfile จึง **นับ `401` ว่าสุขภาพดี** —
+> มันยิงจากในคอนเทนเนอร์โดยไม่มีคุกกี้ ถ้าเช็คแค่ `r.ok` คอนเทนเนอร์จะเป็น
+> unhealthy ตลอดกาลทั้งที่ทำงานปกติ (เจอตอนรัน container จริงครั้งแรก)
+> `401` พิสูจน์ครบแล้วว่าโปรเซสอยู่ · HTTP ตอบได้ · ด่านล็อกอินทำงาน
 
 ### คูลดาวน์ปุ่มรีเฟรช
 
