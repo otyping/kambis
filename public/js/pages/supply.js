@@ -21,10 +21,11 @@ import { t } from '../i18n.js';
  * ส่วน `fmtDate` (พ.ศ. `31 ก.ค. 69`) ยังใช้กับตารางและ log ตามเดิม เพราะอ้างอิงชีตต้นทาง */
 import { n, esc, DASH, date as fmtDate, dateFull as fmtDateFull } from '../format.js';
 import { sortableTable } from '../ui/table.js';
+import { openDetail } from '../ui/modal.js';
 import { tabUrl, sheetUrlOf } from '../ui/sheet-link.js';
 import { pageHeader, panel, well, tiles, emptyNote, appendQualityCard } from './shared.js';
 import { comparePeriod } from '../shared/agg-core.js';
-import { stockAt, usageValueByMonth } from '../shared/kpi.js';
+import { stockAt, usageValueByMonth, usageEntries } from '../shared/kpi.js';
 import * as charts from '../charts/index.js';
 import { releaseCharts } from '../charts/core.js';
 import {
@@ -296,7 +297,11 @@ export function render(ctx) {
       ).sort(comparePeriod);
 
       renderAnomalies(dataHost, kpi.usageAnomalies, match);
-      renderUsageValue(dataHost, usage, shownMonths, lookup, drawChart);
+      renderUsageValue(dataHost, usage, shownMonths, lookup, drawChart, {
+        // รายการที่กรองแล้วชุดเดียวกับที่กราฟใช้ — กล่องรายละเอียดต้องไม่โผล่ของนอกตัวกรอง
+        items: items.filter(match),
+        sheet,
+      });
       renderUsage(dataHost, usage, shownMonths, year, sheet);
     }
 
@@ -412,7 +417,7 @@ const GROUP_ORDER = [
  * รายการที่ยังไม่มีราคาถูกตัดออกจากยอด **ไม่ใช่คิดเป็น 0** แล้วบอกจำนวนที่ตัดออกไว้
  * ด้วยข้อความเดียวกับตารางสต๊อก ไม่งั้นคนจะอ่านแท่งเตี้ย ๆ ว่าเดือนนั้นใช้ของน้อย
  */
-function renderUsageValue(host, usage, shown, lookup, drawChart) {
+function renderUsageValue(host, usage, shown, lookup, drawChart, opts = {}) {
   /* ไม่มีการเบิกเลย หรือปีที่เลือกไม่มีเดือนไหนเลย — ปล่อยให้ตารางด้านล่างเป็นคนอธิบาย
    * ไม่ต้องขึ้นแผงว่างเปล่าซ้อนกันสองใบที่บอกเรื่องเดียวกัน */
   if (!usage.length || !shown.length) return;
@@ -454,9 +459,18 @@ function renderUsageValue(host, usage, shown, lookup, drawChart) {
     parts: Object.fromEntries(GROUP_ORDER.map((g) => [g.label(), r.byGroup[g.code] ?? 0])),
   }));
 
+  /* กดแท่งแล้วเปิดรายการที่เบิกจริงของเดือนนั้น
+   *
+   * กราฟตอบได้แค่ "เดือนไหนใช้เงินไปเท่าไร" คำถามถัดไปที่ตามมาเสมอคือ
+   * "แล้วมันไปกับอะไร" ซึ่งเดิมต้องไปไล่อ่านตารางจำนวนเบิกด้านล่างทีละคอลัมน์
+   * แล้วเปิดชีตของแต่ละรายการเอง */
+  const openMonth = (month, trigger) =>
+    openUsageDetail(month, opts.items ?? [], lookup, opts.sheet ?? {}, trigger);
+
   const box = well(body);
   drawChart(box, () =>
     charts.stackedBars(box, data, {
+      onSelect: (row) => openMonth(row.key, null),
       keys,
       height: 260,
       // unit: '฿' — ไม่ส่งแล้วทั้งแกน Y และ tooltip จะคิดว่าเป็นน้ำหนักแล้วขึ้นเป็น kg
@@ -470,6 +484,79 @@ function renderUsageValue(host, usage, shown, lookup, drawChart) {
       max: data.length,
     })
   );
+
+  /* แถวปุ่มเดือน — **ไม่ใช่แค่ทางลัด แต่เป็นทางเดียวที่ใช้ได้จริงบนมือถือ**
+   *
+   * แท่งกราฟกว้าง ~15px บนจอ 375px แตะให้โดนแทบไม่ได้ และ canvas ไปถึงด้วย
+   * คีย์บอร์ดไม่ได้เลย แถวนี้จึงทำสองหน้าที่พร้อมกัน: บอกว่ากราฟกดได้
+   * (ไม่งั้นไม่มีใครรู้) และเป็นเป้ากดจริงที่ Tab ไปถึง */
+  const drill = document.createElement('p');
+  drill.className = 'usage-drill';
+  const hint = document.createElement('span');
+  hint.className = 'usage-drill__hint';
+  hint.textContent = t('supply.usageDrillHint');
+  drill.appendChild(hint);
+
+  for (const r of rows) {
+    // เดือนที่ไม่มีการเบิกเลยไม่ต้องมีปุ่ม — กดไปก็ได้กล่องเปล่า
+    if (!r.total) continue;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'usage-drill__btn';
+    b.textContent = r.month;
+    b.addEventListener('click', () => openMonth(r.month, b));
+    drill.appendChild(b);
+  }
+  body.appendChild(drill);
+}
+
+/** กล่องรายละเอียดการเบิกของเดือนหนึ่ง — ตรรกะการเลือกแถวอยู่ที่ shared/kpi.js
+ * เพราะมันต้องให้ยอดตรงกับ usageValueByMonth() ที่อยู่ไฟล์เดียวกันเป๊ะ */
+function openUsageDetail(month, items, lookup, sheet, trigger) {
+  const rows = usageEntries(items, month, lookup);
+  const value = rows.reduce((s, r) => s + (r.value ?? 0), 0);
+  const uniqueItems = new Set(rows.map((r) => r.item)).size;
+
+  const sub = t('supply.usageDrillSub')
+    .replace('{rows}', n(rows.length))
+    .replace('{items}', n(uniqueItems))
+    .replace('{value}', n(value));
+
+  openDetail(t('supply.usageDrillTitle').replace('{month}', month), sub, (body) => {
+    if (!rows.length) {
+      emptyNote(body, t('supply.usageDrillEmpty'));
+      return;
+    }
+
+    body.appendChild(
+      sortableTable(
+        [
+          { label: t('supply.date'), get: (r) => r.date, render: (r) => fmtDateFull(r.date) },
+          { label: t('supply.item'), get: (r) => r.item, render: itemCell(sheet) },
+          { label: t('supply.issuedQty'), align: 'n', get: (r) => r.qty, render: (r) => n(r.qty) },
+          { label: t('supply.unit'), get: (r) => r.unit },
+          {
+            label: t('supply.amount'),
+            align: 'n',
+            get: (r) => r.value,
+            render: (r) =>
+              r.value === null
+                ? `<span class="cell-missing">${esc(t('supply.noPrice'))}</span>`
+                : n(r.value),
+          },
+        ],
+        rows,
+        {
+          // เรียงจากวันที่ล่าสุดตามที่ผู้ใช้สั่ง — คีย์ ISO เรียงแล้วตรงกับเวลาจริง
+          sortIndex: 0,
+          sortDir: 'desc',
+          rowKey: (r) => `${r.date}|${r.item}`,
+        }
+      )
+    );
+
+    wireSheetRows(body, sheet);
+  }, trigger);
 }
 
 /**

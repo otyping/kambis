@@ -127,6 +127,52 @@ export function usageValueByMonth(usage = [], months = [], lookup = {}) {
 }
 
 /**
+ * รายการที่เบิกไปในเดือนหนึ่ง เรียงจากวันที่ล่าสุด
+ *
+ * ใช้ตอบคำถามที่ตามหลัง `usageValueByMonth()` เสมอ — กราฟบอกได้แค่ "เดือนไหน
+ * ใช้เงินไปเท่าไร" คำถามถัดไปคือ "แล้วมันไปกับอะไร"
+ *
+ * **ต้องให้ยอดตรงกับแท่งของเดือนนั้นเป๊ะ** ทั้งจำนวนและมูลค่า ทั้งที่คิดคนละทาง
+ * (ตัวนี้ไล่ `items[].log` ทีละแถว · ตัวนั้นใช้ `usage[].byMonth` ที่รวมมาแล้ว)
+ * ถ้าสองทางนี้หลุดจากกันเมื่อไร ผู้ใช้จะเห็นเลขบนกราฟไม่ตรงกับกล่องที่เพิ่งกดเปิด
+ * แล้วอธิบายไม่ได้ว่าอันไหนถูก — มี test คุมไว้แล้ว
+ *
+ * กติกาที่ต้องเหมือน `usageValueByMonth()` ทุกข้อ:
+ *   - มูลค่าใช้ **ราคาปัจจุบัน** ไม่ใช่ราคาตอนที่เบิก (ชีตเก็บราคาช่องเดียวต่อรายการ
+ *     ไม่มีประวัติราคา) จึงเป็น "ของที่เบิกไป ตีตามราคาวันนี้"
+ *   - รายการที่ยังไม่มีราคา → `value: null` **ห้ามคิดเป็น 0** ไม่งั้นยอดต่ำกว่าจริง
+ *     โดยไม่มีอะไรบอก
+ *
+ * @param {Array} items  kpi.items ที่กรองแล้ว (ต้องมี log ติดมาด้วย)
+ * @param {string} month  รูปแบบ YYYY-MM
+ * @param {{priceOf?:Function}} lookup
+ */
+export function usageEntries(items = [], month = '', lookup = {}) {
+  const priceOf = lookup.priceOf ?? (() => null);
+  const out = [];
+
+  for (const it of items) {
+    const price = priceOf(it.item);
+    for (const row of it.log ?? []) {
+      if (!row.issued || !String(row.date ?? '').startsWith(month)) continue;
+      out.push({
+        date: row.date,
+        item: it.item,
+        unit: it.unit ?? '',
+        qty: row.issued,
+        value: price === null || price === undefined ? null : row.issued * price,
+      });
+    }
+  }
+
+  /* วันที่ล่าสุดขึ้นก่อน · วันเดียวกันเรียงตามชื่อรายการ
+   * ไม่ปล่อยให้ลำดับขึ้นกับลำดับแท็บในชีต ซึ่งขยับทุกครั้งที่มีคนเพิ่มแท็บ */
+  return out.sort((a, b) =>
+    a.date === b.date ? String(a.item).localeCompare(String(b.item), 'th') : a.date < b.date ? 1 : -1
+  );
+}
+
+/**
  * ติดสถานะ "ขอซื้อไปแล้ว รอของ" ให้รายการที่ต้องสั่งซื้อ
  *
  * ปัญหาที่แก้: ของที่ขอซื้อไปแล้วยังต่ำกว่าขั้นต่ำอยู่จนกว่าของจะมาถึง

@@ -559,6 +559,7 @@ export function stackedBars(container, rows, opts = {}) {
     unit = 'g',
     max: topN = 24,
     labelFormat = 'raw',
+    onSelect = null,
   } = opts;
 
   const data = rows.slice(-topN);
@@ -717,6 +718,29 @@ export function stackedBars(container, rows, opts = {}) {
       y: box.y,
     };
   });
+
+  /* กดที่แท่งเพื่อเปิดรายละเอียด — ผู้เรียกเป็นคนตัดสินว่ารายละเอียดคืออะไร
+   *
+   * ใช้ hits ชุดเดียวกับ tooltip แต่ **ต้องโดนแท่งที่มีข้อมูลจริง** ต่างจาก tooltip
+   * ที่คงค่าเดิมไว้ตอนชี้โดนช่องว่างระหว่างแท่ง (ตั้งใจ กันกระพริบ) — การกดพลาด
+   * แล้วเปิดเดือนที่ไม่ได้เล็งเป็นคนละเรื่องกับ tooltip ที่ค้างภาพเดิมไว้ครู่หนึ่ง
+   *
+   * บนมือถือแท่งกว้างแค่ ~15px แตะให้โดนยาก ผู้เรียกจึงควรมีทางที่สองที่เป็นปุ่มจริง
+   * ให้ด้วยเสมอ (pages/supply.js ทำเป็นแถวปุ่มเดือนใต้กราฟ) */
+  if (typeof onSelect === 'function') {
+    const hitAt = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      return hits.find((s) => s.total > 0 && mx >= s.x0 && mx <= s.x1);
+    };
+    canvas.addEventListener('mousemove', (e) => {
+      canvas.style.cursor = hitAt(e) ? 'pointer' : '';
+    });
+    canvas.addEventListener('click', (e) => {
+      const hit = hitAt(e);
+      if (hit) onSelect(hit.row);
+    });
+  }
 
   // มี ≥2 หมวดต้องมี legend เสมอ — ห้ามให้สีเป็นตัวบอกตัวตนเพียงอย่างเดียว
   const used = keys.filter((k) => data.some((r) => (r.parts?.[k] || 0) > 0));

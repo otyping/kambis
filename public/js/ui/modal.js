@@ -75,6 +75,18 @@ export function close() {
   }
 }
 
+/**
+ * เปิด modal เปล่าแล้วให้ผู้เรียกเติมเนื้อเอง
+ *
+ * เดิมเป็นฟังก์ชันภายในที่มีแต่ openCard() เรียก แต่ตอนนี้มีหน้าที่ต้องเปิด
+ * รายละเอียดที่ไม่ได้มาจากการ์ด (กดแท่งกราฟมูลค่าการเบิก) — export ตัวเดิมออกไป
+ * ดีกว่าเขียนเปลือกกล่องชุดที่สอง ซึ่งจะได้กับดักโฟกัส/Esc/แผ่นเลื่อนบนมือถือ
+ * คนละแบบกันโดยไม่มีใครสังเกต
+ */
+export function openDetail(title, sub, buildBody, trigger) {
+  open(title, sub, buildBody, trigger);
+}
+
 function open(title, sub, buildBody, trigger) {
   lastFocus = trigger ?? document.activeElement;
   releaseCharts(dialog);

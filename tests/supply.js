@@ -30,7 +30,7 @@ import {
   buildCompanyForm,
 } from '../server/lib/purchase-request.js';
 import { recentRequests } from '../server/lib/loader.js';
-import { stockAt, usageValueByMonth } from '../public/js/shared/kpi.js';
+import { stockAt, usageValueByMonth, usageEntries } from '../public/js/shared/kpi.js';
 import {
   readSupplyFilters,
   supplyFilterParams,
@@ -1086,6 +1086,54 @@ describe('มูลค่าของที่เบิกต่อเดือ�
   ]);
 
   const lookup = supplyLookup(kpi.items);
+
+  /* ── กล่องรายละเอียดที่เปิดจากการกดแท่งกราฟ ──────────────
+   *
+   * ผู้ใช้กดแท่งเดือนหนึ่งแล้วเห็นรายการที่เบิกไปจริง ๆ ของเดือนนั้น
+   * **ยอดในกล่องต้องเท่ากับแท่งที่เพิ่งกดเป๊ะ** ทั้งที่คิดคนละทาง:
+   * usageEntries() ไล่ items[].log ทีละแถว ส่วน usageValueByMonth() ใช้
+   * usage[].byMonth ที่รวมมาแล้ว — ถ้าสองทางนี้หลุดจากกัน ผู้ใช้จะเห็นเลข
+   * บนกราฟไม่ตรงกับกล่องที่เพิ่งเปิด แล้วอธิบายไม่ได้ว่าอันไหนเชื่อได้ */
+  describe('รายการที่เบิกในเดือนหนึ่ง (กดที่แท่งกราฟ)', () => {
+    test('ยอดในกล่องต้องเท่ากับแท่งของเดือนนั้น ทั้งมูลค่าและจำนวน', () => {
+      for (const month of ['2026-07', '2026-08']) {
+        const bar = usageValueByMonth(kpi.usage, [month], lookup).rows[0];
+        const entries = usageEntries(kpi.items, month, lookup);
+
+        const value = entries.reduce((sum, r) => sum + (r.value ?? 0), 0);
+        assert.equal(value, bar.total, `มูลค่าเดือน ${month} ต้องตรงกับแท่ง`);
+
+        // จำนวนที่เบิกก็ต้องตรง แม้รายการที่ไม่มีราคาจะไม่เข้ายอดเงิน
+        const qty = entries.reduce((sum, r) => sum + r.qty, 0);
+        const barQty = kpi.usage.reduce((sum, r) => sum + (r.byMonth?.[month] ?? 0), 0);
+        assert.equal(qty, barQty, `จำนวนเบิกเดือน ${month} ต้องตรงกับตารางด้านล่าง`);
+      }
+    });
+
+    test('เรียงจากวันที่ล่าสุดตามที่ผู้ใช้สั่ง', () => {
+      const entries = usageEntries(kpi.items, '2026-07', lookup);
+      const dates = entries.map((r) => r.date);
+      assert.deepEqual(dates, [...dates].sort().reverse(), 'ใหม่ไปเก่าเสมอ');
+    });
+
+    /* ของที่ยังไม่มีราคาต้องอยู่ในรายการ แต่ช่องมูลค่าเป็น null
+     * ตัดทิ้งไปเลยจะทำให้กล่องบอกจำนวนครั้งน้อยกว่าที่เบิกจริง
+     * ส่วนคิดเป็น 0 จะทำให้ดูเหมือนเบิกของฟรี — ทั้งสองอย่างผิดคนละแบบ */
+    test('รายการที่ยังไม่มีราคาต้องอยู่ครบ แต่มูลค่าเป็น null ห้ามเป็น 0', () => {
+      const entries = usageEntries(kpi.items, '2026-07', lookup);
+      /* หาโดยดูที่ "ไม่มีราคา" ไม่ใช่ชื่อดิบของแท็บ เพราะ parser ตัดเลขลำดับหน้าชื่อออก
+       * (เลขนั้นเปลี่ยนได้ทุกครั้งที่มีคนแทรกแท็บ — ผูกเทสต์ไว้กับมันคือทำให้พังเอง) */
+      const unpriced = entries.filter((r) => r.value === null);
+      assert.equal(unpriced.length, 1, 'ต้องยังอยู่ในรายการ ไม่ใช่ถูกตัดทิ้ง');
+      assert.equal(unpriced[0].qty, 3, 'จำนวนที่เบิกยังต้องถูกต้อง');
+      assert.notEqual(unpriced[0].value, 0, 'ห้ามเป็น 0 — จะดูเหมือนเบิกของฟรี');
+    });
+
+    test('เดือนอื่นต้องไม่ปนเข้ามา', () => {
+      assert.equal(usageEntries(kpi.items, '2026-08', lookup).length, 1);
+      assert.equal(usageEntries(kpi.items, '2026-09', lookup).length, 0);
+    });
+  });
 
   test('มูลค่า = จำนวนเบิก × ราคา/หน่วย แยกตามเดือนและหมวด', () => {
     const { rows, total } = usageValueByMonth(kpi.usage, ['2026-07', '2026-08'], lookup);

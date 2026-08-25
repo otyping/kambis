@@ -428,6 +428,20 @@ const STRINGS = {
   'supply.orderQtyEditable': ['จำนวนที่ขอซื้อ', 'Qty to request'],
   'supply.unitPrice': ['ราคา/หน่วย', 'Unit price'],
   'supply.amount': ['มูลค่า', 'Amount'],
+  'supply.issuedQty': ['จำนวนเบิก', 'Qty withdrawn'],
+  'supply.usageDrillHint': [
+    'กดที่แท่งหรือปุ่มเดือนเพื่อดูว่าเบิกอะไรไปบ้างในเดือนนั้น',
+    'Select a bar or a month to see what was withdrawn',
+  ],
+  'supply.usageDrillTitle': ['การเบิกเดือน {month}', 'Withdrawals in {month}'],
+  'supply.usageDrillSub': [
+    '{rows} ครั้ง · {items} รายการ · รวม {value} ฿ · เรียงจากวันที่ล่าสุด',
+    '{rows} entries · {items} items · {value} ฿ total · newest first',
+  ],
+  'supply.usageDrillEmpty': [
+    'เดือนนี้ไม่มีรายการเบิกในชุดที่กรองอยู่',
+    'No withdrawals this month within the current filter',
+  ],
   'supply.lifetime': ['ระยะเวลาใช้งาน', 'Lasts for'],
   'supply.selectAll': ['เลือกทั้งหมด', 'Select all'],
   'supply.selected': ['เลือกไว้', 'Selected'],

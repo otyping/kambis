@@ -1446,6 +1446,60 @@ body.has-nav-open {
   cursor: help;
 }
 
+/* ── หน้า Supply: แถวปุ่มเดือนใต้กราฟมูลค่าการเบิก ──────────
+ *
+ * ทำสองหน้าที่: บอกว่ากราฟกดได้ (ไม่งั้นไม่มีใครรู้) และเป็นเป้ากดจริง
+ * เพราะบนจอ 375px แท่งกราฟกว้างแค่ ~15px แตะให้โดนแทบไม่ได้ และ canvas
+ * ไปถึงด้วยคีย์บอร์ดไม่ได้เลย
+ *
+ * อยู่ในแผงที่มีกรอบอยู่แล้ว → ใช้กรอบบางที่สุดที่ยังอ่านออกว่ากดได้
+ * ไม่ใช้ .btn--sm เพราะสูง 38px คูณ 12 เดือนกลายเป็นแถบหนาสองบรรทัด
+ * ที่แย่งความสนใจไปจากกราฟซึ่งเป็นพระเอกของแผง
+ */
+.usage-drill {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+
+.usage-drill__hint {
+  font-size: var(--fs-2xs);
+  color: var(--ink-mute);
+  margin-right: var(--sp-1);
+}
+
+.usage-drill__btn {
+  min-height: 30px;
+  padding: 0 var(--sp-3);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid var(--glass-border-soft);
+  border-radius: var(--r-full);
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.usage-drill__btn:hover {
+  background: var(--tint-accent);
+  border-color: var(--accent-line);
+  color: var(--ink);
+}
+
+/* เป้ากดบนอุปกรณ์สัมผัส — **ต้องเขียนหลังกฎด้านบน** specificity เท่ากัน (0,1,0)
+ * เพราะ media query ไม่ได้เพิ่ม specificity ให้เลย อันที่มาทีหลังจึงชนะ
+ * (กับดักเดียวกับ .dp--inline .dp__day ที่จดไว้ใน skill ui-craft §5) */
+@media (hover: none) {
+  .usage-drill__btn {
+    min-height: 44px;
+    padding: 0 var(--sp-4);
+  }
+}
+
 /* ── หน้า Supply: ตารางของที่ต้องสั่งซื้อ ────────────────── */
 .supply-warn {
   margin: 0 0 var(--sp-3);
