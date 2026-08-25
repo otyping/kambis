@@ -123,11 +123,18 @@ function renderHeader() {
     ...new Set([...collectNotices(meta), ...collectNotices(supply?.meta, { scope: 'supply' })]),
   ];
 
+  /* หลายข้อ = หลายบรรทัด ห้ามต่อกันด้วย `·`
+   *
+   * คำเตือนแต่ละข้อเป็นคนละเรื่องและยาวไม่เท่ากัน พอต่อเป็นย่อหน้าเดียว
+   * ข้อสั้น ๆ ที่สำคัญจะถูกข้อยาวกลืนหายไปกลางบรรทัด (เจอจริงกับคู่
+   * "ค้นรายชื่อแท็บไม่สำเร็จ" + รายการแท็บที่เปลี่ยนชื่อยาวสามบรรทัด) */
   if (messages.length) {
     el.notice.hidden = false;
-    el.notice.innerHTML = `<span aria-hidden="true">⚠</span><span>${messages
-      .map(esc)
-      .join(' · ')}</span>`;
+    const body =
+      messages.length === 1
+        ? `<span>${esc(messages[0])}</span>`
+        : `<ul class="notice__list">${messages.map((m) => `<li>${esc(m)}</li>`).join('')}</ul>`;
+    el.notice.innerHTML = `<span aria-hidden="true">⚠</span>${body}`;
   } else {
     el.notice.hidden = true;
   }

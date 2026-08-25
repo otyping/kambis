@@ -14,6 +14,19 @@
 import { t, pick } from '../i18n.js';
 import { ago, countdown } from '../format.js';
 
+/* ยาวได้แค่ไหนก่อนจะกลายเป็นกำแพงตัวอักษร
+ *
+ * แถบนี้รวมคำเตือนทุกข้อไว้ด้วยกัน ข้อเดียวที่ยาวเกินจะดันข้ออื่นออกนอกสายตา
+ * (เจอจริง: แท็บเปลี่ยนชื่อรวด 11 อัน กินพื้นที่สามบรรทัด จนคำเตือน
+ * "ค้นรายชื่อแท็บไม่สำเร็จ" ที่อยู่ข้างหน้าอ่านไม่ออก) */
+const LIST_MAX = 4;
+
+/** ต่อรายชื่อเป็นข้อความ ตัดท้ายเมื่อยาวเกิน — จำนวนที่เหลือสำคัญกว่าชื่อที่เหลือ */
+function listSome(items, max = LIST_MAX) {
+  if (items.length <= max) return items.join(', ');
+  return `${items.slice(0, max).join(', ')}, ${t('tabs.andMore', { n: items.length - max })}`;
+}
+
 /**
  * @param {object|null|undefined} meta
  * @param {{scope?: 'supply'|null}} [opts] scope ใส่คำนำหน้าให้รู้ว่าเป็นของชีตไหน
@@ -62,14 +75,31 @@ export function collectNotices(meta, { scope = null } = {}) {
   for (const change of meta.tabChanges ?? []) {
     const title = pick(change, 'title');
     if (change.added?.length) {
-      out.push(`${t('tabs.newFound')} — ${title}: ${change.added.map((x) => x.name).join(', ')}`);
+      out.push(`${t('tabs.newFound')} — ${title}: ${listSome(change.added.map((x) => x.name))}`);
     }
     if (change.removed?.length) {
-      out.push(`${t('tabs.removed')} — ${title}: ${change.removed.map((x) => x.name).join(', ')}`);
+      out.push(`${t('tabs.removed')} — ${title}: ${listSome(change.removed.map((x) => x.name))}`);
     }
-    if (change.renamed?.length) {
+
+    /* เปลี่ยนชื่อจริง กับ เรียงเลขใหม่ ต้องแยกกัน — ไม่ใช่แค่ให้สั้นลง
+     *
+     * เปลี่ยนชื่อจริงทำให้ตัวคัดชื่ออย่าง `STOCK_TAB_RE` พลาดได้ ข้อมูลหายทั้งรายงาน
+     * ส่วนเรียงเลขใหม่ gid เดิม เนื้อชื่อเดิม parser ไม่มีทางกระทบ
+     * ปนกันแล้วรายการที่ต้องรีบดูจะจมอยู่ในกองที่ไม่ต้องทำอะไร */
+    const renamed = change.renamed ?? [];
+    const real = renamed.filter((x) => !x.renumbered);
+    const renum = renamed.filter((x) => x.renumbered);
+
+    if (real.length) {
+      out.push(`${t('tabs.renamed')} — ${title}: ${listSome(real.map((x) => `${x.from} → ${x.to}`))}`);
+    }
+    // อันเดียวยังอ่านไหว บอกตรง ๆ ดีกว่าให้ไปนับเอง
+    if (renum.length === 1) {
+      out.push(`${t('tabs.renamed')} — ${title}: ${renum[0].from} → ${renum[0].to}`);
+    } else if (renum.length) {
       out.push(
-        `${t('tabs.renamed')} — ${title}: ${change.renamed.map((x) => `${x.from} → ${x.to}`).join(', ')}`
+        `${t('tabs.renumbered', { n: renum.length })} — ${title}: ${renum[0].from} → ${renum[0].to}, ` +
+          t('tabs.andMore', { n: renum.length - 1 })
       );
     }
   }

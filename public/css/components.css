@@ -1161,15 +1161,25 @@ a.finding__sheet:hover {
 /* ── แถบแจ้งเตือนข้อมูลเก่า ── */
 .notice {
   display: flex;
-  align-items: center;
+  /* ข้อความยาวหลายบรรทัดได้ ⚠ จึงต้องอยู่บรรทัดแรกเสมอ ไม่ใช่ลอยกลางกล่อง */
+  align-items: flex-start;
   gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-4);
   margin-bottom: var(--sp-4);
   border-radius: var(--r-md);
   font-size: var(--fs-xs);
+  line-height: 1.5;
   background: var(--tint-warning);
   border: 1px solid var(--line-warning);
   color: var(--ink);
+}
+
+/* หลายคำเตือน = หลายบรรทัด แต่ละข้อเป็นคนละเรื่อง ต้องกวาดตาแยกออกจากกันได้ */
+.notice__list {
+  margin: 0;
+  padding-left: 1.15em;
+  display: grid;
+  gap: var(--sp-1);
 }
 
 .notice[hidden] {

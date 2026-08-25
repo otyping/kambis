@@ -53,11 +53,29 @@ export async function discoverTabs(sheetId, opts = {}) {
   return tabs;
 }
 
+/* เลขลำดับเอกสารหน้าชื่อแท็บ — ธรรมเนียมของบริษัท (`1.Rockwool` · `9.58 Stock หัวหิน`)
+ *
+ * แทรกรายการใหม่หนึ่งอันทำให้ทุกแท็บที่อยู่หลังจากนั้น **ถูกเรียงเลขใหม่ทั้งแถว**
+ * (เจอจริง ส.ค. 69: แทรกที่ 42 แล้ว 43→44 … 53→54 รวด 11 อัน) */
+const ORDINAL_PREFIX = /^\s*\d+(?:\.\d+)*\s*[.)\s]\s*/;
+
+/** ชื่อแท็บที่ตัดเลขลำดับหน้าออกแล้ว — ใช้ดูว่า "เปลี่ยนแค่เลข" หรือ "เปลี่ยนชื่อจริง" */
+export function stripOrdinal(name) {
+  return String(name ?? '')
+    .replace(ORDINAL_PREFIX, '')
+    .trim();
+}
+
 /**
  * เทียบรายชื่อแท็บเก่ากับใหม่
+ *
+ * `renamed[].renumbered` = เปลี่ยนแค่เลขลำดับหน้าชื่อ เนื้อชื่อเดิมเป๊ะ
+ * ซึ่ง **ไม่กระทบ parser เลย** เพราะทุกตัวอ้าง gid หรือตัดเลขนำหน้าทิ้งอยู่แล้ว
+ * ต่างจากการเปลี่ยนชื่อจริงที่ทำให้ตัวคัดชื่ออย่าง `STOCK_TAB_RE` พลาดได้
+ *
  * @param {{gid:string,name:string}[]} before
  * @param {{gid:string,name:string}[]} after
- * @returns {{added:{gid,name}[], removed:{gid,name}[], renamed:{gid,from,to}[], changed:boolean}}
+ * @returns {{added:{gid,name}[], removed:{gid,name}[], renamed:{gid,from,to,renumbered:boolean}[], changed:boolean}}
  */
 export function diffTabs(before = [], after = []) {
   const prev = new Map(before.map((t) => [t.gid, t.name]));
@@ -67,7 +85,12 @@ export function diffTabs(before = [], after = []) {
   const removed = before.filter((t) => !next.has(t.gid));
   const renamed = after
     .filter((t) => prev.has(t.gid) && prev.get(t.gid) !== t.name)
-    .map((t) => ({ gid: t.gid, from: prev.get(t.gid), to: t.name }));
+    .map((t) => {
+      const from = prev.get(t.gid);
+      const base = stripOrdinal(t.name);
+      // ตัดเลขแล้วเหลือค่าว่าง = ชื่อเป็นตัวเลขล้วน ตัดสินไม่ได้ ให้ถือว่าเปลี่ยนชื่อจริง
+      return { gid: t.gid, from, to: t.name, renumbered: base !== '' && base === stripOrdinal(from) };
+    });
 
   return {
     added,

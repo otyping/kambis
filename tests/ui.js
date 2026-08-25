@@ -624,6 +624,81 @@ describe('แถบแจ้งเตือนบนหัวเว็บ', () =
     assert.match(stale[0], /ชีตวัสดุสิ้นเปลือง/);
   });
 
+  /* เคสจริง ส.ค. 69 — แทรกรายการที่ตำแหน่ง 42 ในชีต Log Stock แท็บ 43–53
+   * ถูกเรียงเลขใหม่รวด 11 อัน แถบเตือนลงรายละเอียดทีละคู่จนยาวสามบรรทัด
+   * แล้วกลบคำเตือน "ค้นรายชื่อแท็บไม่สำเร็จ" ที่อยู่ข้างหน้าในแถบเดียวกัน */
+  test('เรียงเลขใหม่ทั้งแถว ต้องยุบเหลือบรรทัดเดียวพร้อมจำนวน', () => {
+    const renamed = Array.from({ length: 11 }, (_, i) => ({
+      gid: String(i),
+      from: `${43 + i}.ของ${i}`,
+      to: `${44 + i}.ของ${i}`,
+      renumbered: true,
+    }));
+    const out = collectNotices({
+      sources: [src({ key: 'supplyLog' })],
+      tabChanges: [{ titleTh: 'Log Stock', titleEn: 'Log Stock', renamed }],
+    });
+
+    assert.equal(out.length, 1, 'สิบเอ็ดอันต้องเหลือข้อความเดียว');
+    assert.match(out[0], /11/, 'ต้องบอกจำนวนที่ถูกเรียงเลขใหม่');
+    // ยังต้องเห็นตัวอย่างหนึ่งคู่ ไม่ใช่ยุบจนไม่รู้ว่าเกิดอะไร
+    assert.match(out[0], /43\.ของ0 → 44\.ของ0/);
+    // แต่ห้ามลากมาทั้งสิบเอ็ดคู่
+    assert.ok(!out[0].includes('53.ของ10'), `ยังยาวเกินไป: ${out[0]}`);
+  });
+
+  /* จุดที่ห้ามเงียบ: เปลี่ยนชื่อจริงทำให้ STOCK_TAB_RE พลาดแล้วข้อมูลหายทั้งรายงาน
+   * ถ้ายุบรวมกับกองเรียงเลขใหม่ อันที่ต้องรีบดูจะจมหายไป */
+  test('เปลี่ยนชื่อจริงต้องแยกบรรทัดและแสดงเต็ม แม้ปนมากับการเรียงเลขใหม่', () => {
+    const out = collectNotices({
+      sources: [src({ key: 'supplyLog' })],
+      tabChanges: [
+        {
+          titleTh: 'Log Stock',
+          titleEn: 'Log Stock',
+          renamed: [
+            { gid: '1', from: '43.ของเดิม', to: '44.ของเดิม', renumbered: true },
+            { gid: '2', from: '44.ของเดิม2', to: '45.ของเดิม2', renumbered: true },
+            { gid: '3', from: 'สำเนาของ สำเนาของ', to: 'สำเนาของ', renumbered: false },
+          ],
+        },
+      ],
+    });
+
+    assert.equal(out.length, 2, 'ของจริงกับการเรียงเลขใหม่ต้องคนละบรรทัด');
+    const real = out.find((x) => x.includes('สำเนาของ สำเนาของ'));
+    assert.ok(real, 'การเปลี่ยนชื่อจริงต้องยังอยู่ครบ');
+    assert.match(real, /สำเนาของ สำเนาของ → สำเนาของ/);
+  });
+
+  test('เปลี่ยนชื่อเพราะเรียงเลขอันเดียว บอกตรง ๆ ไม่ต้องยุบ', () => {
+    const out = collectNotices({
+      sources: [src({ key: 'supplyLog' })],
+      tabChanges: [
+        {
+          titleTh: 'Log Stock',
+          titleEn: 'Log Stock',
+          renamed: [{ gid: '1', from: '43.ของ', to: '44.ของ', renumbered: true }],
+        },
+      ],
+    });
+    assert.equal(out.length, 1);
+    assert.match(out[0], /43\.ของ → 44\.ของ/);
+  });
+
+  /* แท็บใหม่ก็ยาวได้ไม่จำกัดเหมือนกัน — เดือนใหม่/ครอปใหม่มาทีเป็นสิบ */
+  test('รายชื่อแท็บใหม่ที่ยาวเกินต้องตัดท้ายพร้อมบอกจำนวนที่เหลือ', () => {
+    const added = Array.from({ length: 9 }, (_, i) => ({ name: `แท็บ${i}` }));
+    const out = collectNotices({
+      sources: [src()],
+      tabChanges: [{ titleTh: 'Log Stock', titleEn: 'Log Stock', added }],
+    });
+    assert.equal(out.length, 1);
+    assert.match(out[0], /แท็บ0/);
+    assert.match(out[0], /5/, 'ต้องบอกว่าเหลืออีกกี่อัน');
+    assert.ok(!out[0].includes('แท็บ8'), `ไม่ควรลากมาครบทุกอัน: ${out[0]}`);
+  });
+
   test('กดรีเฟรชระหว่างคูลดาวน์ ต้องบอกเวลาที่รออยู่', () => {
     const out = collectNotices({
       sources: [src()],
