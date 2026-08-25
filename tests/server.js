@@ -16,6 +16,8 @@ import { createRefreshGate } from '../server/lib/refresh-gate.js';
 import { payloadHealth } from '../server/lib/loader.js';
 import { writeSnapshot, readSnapshot, CACHE_DIR } from '../server/lib/cache.js';
 import { csvUrl } from '../server/lib/fetcher.js';
+import { diffTabs, stripOrdinal } from '../server/lib/tabs.js';
+import { sameUsername } from '../server/lib/auth.js';
 
 describe('endpoint ที่ใช้ดึง CSV', () => {
   /* gviz/tq เป็น endpoint ของ Query API — มันเดาเองว่าแถวบน ๆ เป็นหัวตารางแล้วตัดทิ้ง
@@ -203,5 +205,105 @@ describe('ชุดสำรองบนดิสก์', () => {
     await writeSnapshot({ meta: { sources: [] }, source: { rows: [] }, kpi: {} }, NAME);
     assert.ok(await readSnapshot(NAME));
     await clean();
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────
+ * เทียบรายชื่อแท็บ — แยก "เรียงเลขใหม่" ออกจาก "เปลี่ยนชื่อจริง"
+ *
+ * เคสจริง ส.ค. 69: มีคนแทรกรายการที่ตำแหน่ง 42 ในชีต Log Stock
+ * แท็บ 43–53 จึงถูกเรียงเลขใหม่เป็น 44–54 รวด 11 อัน แถบเตือนบนหัวเว็บ
+ * ลงรายละเอียดทีละคู่จนกินสามบรรทัด แล้วกลบคำเตือนข้ออื่นที่อยู่แถบเดียวกัน
+ * ────────────────────────────────────────────────────────────── */
+describe('เทียบรายชื่อแท็บ', () => {
+  test('ตัดเลขลำดับหน้าชื่อได้ทุกแบบที่บริษัทเขียนจริง', () => {
+    assert.equal(stripOrdinal('43.แปรงขัดโถห้องน้ำ'), 'แปรงขัดโถห้องน้ำ');
+    assert.equal(stripOrdinal('1.Rockwool'), 'Rockwool');
+    assert.equal(stripOrdinal('9.58 Stock หัวหิน'), 'Stock หัวหิน');
+    // ไม่มีเลขนำหน้า = ต้องไม่ถูกแตะ
+    assert.equal(stripOrdinal('SUMMARY SHEET'), 'SUMMARY SHEET');
+    assert.equal(stripOrdinal('ต้นทุน ต่อ กรัม 2026'), 'ต้นทุน ต่อ กรัม 2026');
+  });
+
+  test('เปลี่ยนแค่เลขลำดับ ต้องติดธง renumbered', () => {
+    const before = [
+      { gid: 'a', name: '42.ชุดหมีพ่นยา (ฝรั่ง)' },
+      { gid: 'b', name: '43.แปรงขัดโถห้องน้ำ' },
+    ];
+    const after = [
+      { gid: 'a', name: '43.ชุดหมีพ่นยา (ฝรั่ง)' },
+      { gid: 'b', name: '44.แปรงขัดโถห้องน้ำ' },
+    ];
+    const d = diffTabs(before, after);
+    assert.equal(d.renamed.length, 2);
+    assert.ok(d.renamed.every((x) => x.renumbered));
+    // ยังต้องรายงานว่าเปลี่ยน ไม่ใช่กลืนหายไปเลย
+    assert.equal(d.changed, true);
+  });
+
+  /* จุดที่ห้ามพลาด: เปลี่ยนชื่อจริงทำให้ตัวคัดชื่ออย่าง STOCK_TAB_RE พลาดได้
+   * ข้อมูลหายทั้งรายงาน ถ้าเผลอเหมารวมเป็น "เรียงเลขใหม่" จะไม่มีใครรู้ */
+  test('เปลี่ยนเนื้อชื่อจริง ห้ามถูกเหมาเป็นการเรียงเลขใหม่', () => {
+    const d = diffTabs(
+      [
+        { gid: 'a', name: '43.แปรงขัดโถห้องน้ำ' },
+        { gid: 'b', name: 'สำเนาของ สำเนาของ' },
+        { gid: 'c', name: '9.58 Stock หัวหิน' },
+      ],
+      [
+        // เลขเปลี่ยน **และ** เนื้อชื่อเปลี่ยน = ของจริง
+        { gid: 'a', name: '44.แปรงขัดโถส้วม' },
+        { gid: 'b', name: 'สำเนาของ' },
+        { gid: 'c', name: '9.58 สต๊อกหัวหิน' },
+      ]
+    );
+    assert.equal(d.renamed.length, 3);
+    assert.ok(
+      d.renamed.every((x) => !x.renumbered),
+      'ทั้งสามอันเนื้อชื่อเปลี่ยน ต้องไม่ติดธง renumbered'
+    );
+  });
+
+  test('ชื่อที่เป็นตัวเลขล้วน ตัดสินไม่ได้ ต้องถือว่าเปลี่ยนชื่อจริง', () => {
+    const d = diffTabs([{ gid: 'a', name: '12' }], [{ gid: 'a', name: '13' }]);
+    assert.equal(d.renamed[0].renumbered, false);
+  });
+
+  test('เพิ่ม/หายแท็บยังทำงานเหมือนเดิม', () => {
+    const d = diffTabs([{ gid: 'a', name: 'เก่า' }], [{ gid: 'b', name: 'ใหม่' }]);
+    assert.deepEqual(d.added.map((x) => x.gid), ['b']);
+    assert.deepEqual(d.removed.map((x) => x.gid), ['a']);
+    assert.equal(d.renamed.length, 0);
+  });
+});
+
+/* ── ชื่อผู้ใช้ไม่สนตัวพิมพ์ใหญ่-เล็ก ─────────────────────────────
+ *
+ * ผู้ใช้สั่งว่าพิมพ์ Supakorn หรือ supakorn ต้องเข้าได้เหมือนกัน
+ *
+ * เทสต์ตัวเทียบตรง ๆ เพราะ verifyLogin ทั้งตัวต้องมี config/users.json จริง
+ * ซึ่ง USERS_FILE เป็นค่าคงที่ inject ไม่ได้ — และของที่พังง่ายจริง ๆ คือมีคนเผลอ
+ * เปลี่ยนกลับไปใช้ === ที่จุดใดจุดหนึ่งใน 5 จุด แล้วได้อาการ "ล็อกอินผ่าน
+ * แต่รีเฟรชหน้าแล้วเด้งกลับ" ซึ่งไล่หาสาเหตุยากกว่าล็อกอินไม่ผ่านไปเลย */
+describe('การเทียบชื่อผู้ใช้', () => {
+  test('ตัวพิมพ์ใหญ่-เล็กต่างกันถือว่าเป็นคนเดียวกัน', () => {
+    assert.equal(sameUsername('Supakorn', 'supakorn'), true);
+    assert.equal(sameUsername('SUPAKORN', 'supakorn'), true);
+    assert.equal(sameUsername('Supakorn', 'Supakorn'), true);
+  });
+
+  test('ช่องว่างหน้าหลังไม่นับ — คนก๊อปชื่อมาวางมักติดมาด้วย', () => {
+    assert.equal(sameUsername('  supakorn  ', 'Supakorn'), true);
+  });
+
+  test('คนละชื่อยังต้องเป็นคนละคน', () => {
+    assert.equal(sameUsername('supakorn', 'supakorn2'), false);
+    assert.equal(sameUsername('supakorn', 'patira'), false);
+  });
+
+  test('ค่าว่าง/ไม่มีค่า ต้องไม่ไปตรงกับบัญชีจริง', () => {
+    assert.equal(sameUsername('', 'supakorn'), false);
+    assert.equal(sameUsername(null, 'supakorn'), false);
+    assert.equal(sameUsername(undefined, 'supakorn'), false);
   });
 });

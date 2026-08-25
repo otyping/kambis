@@ -1,0 +1,16 @@
+{
+  "name": "kambis-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Kambis Executive Report Dashboard — zero dependency",
+  "type": "module",
+  "engines": {
+    "node": ">=22.7"
+  },
+  "scripts": {
+    "start": "node server/server.js",
+    "test": "node --test tests/*.js",
+    "sync": "node scripts/sync-sources.js",
+    "users": "node scripts/manage-users.js"
+  }
+}

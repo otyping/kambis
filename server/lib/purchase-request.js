@@ -277,7 +277,7 @@ async function readLogo() {
  *
  * @returns {{rows:Array, merges:string[], rowHeights:object, columnWidths:number[]}}
  */
-function buildCompanyForm({ form, items, docNo, dateText, requestedBy, totalAmount, missingPrice, note }) {
+export function buildCompanyForm({ form, items, docNo, dateText, requestedBy, totalAmount, missingPrice, note }) {
   const cfg = FORMS[form] ?? FORMS.general;
   const LEAD = cfg.leadColumns.length;
   /* ลำดับ · รายการ · (ช่องเวลา) · จำนวน · ราคา/หน่วย · ราคารวม

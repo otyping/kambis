@@ -1,0 +1,53 @@
+# Kambis Executive Report Dashboard
+#
+#   docker compose build
+#   docker compose up -d
+#
+# ขั้นตอนเต็มพร้อม nginx และ subdomain อยู่ที่ deploy/README.md
+services:
+  kambis:
+    build: .
+    container_name: kambis
+    restart: unless-stopped
+
+    # ให้ docker ใส่ init process ให้ — เก็บ zombie process และส่งสัญญาณให้ถูกตัว
+    init: true
+
+    # ค่าลับ (GOOGLE_API_KEY) อ่านจาก .env บนเครื่องนี้ ไม่ได้ bake เข้า image
+    # **ห้ามมี ALLOW_NO_AUTH หรือ DEV_LOGIN ในไฟล์นั้น** — ดู deploy/README.md
+    env_file: .env
+
+    environment:
+      # ค่าที่ตั้งตรงนี้ชนะค่าใน .env เสมอ (env_file ถูกอ่านก่อน)
+      # สามตัวนี้จึงถูกตรึงไว้ ไม่ให้ .env ที่ก๊อปมาจากเครื่องพัฒนามาเปลี่ยนได้
+      TZ: Asia/Bangkok
+      HOST: 0.0.0.0
+      PORT: "5173"
+      # ขาดไม่ได้เมื่อมี nginx คั่นหน้า — ไม่งั้น clientIp() เห็นเป็น IP ของ proxy
+      # ทุกคน แล้วคนเดียวพิมพ์รหัสผิด 5 ครั้งจะล็อกทุกคนออกจากระบบ 15 นาที
+      TRUST_PROXY: "1"
+
+    # เปิดเฉพาะ loopback ของโฮสต์ — เข้าถึงได้จาก nginx บนเครื่องเดียวกันเท่านั้น
+    # ห้ามเป็น "5173:5173" เฉย ๆ เพราะนั่นคือเปิดพอร์ตดิบสู่อินเทอร์เน็ต
+    # ข้าม nginx ไปเลย (ไม่มี HTTPS · คุกกี้ไม่ติดธง Secure)
+    ports:
+      - "127.0.0.1:5173:5173"
+
+    # ── สองอันนี้ขาดไม่ได้ ─────────────────────────────────────────
+    # เซิร์ฟเวอร์เขียนไฟล์จริงระหว่างทำงาน ถ้าไม่ mount ออกมา ทุกครั้งที่ redeploy:
+    #   config/users.json         → ทุกคนหลุดล็อกอิน ต้องสร้างบัญชีใหม่หมด
+    #   config/sources.json       → รายชื่อแท็บที่ค้นไว้หาย ใช้ตอนออฟไลน์ไม่ได้
+    #   data/purchase-requests/   → เลขที่เอกสารเริ่มนับ 001 ใหม่ = เลขซ้ำกับใบที่ส่งไปแล้ว
+    #   data/cache/               → ไม่มีชุดสำรองให้เสิร์ฟตอน Google ล่ม
+    #
+    # โฮสต์ต้องมี ./config/sources.json อยู่ก่อน (มาจาก git clone)
+    # เพราะ bind mount จะบังไฟล์ที่อยู่ใน image ไว้ทั้งโฟลเดอร์
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

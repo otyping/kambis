@@ -23,7 +23,12 @@ import { buildStockRows, createStockExport } from '../server/lib/stock-export.js
 import { buildKpi } from '../server/lib/aggregate.js';
 import { comparePeriod, parseSheetDate } from '../server/lib/normalize.js';
 import { buildXlsx, columnLetter, escapeXml } from '../server/lib/xlsx.js';
-import { validateItems, splitByForm, requestFilePath } from '../server/lib/purchase-request.js';
+import {
+  validateItems,
+  splitByForm,
+  requestFilePath,
+  buildCompanyForm,
+} from '../server/lib/purchase-request.js';
 import { recentRequests } from '../server/lib/loader.js';
 import { stockAt, usageValueByMonth } from '../public/js/shared/kpi.js';
 import {
@@ -1725,5 +1730,52 @@ describe('ตัวตรวจจำนวนของที่ต้องส�
     const hit = (out.findings ?? []).filter((f) => f.id === 'presentation.totalMismatch');
     assert.equal(hit.length, 1, 'ตัวตรวจต้องยังจับของหายได้ ไม่ใช่ปิดเสียงทิ้งไปเลย');
     assert.equal(hit[0].field, 'needsReorder');
+  });
+});
+
+/* ── ช่อง "ชื่อ" บนใบขอซื้อ ────────────────────────────────────────
+ *
+ * ชื่อผู้ขอมาจากบัญชีที่ล็อกอินอยู่ (--name ของ manage-users.js) ไม่ใช่ไอดีล็อกอิน
+ * เอกสารนี้ปริ้นให้ผู้บริหารเซ็น ถ้าขึ้นเป็นไอดีระบบจะอ่านเหมือนของหลุดออกมา
+ *
+ * เทสต์ที่ระดับ buildCompanyForm เพราะ createPurchaseRequest เขียนไฟล์จริง
+ * และกินเลขที่เอกสารไปหนึ่งเลข ซึ่งใช้ซ้ำไม่ได้ตลอดไป */
+describe('ชื่อผู้ขอบนใบขอซื้อ', () => {
+  const FORM = (requestedBy) =>
+    buildCompanyForm({
+      form: 'general',
+      items: [
+        { item: 'ถุงมือไนไตร', packs: 2, purchaseUnit: 'กล่อง', purchaseUnitPrice: 250, amount: 500 },
+      ],
+      docNo: 'PR-20260825-001',
+      dateText: '25/08/2026',
+      requestedBy,
+      totalAmount: 500,
+      missingPrice: 0,
+      note: '',
+    });
+
+  /** แถวหัวกระดาษที่ช่อง A เขียนว่า "ชื่อ" — ค่าอยู่ช่อง B */
+  const nameCell = (built) => built.rows.find((r) => r[0]?.v === 'ชื่อ')?.[1];
+
+  test('ล็อกอินอยู่ → ขึ้นชื่อจริงของคนนั้น ไม่ใช่ไอดีล็อกอิน', () => {
+    const cell = nameCell(FORM('Supakorn Arunsirinaphalai'));
+    assert.ok(cell, 'ต้องมีแถวที่ช่อง A เขียนว่า "ชื่อ"');
+    assert.equal(cell.v, 'Supakorn Arunsirinaphalai');
+  });
+
+  test('ยังไม่เปิดล็อกอิน → ช่องว่างให้คนเขียนเอง ห้ามเดา', () => {
+    const cell = nameCell(FORM(null));
+    assert.equal(cell.v, '', 'ต้องเป็นค่าว่าง ไม่ใช่ "null" หรือ "—" หรือชื่ออื่น');
+  });
+
+  test('บล็อกลายเซ็นยังเป็นคนเดิมตามชีตต้นฉบับ ไม่เดินตามคนล็อกอิน', () => {
+    /* ผู้ใช้กำหนดขอบเขตไว้ว่าให้เฉพาะช่อง "ชื่อ" หัวกระดาษเท่านั้นที่เปลี่ยนตามคนกด
+     * ส่วน Requested by / Approved by คือคนเซ็นจริงตามชีต PurchaseRe-Cosy */
+    const flat = FORM('Supakorn Arunsirinaphalai')
+      .rows.flat()
+      .map((c) => (c && typeof c === 'object' ? c.v : c));
+    assert.ok(flat.includes('Chamaiphorn Chama-oot'), 'Requested by: ต้องยังเป็นชื่อเดิม');
+    assert.ok(flat.includes('Patira  Kambhu Na Ayudhaya'), 'Approved by: ต้องยังเป็นชื่อเดิม');
   });
 });

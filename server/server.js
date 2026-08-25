@@ -663,7 +663,11 @@ async function handleApi(req, res, url, user) {
      * ผู้ใช้จึงไม่มีทางรู้ว่ามีรายการหายไปจากใบ */
     const { documents, indexed } = await createPurchaseRequests({
       items,
-      requestedBy: user?.username ?? null,
+      /* ชื่อบนใบขอซื้อ = ชื่อจริงของคนที่ล็อกอินอยู่ ไม่ใช่ไอดีล็อกอิน
+       * เอกสารนี้ปริ้นให้ผู้บริหารเซ็น เขียนว่า "supakorn" แทน "Supakorn Arunsirinaphalai"
+       * จึงอ่านเหมือนไอดีระบบหลุดออกมาบนกระดาษ — ชื่อมาจาก --name ของ manage-users.js
+       * ยังไม่เปิดล็อกอิน = null = ช่องว่างให้คนเขียนเอง ห้ามเดาเป็นชื่ออื่น */
+      requestedBy: user?.name || user?.username || null,
       note: body?.note ?? '',
     });
 
@@ -1072,6 +1076,17 @@ async function start() {
     console.log(`\n  เปิดที่  http://${HOST}:${PORT}\n`);
   });
 }
+
+/* keepalive ต้องยาวกว่าฝั่ง reverse proxy เสมอ
+ *
+ * ค่าเริ่มต้นของ Node คือ 5 วินาที ซึ่งสั้นกว่า upstream keepalive ของ nginx (60 วิ)
+ * nginx จึงส่งคำขอลงคอนเนกชันที่ Node เพิ่งปิดไป แล้วผู้ใช้ได้ 502 เป็นระยะแบบสุ่ม
+ * ซึ่งไล่หาสาเหตุยากมากเพราะ log ทั้งสองฝั่งดูปกติดี
+ *
+ * headersTimeout ต้องมากกว่า keepAliveTimeout เสมอ ไม่งั้นคอนเนกชันที่รอ request ถัดไป
+ * จะถูกตัดด้วยเหตุผล "หัวคำขอมาไม่ครบ" ทั้งที่ยังไม่มีใครส่งอะไรมา */
+server.keepAliveTimeout = 65_000;
+server.headersTimeout = 66_000;
 
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {

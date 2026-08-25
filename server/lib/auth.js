@@ -33,6 +33,22 @@ const LOCK_MS = 15 * 60 * 1000;
 /** โควตาคำถาม chatbot ต่อคนต่อวัน — คุมค่า API ไม่ให้บานปลาย */
 export const DEFAULT_CHAT_QUOTA = Number(process.env.CHAT_QUOTA_PER_DAY) || 50;
 
+/**
+ * เทียบชื่อผู้ใช้แบบไม่สนตัวพิมพ์ใหญ่-เล็ก
+ *
+ * คนพิมพ์ `Supakorn` หรือ `supakorn` ต้องเข้าได้เหมือนกัน — ชื่อผู้ใช้ไม่ใช่ความลับ
+ * การบังคับตัวพิมพ์จึงไม่ได้เพิ่มความปลอดภัย มีแต่ทำให้ล็อกอินไม่ได้โดยไม่รู้สาเหตุ
+ *
+ * **ต้องใช้ให้ครบทุกจุดที่เทียบชื่อผู้ใช้** ถ้าใช้แค่ตอนล็อกอินแต่ `verifySession`
+ * ยังเทียบด้วย === จะได้อาการ "ล็อกอินผ่านแต่รีเฟรชหน้าแล้วเด้งกลับ" ซึ่งหาสาเหตุยาก
+ *
+ * ชื่อผู้ใช้ถูกจำกัดเป็น a-z A-Z 0-9 . _ - อยู่แล้ว (manage-users.js)
+ * `toLowerCase()` จึงไม่มีปัญหาเรื่อง locale
+ */
+export function sameUsername(a, b) {
+  return String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
+}
+
 // ─────────────────────────────────────────────────────────────
 // การอ่าน/เขียนไฟล์ผู้ใช้
 // ─────────────────────────────────────────────────────────────
@@ -191,9 +207,11 @@ export async function upsertUser({ username, password, name, role = 'viewer', ch
   const hash = await hashPassword(password, salt);
 
   const users = [...(store?.users ?? [])];
-  const idx = users.findIndex((u) => u.username === username);
+  const idx = users.findIndex((u) => sameUsername(u.username, username));
   const record = {
-    username,
+    /* เจอของเดิม = คงตัวพิมพ์ตามตอนสร้างไว้ ไม่เอาตัวที่เพิ่งพิมพ์มาทับ
+     * ไม่งั้น list กับ log จะเปลี่ยนหน้าตาไปมาทุกครั้งที่รัน passwd ด้วยตัวพิมพ์อื่น */
+    username: idx >= 0 ? users[idx].username : username,
     name: name || users[idx]?.name || username,
     role,
     salt,
@@ -214,7 +232,7 @@ export async function upsertUser({ username, password, name, role = 'viewer', ch
 export async function removeUser(username) {
   await loadAuth({ force: true });
   if (!store) return false;
-  const users = store.users.filter((u) => u.username !== username);
+  const users = store.users.filter((u) => !sameUsername(u.username, username));
   if (users.length === store.users.length) return false;
   await saveStore({ secret: store.secret, users });
   return true;
@@ -282,7 +300,7 @@ export async function verifyLogin(username, password, ip = 'unknown') {
    * ถ้าชื่อที่พิมพ์ตรงกับผู้ใช้จริงที่มีอยู่ ให้ใช้ role/โควตาของคนนั้น
    * เพื่อให้ทดสอบความต่างระหว่าง exec กับ viewer ได้ */
   if (devMode) {
-    const real = store.users.find((u) => u.username === String(username ?? '').trim());
+    const real = store.users.find((u) => sameUsername(u.username, username));
     return { ok: true, user: real ? publicUser(real) : devUser(username) };
   }
 
@@ -295,7 +313,7 @@ export async function verifyLogin(username, password, ip = 'unknown') {
     };
   }
 
-  const user = store.users.find((u) => u.username === String(username).trim());
+  const user = store.users.find((u) => sameUsername(u.username, username));
 
   /* ไม่เจอผู้ใช้ก็ยังคำนวณ scrypt หลอกไว้หนึ่งรอบ
    * ถ้าไม่ทำ การตอบกลับจะเร็วกว่ากรณีที่มีผู้ใช้จริงอย่างเห็นได้ชัด
@@ -368,7 +386,7 @@ export function verifySession(value) {
   if (!data.exp || data.exp < Date.now()) return null;
 
   // ผู้ใช้ที่ถูกลบไปแล้วต้องเข้าไม่ได้ทันที แม้คุกกี้จะยังไม่หมดอายุ
-  const user = store.users.find((u) => u.username === data.u);
+  const user = store.users.find((u) => sameUsername(u.username, data.u));
   if (user) return publicUser(user);
 
   return devMode ? devUser(data.u) : null;
