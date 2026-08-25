@@ -14,6 +14,7 @@ const STRINGS = {
   'action.themeDark': ['โหมดมืด', 'Dark mode'],
   'action.refreshing': ['กำลังรีเฟรช…', 'Refreshing…'],
   'action.close': ['ปิด', 'Close'],
+  'action.cancel': ['ยกเลิก', 'Cancel'],
   'action.openSheet': ['เปิดชีตต้นทาง', 'Open source sheet'],
   'action.detail': ['ดูรายละเอียด', 'View details'],
 
@@ -170,6 +171,11 @@ const STRINGS = {
   ],
 
   'auth.logout': ['ออกจากระบบ', 'Sign out'],
+  'auth.logoutConfirm': ['ออกจากระบบ?', 'Sign out?'],
+  'auth.logoutNote': [
+    'ต้องล็อกอินใหม่เพื่อกลับเข้าใช้งาน',
+    'You will need to sign in again to get back in.',
+  ],
   'auth.devMode': [
     'โหมดทดสอบ — ยังไม่มีการตรวจรหัสผ่านจริง',
     'Test mode — passwords are not actually checked',

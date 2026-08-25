@@ -32,6 +32,20 @@
   background: linear-gradient(140deg, var(--accent-strong), var(--accent));
 }
 
+/* การกระทำที่ย้อนกลับไม่ได้ในทันที — ตอนนี้มีที่เดียวคือยืนยันออกจากระบบ
+ * ใช้โทน critical ชุดเดียวกับ .user-chip:hover เพื่อให้ปุ่มที่กดมากับกล่องที่เปิดขึ้นมา
+ * พูดภาษาสีเดียวกัน (ไม่ใช่ --money-neg ซึ่งแปลว่าขาดทุน ดู CLAUDE.md §9) */
+.btn--danger {
+  background: var(--tint-critical);
+  border-color: var(--line-critical);
+  color: var(--sev-critical);
+}
+
+.btn--danger:hover {
+  background: var(--line-critical);
+  border-color: var(--sev-critical);
+}
+
 .btn[disabled] {
   opacity: 0.55;
   cursor: not-allowed;
@@ -42,11 +56,16 @@
 }
 
 /* ── ปุ่มผู้ใช้ / ออกจากระบบ ── */
+/* โชว์แค่ชื่อต้น (shortName() ใน main.js) ชื่อเต็มอยู่ใน title กับกล่องยืนยัน
+ *
+ * เดิมยัดชื่อเต็มลงมา แล้วชื่ออย่าง "Varavij Kambhu Na Ayudhaya" ถูกตัดกลางคำ
+ * เป็น "Varavij Kambhu Na…" ซึ่งกินความกว้างเยอะโดยไม่ได้บอกอะไรเพิ่ม
+ * max-width ยังอยู่เป็นตาข่ายสุดท้ายเผื่อชื่อต้นที่ยาวผิดปกติ */
 .user-chip {
   padding: 0 var(--sp-3);
   font-size: var(--fs-xs);
   font-weight: 600;
-  max-width: 190px;
+  max-width: 150px;
 }
 
 .user-chip span {

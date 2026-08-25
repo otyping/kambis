@@ -18,6 +18,7 @@ import { initModal, openCard, close as closeModal } from './ui/modal.js';
 import { initChat, resetChat } from './ui/chat.js';
 import { initRouter, onRoute, currentRoute, replaceParams } from './router.js';
 import { renderNav } from './ui/nav.js';
+import { openPopover, closePopover } from './ui/popover.js';
 import { collectNotices } from './ui/notices.js';
 import { getPage } from './pages/index.js';
 import { buildStrainScale } from './pages/production.js';
@@ -31,7 +32,6 @@ import {
   closeFilterPopup,
   isFiltered,
 } from './ui/filters.js';
-import { closePopover } from './ui/popover.js';
 import { buildKpi } from './shared/kpi.js';
 import { releaseCharts } from './charts/core.js';
 
@@ -459,7 +459,12 @@ function applyStaticText() {
   const dark = getTheme() === 'dark';
   el.theme.setAttribute('aria-pressed', String(dark));
   el.theme.title = dark ? t('action.themeLight') : t('action.themeDark');
+
+  syncUserChip();
 }
+
+/** ผู้ใช้ที่ล็อกอินอยู่ — เก็บไว้เพื่อประกอบป้ายใหม่ตอนสลับภาษา */
+let authUser = null;
 
 /** ─── แสดงว่าใครล็อกอินอยู่ + ปุ่มออกจากระบบ ─── */
 async function initAuthChrome() {
@@ -471,19 +476,102 @@ async function initAuthChrome() {
   }
   if (!status.enabled || !status.user) return;
 
-  el.userName.textContent = status.user.name;
+  authUser = { ...status.user, devLogin: !!status.devLogin };
   el.logout.hidden = false;
-  el.logout.title = `${status.user.username} · ${t('auth.logout')}`;
 
   // อยู่ในโหมดทดสอบ — ต้องเห็นชัดว่ายังไม่มีการตรวจรหัสจริง
-  if (status.devLogin) {
-    el.logout.classList.add('user-chip--dev');
-    el.logout.title = `${t('auth.devMode')} · ${t('auth.logout')}`;
-  }
+  if (status.devLogin) el.logout.classList.add('user-chip--dev');
 
-  el.logout.addEventListener('click', async () => {
-    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
-    location.replace('/login.html');
+  syncUserChip();
+  el.logout.addEventListener('click', confirmLogout);
+}
+
+/**
+ * ชิปบน header โชว์ **ชื่อต้น** ไม่ใช่ชื่อเต็ม
+ *
+ * ชื่อจริงของผู้ใช้ยาวได้มาก ("Varavij Kambhu Na Ayudhaya") พอยัดลงชิปบนแถบที่มี
+ * ของอีก 5 ชิ้นอยู่แล้ว มันกินความกว้างจนถูกตัดกลางคำเหลือ "Varavij Kambhu Na…"
+ * ซึ่งอ่านไม่ได้ความและทำให้ทั้งแถบดูเบี้ยว
+ *
+ * ชื่อเต็มไม่ได้หายไปไหน — อยู่ใน title, aria-label และหัวกล่องยืนยันตอนกดออกจากระบบ
+ */
+function shortName(name) {
+  return String(name ?? '').trim().split(/\s+/)[0] ?? '';
+}
+
+/** ตั้งข้อความบนชิป — เรียกทั้งตอนล็อกอินและทุกครั้งที่สลับภาษา */
+function syncUserChip() {
+  if (!authUser) return;
+  el.userName.textContent = shortName(authUser.name);
+  const label = `${authUser.name} · ${t('auth.logout')}`;
+  el.logout.title = authUser.devLogin ? `${t('auth.devMode')} · ${label}` : label;
+  el.logout.setAttribute('aria-label', label);
+}
+
+/**
+ * ถามยืนยันก่อนออกจากระบบ
+ *
+ * ชิปนี้อยู่ติดปุ่ม "รีเฟรชข้อมูล" ที่คนกดบ่อยที่สุด กดพลาดแล้วหลุดออกทันที
+ * แปลว่าต้องพิมพ์รหัสใหม่ทั้งที่ไม่ได้ตั้งใจ
+ *
+ * ใช้ openPopover ตัวเดียวกับปฏิทิน จึงได้ Esc / คลิกนอก / กับดักโฟกัส /
+ * แผ่นเลื่อนขึ้นบนจอเล็ก มาครบโดยไม่ต้องเขียนใหม่ และไม่ใช้ confirm() ของเบราว์เซอร์
+ * ด้วยเหตุผลเดียวกับที่ไม่ใช้ <input type="date"> — มันไม่ตามธีมและบังคับภาษาไม่ได้
+ */
+function confirmLogout() {
+  const titleId = 'logout-confirm-title';
+  el.logout.setAttribute('aria-expanded', 'true');
+
+  openPopover({
+    anchor: el.logout,
+    width: 340,
+    labelledBy: titleId,
+    onClosed: () => el.logout.setAttribute('aria-expanded', 'false'),
+    build(panel) {
+      panel.innerHTML = `
+        <div class="filter-pop__head">
+          <h2 class="filter-pop__title" id="${titleId}"></h2>
+          <button type="button" class="filter-pop__close">&times;</button>
+        </div>
+        <div class="filter-pop__body">
+          <p class="logout-who">
+            <strong class="logout-who__name"></strong>
+            <span class="logout-who__id"></span>
+          </p>
+          <p class="logout-note"></p>
+        </div>
+        <div class="filter-pop__foot filter-pop__foot--end">
+          <button type="button" class="btn btn--ghost" data-act="cancel"></button>
+          <button type="button" class="btn btn--danger" data-act="ok"></button>
+        </div>`;
+
+      panel.querySelector('.filter-pop__title').textContent = t('auth.logoutConfirm');
+      // ชื่อเต็มอยู่ตรงนี้ — ชิปบน header ย่อเหลือชื่อต้น
+      panel.querySelector('.logout-who__name').textContent = authUser.name;
+      panel.querySelector('.logout-who__id').textContent = `@${authUser.username}`;
+      panel.querySelector('.logout-note').textContent = t('auth.logoutNote');
+
+      const closeBtn = panel.querySelector('.filter-pop__close');
+      closeBtn.setAttribute('aria-label', t('action.close'));
+      closeBtn.addEventListener('click', () => closePopover());
+
+      const cancel = panel.querySelector('[data-act="cancel"]');
+      cancel.textContent = t('action.cancel');
+      cancel.addEventListener('click', () => closePopover());
+
+      const ok = panel.querySelector('[data-act="ok"]');
+      ok.textContent = t('auth.logout');
+      ok.addEventListener('click', async () => {
+        // กันกดซ้ำระหว่างรอ — ปุ่มยังอยู่บนจอจนกว่าหน้าจะเปลี่ยน
+        ok.disabled = true;
+        cancel.disabled = true;
+        await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+        location.replace('/login.html');
+      });
+
+      // โฟกัสไปที่ "ยกเลิก" ก่อน ไม่ใช่ปุ่มที่ทำให้หลุดออกจากระบบ
+      requestAnimationFrame(() => cancel.focus());
+    },
   });
 }
 

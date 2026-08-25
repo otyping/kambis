@@ -138,12 +138,19 @@
               </span>
             </button>
 
-            <!-- โผล่เฉพาะเมื่อเปิดระบบล็อกอิน — main.js เป็นคนเอา hidden ออก -->
+            <!-- โผล่เฉพาะเมื่อเปิดระบบล็อกอิน — main.js เป็นคนเอา hidden ออก
+
+                 ไม่มี data-i18n-label เพราะป้ายต้องมีชื่อคนอยู่ด้วย ("<ชื่อเต็ม> · ออกจากระบบ")
+                 ซึ่ง applyStaticText() ไม่รู้จัก — syncUserChip() ใน main.js เป็นคนตั้งให้
+                 ทั้งตอนล็อกอินและทุกครั้งที่สลับภาษา
+
+                 กดแล้วเปิดกล่องยืนยันก่อน ไม่ได้ออกจากระบบทันที จึงเป็น haspopup="dialog" -->
             <button
               type="button"
               class="btn btn--ghost user-chip"
               id="btn-logout"
-              data-i18n-label="auth.logout"
+              aria-haspopup="dialog"
+              aria-expanded="false"
               hidden
             >
               <svg viewBox="0 0 24 24" aria-hidden="true" class="user-chip__icon">

@@ -517,6 +517,41 @@ body.has-nav-open {
   margin-left: auto;
 }
 
+/* ยืนยัน/ยกเลิก อยู่คู่กันชิดขวา — ไม่ใช่แยกไปคนละมุมแบบ __done
+ * เพราะสองปุ่มนี้เป็นคำตอบของคำถามเดียวกัน ต้องเทียบกันด้วยตาในระยะสั้น ๆ */
+.filter-pop__foot--end {
+  justify-content: flex-end;
+}
+
+/* ── กล่องยืนยันออกจากระบบ (main.js confirmLogout) ──────────
+ *
+ * อยู่ใน .filter-pop ซึ่งมีกรอบอยู่แล้ว → ข้างในไม่มีกรอบของตัวเองสักชิ้น
+ * (กฎหนึ่งกลุ่ม = หนึ่งกรอบ, skill ui-craft §2) แยกชื่อออกจากคำอธิบาย
+ * ด้วยน้ำหนักตัวอักษรกับสี ซึ่งเป็นขั้นที่เบากว่าเส้นคั่นเสียอีก */
+.logout-who {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.logout-who__name {
+  font-size: var(--fs-md);
+  font-weight: 700;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.logout-who__id {
+  font-size: var(--fs-xs);
+  color: var(--ink-mute);
+}
+
+.logout-note {
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
+}
+
 /* ── ปฏิทินเลือกวันที่ (ui/datepicker.js) ─────────────────────
  *
  * อยู่ในกล่อง `.filter-pop` ซึ่งมีกรอบอยู่แล้ว → **ทุกอย่างข้างในไม่มีกรอบของตัวเอง**
