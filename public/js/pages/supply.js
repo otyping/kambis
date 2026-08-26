@@ -24,7 +24,7 @@ import { sortableTable } from '../ui/table.js';
 import { openDetail } from '../ui/modal.js';
 import { tabUrl, sheetUrlOf } from '../ui/sheet-link.js';
 import { pageHeader, panel, well, tiles, emptyNote, appendQualityCard } from './shared.js';
-import { comparePeriod } from '../shared/agg-core.js';
+import { comparePeriod, sameUnit } from '../shared/agg-core.js';
 import { stockAt, usageValueByMonth, usageEntries } from '../shared/kpi.js';
 import * as charts from '../charts/index.js';
 import { releaseCharts } from '../charts/core.js';
@@ -34,6 +34,7 @@ import {
   supplyFilterBar,
   supplyMatcher,
   supplyLookup,
+  SUPPLY_GROUPS,
 } from '../ui/supply-filters.js';
 
 export const meta = { report: 'supply', pages: ['order', 'stock', 'usage'] };
@@ -302,7 +303,7 @@ export function render(ctx) {
         items: items.filter(match),
         sheet,
       });
-      renderUsage(dataHost, usage, shownMonths, year, sheet);
+      renderUsage(dataHost, usage, shownMonths, year, sheet, lookup);
     }
 
     if (page === 'stock') {
@@ -388,20 +389,13 @@ function wireSheetRows(body, sheet) {
   });
 }
 
-/* หมวดของวัสดุ — **ลำดับตายตัว ไม่ได้มาจากข้อมูล** เพราะสีของแท่งผูกกับตำแหน่งในลิสต์นี้
- * ถ้าเรียงตามยอดของข้อมูลที่กรองแล้ว พอเปลี่ยนตัวกรองทีสีจะสลับกันทั้งกราฟ
- * (กฎเดียวกับ topCategories ใน CLAUDE.md §9 — สีต้องผูกกับหมวด ไม่ใช่กับอันดับของมัน)
+/* ชั้นของแท่งในกราฟการเบิก = หมวดของวัสดุ ตามลำดับตายตัวของ `SUPPLY_GROUPS`
+ * (ลำดับนั้นคือลำดับสี — เหตุผลอยู่ที่ ui/supply-filters.js)
  *
- * ป้ายเป็นฟังก์ชันเพราะ t() อ่านภาษาปัจจุบันตอนเรียก ถ้าเก็บเป็นสตริงตั้งแต่ import
- * ป้ายจะค้างเป็นภาษาที่เปิดหน้าเว็บครั้งแรกตลอดอายุแท็บ
- *
- * `''` = จับหมวดไม่ได้ ต้องมีช่องของตัวเอง ห้ามยัดเข้าหมวดใดหมวดหนึ่ง ไม่งั้นยอดของ
- * หมวดนั้นจะเกินจริงโดยไม่มีอะไรบอก */
-const GROUP_ORDER = [
-  { code: 'item', label: () => t('supply.groupItem') },
-  { code: 'nutrient', label: () => t('supply.groupNutrient') },
-  { code: '', label: () => t('label.other') },
-];
+ * ต่อท้ายด้วย `''` = จับหมวดไม่ได้ ซึ่ง **ต้องมีช่องของตัวเอง** ห้ามยัดเข้าหมวดใดหมวดหนึ่ง
+ * ไม่งั้นยอดของหมวดนั้นจะเกินจริงโดยไม่มีอะไรบอก และช่องนี้ไม่ได้อยู่ในตัวเลือกของ
+ * ช่องกรองหมวด เพราะ "หมวดที่ระบบอ่านไม่ออก" ไม่ใช่หมวดที่คนจะตั้งใจเลือกดู */
+const GROUP_ORDER = [...SUPPLY_GROUPS, { code: '', label: () => t('label.other') }];
 
 /**
  * ② มูลค่าของที่เบิกต่อเดือน — แท่งซ้อนแยกตามหมวด
@@ -560,12 +554,27 @@ function openUsageDetail(month, items, lookup, sheet, trigger) {
 }
 
 /**
- * ③ ตารางจำนวนเบิกต่อเดือน — แถวคือรายการ คอลัมน์คือเดือน
+ * ③ ตารางจำนวนเบิกต่อเดือน — แถวคือรายการ คอลัมน์คือเดือน **แบ่งเป็นบล็อกตามหมวด**
  *
  * แสดงเฉพาะเดือนที่มีการเบิกจริง ชีตมีแถวลงวันที่ล่วงหน้าถึงสิ้นปี
  * ถ้าเอาทุกเดือนที่ปรากฏในข้อมูลมาทำคอลัมน์ จะได้คอลัมน์ว่างเปล่าอีกครึ่งตาราง
+ *
+ * **ตารางนี้เป็นจำนวนล้วนทั้งใบ เงินอยู่คนละแผง** (ผู้ใช้สั่ง ส.ค. 69)
+ *
+ * เคยมีคอลัมน์ `มูลค่า` อยู่ท้ายตาราง แต่มันตอบได้แค่ยอดรวมทั้งช่วง ไม่ได้แตกรายเดือน
+ * — คำถามที่ตามมาคือ "แล้วเดือน 07 กับ 08 แต่ละเดือนเป็นเงินเท่าไร" ซึ่ง **แผงกราฟ
+ * "มูลค่าของที่เบิกต่อเดือน" ที่อยู่เหนือมันพอดีตอบครบอยู่แล้ว** ทั้งแยกตามหมวด
+ * แยกตามเดือน และกดที่แท่งแล้วเปิดรายการที่เบิกจริงพร้อมมูลค่ารายชิ้นได้ (`usageEntries()`)
+ *
+ * กติกาที่ได้มาคือ **หนึ่งแผง = หนึ่งหน่วย** ซึ่งแรงกว่ากฎเดิม (หนึ่งคอลัมน์ = หนึ่งหน่วย)
+ * และทำให้ตารางแคบลง ~100px ซึ่งมีผลจริงตอนปีเต็ม 12 เดือน (ตารางกว้างเกินแผงอยู่แล้ว
+ * แม้บนจอ 1920) **ห้ามเอาคอลัมน์เงินกลับเข้ามาโดยไม่ถามก่อน**
+ *
+ * **ยอดจำนวนของหมวดขึ้นเฉพาะหมวดที่ทุกรายการใช้หน่วยเดียวกัน** ที่เหลือเว้นว่าง
+ * เพราะ `480 แผ่น + 199 ถุง` ไม่ใช่ `679` — วัสดุทั่วไปมี 17 หน่วย · สารเสริมธาตุมี
+ * `ถัง` กับ `หลอด` ซึ่งเป็นเหตุผลเดียวกับที่กราฟด้านบนต้องแปลงเป็นเงินก่อน
  */
-function renderUsage(host, usage, shown, year, sheet = {}) {
+function renderUsage(host, usage, shown, year, sheet = {}, lookup = null) {
   const body = panel(host, t('supply.usageTitle'), t('supply.usageNote'), { wide: true });
 
   if (!usage.length) {
@@ -580,6 +589,16 @@ function renderUsage(host, usage, shown, year, sheet = {}) {
   /* ยอดรวมต้องคิดใหม่จากเดือนที่แสดงอยู่จริง ห้ามใช้ `r.total` ที่ server รวมมา
    * เพราะนั่นเป็นยอดตลอดกาล พอกรองปีแล้วแถวจะรวมไม่ตรงกับคอลัมน์ที่เห็น */
   const totalOf = (r) => shown.reduce((sum, m) => sum + (r.byMonth[m] ?? 0), 0);
+
+  /* บล็อกตามหมวด — ต้องมี `lookup` ถึงจะรู้ว่ารายการไหนอยู่หมวดไหน
+   * (แถว usage มาจาก server ซึ่งไม่รู้จักหมวด เหมือนกราฟมูลค่าที่ต้องพึ่ง lookup เช่นกัน) */
+  const groups = lookup ? usageGroups(shown, lookup, totalOf) : undefined;
+  if (groups) {
+    const hint = document.createElement('p');
+    hint.className = 'panel-intro';
+    hint.textContent = t('supply.usageGroupNote');
+    body.appendChild(hint);
+  }
 
   body.appendChild(
     sortableTable(
@@ -598,17 +617,82 @@ function renderUsage(host, usage, shown, year, sheet = {}) {
           label: t('label.total'),
           align: 'n',
           get: totalOf,
-          render: (r) => `<b>${n(totalOf(r))}</b>`,
+          /* หนา 600 ไม่ใช่ `<b>` (700) — ยอดของหมวดบนแถวหัวบล็อกต้องหนักกว่านี้หนึ่งขั้น
+           * ไม่งั้นยอดที่สรุปทุกรายการไว้แล้วจะดูเบากว่าลูกของตัวเอง */
+          render: (r) => `<span class="cell-subtotal">${n(totalOf(r))}</span>`,
         },
         { label: t('supply.unit'), get: (r) => r.unit ?? '' },
       ],
       usage,
       // เรียงตามคอลัมน์รวม ซึ่งตอนนี้อยู่ถัดจากคอลัมน์เดือนสุดท้าย (ชื่อรายการ + เดือน)
-      { sortIndex: 1 + shown.length, sortDir: 'desc', rowKey: (r) => r.item }
+      { sortIndex: 1 + shown.length, sortDir: 'desc', rowKey: (r) => r.item, groups }
     )
   );
 
   wireSheetRows(body, sheet);
+}
+
+/**
+ * ตัวประกอบบล็อกหมวดให้ `sortableTable` — คืน `{of, order, head}`
+ *
+ * `order` ยึด `GROUP_ORDER` ตัวเดียวกับกราฟ ไม่ใช่ลำดับที่เจอในข้อมูล เพื่อให้บล็อก
+ * ในตารางเรียงตรงกับชั้นในแท่งที่อยู่เหนือมันพอดี — กวาดตาลงมาแล้วเจอลำดับเดิม
+ */
+function usageGroups(shown, lookup, totalOf) {
+  const labelOf = new Map(GROUP_ORDER.map((g) => [g.code, g.label]));
+  return {
+    of: (r) => lookup.groupOf(r.item) ?? '',
+    order: GROUP_ORDER.map((g) => g.code),
+    head: (code, rows) => {
+      /* บวกจำนวนได้ต่อเมื่อ **ทั้งหมวดใช้หน่วยเดียวกัน** เท่านั้น
+       * เทียบด้วย sameUnit() เพราะคนสะกดหน่วยเดียวกันไม่ตรงกันในชีต (`แพ็ค` · `แพค`)
+       * — แต่ `ถัง` กับ `ถุง` เป็นคนละหน่วยจริง ๆ ต้องไม่ถูกจับรวม */
+      const unit = rows[0]?.unit ?? null;
+      const oneUnit = unit && rows.every((r) => sameUnit(r.unit, unit));
+
+      /* **เหตุผลที่บวกไม่ได้ต้องอ่านออกโดยไม่ต้องชี้เมาส์**
+       *
+       * เคยทำเป็นขีดเปล่า ๆ + tooltip แล้วผู้ใช้ถามกลับมาว่า "ขีด คือไม่รวมหรอ" —
+       * บนมือถือไม่มี hover ให้ชี้เลยด้วยซ้ำ ตอนนี้ช่องหน่วยเขียนจำนวนหน่วยที่เจอไว้ตรง ๆ
+       * (`2 หน่วย`) แล้วค่อยมี tooltip บอกว่าหน่วยอะไรบ้าง — **ชิปนี้เป็นสิ่งเดียวที่เหลือ
+       * อยู่ในแถวนั้น** หลังจากช่องตัวเลขถูกเว้นว่าง เอาออกเมื่อไรแถวจะกลายเป็นชื่อหมวด
+       * ลอย ๆ ที่ไม่มีอะไรบอกว่าทำไมไม่มีตัวเลข
+       * — กฎเดียวกับ `*ยังไม่ใส่ราคา` ในตารางสต๊อก: บอกด้วยข้อความ ไม่ใช่ด้วยความว่างเปล่า
+       *
+       * ใช้ "จำนวนหน่วย" ไม่ใช่ลิสต์ชื่อหน่วย เพราะวัสดุทั่วไปมี 17 หน่วย ลิสต์ทั้งหมด
+       * จะดันตารางกว้างจนคอลัมน์เดือนถูกเบียด (เจอจริง ส.ค. 69: `Bloom A` ลงหน่วยเป็น
+       * `ถุุง` ทั้งที่ปุ๋ยใช้ `ถัง` ปุ๋ยหลักจึงบวกไม่ได้ทั้งหมวดเพราะเซลล์เดียว) */
+      const units = [...new Set(rows.map((r) => r.unit).filter(Boolean))];
+      const tip = esc(t('supply.usageGroupMixed').replace('{units}', units.join(' · ')));
+
+      /* หมวดที่บวกไม่ได้ **เว้นช่องตัวเลขว่าง ไม่ใช่ใส่ `—`**
+       * ในโปรเจกต์นี้ `—` แปลว่า "ไม่มีข้อมูล" ซึ่งคนละความหมายกับ "มีข้อมูลแต่บวกกันไม่ได้"
+       * ตัวที่อธิบายคือชิป `N หน่วย` ในคอลัมน์หน่วย ซึ่งอยู่ในแถวเดียวกันพอดี */
+      const qty = (has, sum) => {
+        if (!oneUnit) return '';
+        // ไม่มีรายการไหนในหมวดเบิกเดือนนั้นเลย ≠ เบิกแล้วได้ 0 — ปีเต็มไม่งั้นได้ `0` เรียงเป็นตับ
+        return has ? n(sum) : `<span class="muted">${DASH}</span>`;
+      };
+
+      const label = labelOf.get(code)?.() ?? t('label.other');
+      const count = t('supply.usageGroupCount').replace('{n}', String(rows.length));
+      return [
+        `${esc(label)} <span class="muted">· ${esc(count)}</span>`,
+        ...shown.map((m) =>
+          qty(
+            rows.some((r) => r.byMonth[m] !== undefined),
+            rows.reduce((sum, r) => sum + (r.byMonth[m] ?? 0), 0)
+          )
+        ),
+        qty(true, rows.reduce((sum, r) => sum + totalOf(r), 0)),
+        oneUnit
+          ? esc(unit)
+          : `<span class="cell-assumed" title="${tip}">${esc(
+              t('supply.usageGroupUnits').replace('{n}', String(units.length))
+            )}</span>`,
+      ];
+    },
+  };
 }
 
 /**

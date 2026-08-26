@@ -33,11 +33,35 @@
 import { isEmptyRow } from '../csv.js';
 import { num, makeRecord, parseSheetDate } from '../normalize.js';
 
-/** แท็บปุ๋ย/สารเคมีที่ไม่มีเลขนำหน้าชื่อ — ใช้โครงเดียวกับแท็บรายการทุกอย่าง */
-const NUTRIENT_TABS = new Set(
-  ['COCO', 'CO2', 'Bloom', 'Core', 'Grow', 'Cleanse', 'Fade', 'Cuts', 'pH Up', 'CaMg', 'IPM', 'อะบา'].map(
-    (n) => n.toLowerCase()
-  )
+/**
+ * แท็บปุ๋ย/สารเคมีที่ไม่มีเลขนำหน้าชื่อ → **หมวดของมัน** (ใช้โครงเดียวกับแท็บรายการทุกอย่าง)
+ *
+ * เดิมทั้ง 12 แท็บนี้เป็นหมวดเดียวกันหมด (`nutrient`) ซึ่งตอบได้แค่ "ปุ๋ยหรือไม่ใช่ปุ๋ย"
+ * ผู้ใช้สั่งแยกเป็น 4 หมวด (ส.ค. 69) เพราะของสี่กลุ่มนี้ซื้อคนละจังหวะและคนละเหตุผล:
+ * ปุ๋ยหลักใช้ทุกรอบปลูก · COCO เป็นวัสดุปลูกที่เปลี่ยนทั้งล็อต · CO2 เป็นถัง ·
+ * สารเสริมใช้เป็นครั้ง ๆ ตามอาการของต้น กองรวมกันแล้วดูกราฟการเบิกไม่ออกว่าเงินไปทางไหน
+ *
+ * **หมวดกับแบบฟอร์มใบขอซื้อเป็นคนละเรื่องกัน** ทั้ง 4 หมวดนี้ยังออกด้วยฟอร์มปุ๋ย
+ * (Athena) ใบเดียวกันเหมือนเดิม — ดู `NUTRIENT_GROUPS` ใน purchase-request.js
+ */
+const NUTRIENT_TAB_GROUP = new Map(
+  [
+    // ปุ๋ยหลัก — สูตรน้ำสองส่วน แท็บจริงคือ Bloom A/B · Grow A/B
+    ['Bloom', 'base'],
+    ['Grow', 'base'],
+    // ชื่อเดิมของ Bloom B / Grow B ก่อนผู้ใช้เปลี่ยนมาใช้ปุ๋ยน้ำ — เก็บไว้กันชีตย้อนกลับ
+    ['Core', 'base'],
+    ['Cleanse', 'base'],
+    ['COCO', 'coco'],
+    ['CO2', 'co2'],
+    // สารเสริม — ใช้เป็นครั้ง ๆ ไม่ใช่ทุกรอบปลูก
+    ['Fade', 'additive'],
+    ['Cuts', 'additive'],
+    ['pH Up', 'additive'],
+    ['CaMg', 'additive'],
+    ['IPM', 'additive'],
+    ['อะบา', 'additive'],
+  ].map(([name, group]) => [name.toLowerCase(), group])
 );
 
 /* ปุ๋ยตัวเดียวกันถูกแยกเป็นหลายแท็บตามสูตร A/B — `Bloom` กลายเป็น `Bloom A` + `Bloom B`
@@ -57,11 +81,13 @@ const NUTRIENT_TABS = new Set(
  * และ `pH Up` ปลอดภัยเพราะ `up` มีสองตัวอักษร */
 const NUTRIENT_SUFFIX_RE = /\s+[a-z](\s*\/\s*[a-z])*$/i;
 
-function isNutrientTab(name) {
+/** หมวดของแท็บปุ๋ย/สารเคมี — คืน null ถ้าไม่ใช่แท็บในกลุ่มนี้ */
+function nutrientTabGroup(name) {
   const full = String(name ?? '').trim().toLowerCase();
-  if (!full) return false;
-  if (NUTRIENT_TABS.has(full)) return true;
-  return NUTRIENT_TABS.has(full.replace(NUTRIENT_SUFFIX_RE, '').trim());
+  if (!full) return null;
+  const hit = NUTRIENT_TAB_GROUP.get(full);
+  if (hit) return hit;
+  return NUTRIENT_TAB_GROUP.get(full.replace(NUTRIENT_SUFFIX_RE, '').trim()) ?? null;
 }
 
 const ORDER_TAB_RE = /สั่งของรายเดือน/;
@@ -662,14 +688,15 @@ export function parse({ tabs, sourceKey = 'supplyLog', today = null }) {
 
   for (const tab of tabs) {
     const name = String(tab.name ?? '').trim();
+    const nutrient = nutrientTabGroup(name);
     let result = null;
 
     if (ORDER_TAB_RE.test(name)) {
       result = parseOrderSummary(tab, sourceKey);
     } else if (NUMBERED_TAB_RE.test(name)) {
       result = parseItemTab(tab, sourceKey, todayIso, 'item');
-    } else if (isNutrientTab(name)) {
-      result = parseItemTab(tab, sourceKey, todayIso, 'nutrient');
+    } else if (nutrient) {
+      result = parseItemTab(tab, sourceKey, todayIso, nutrient);
     } else if (TEMPLATE_TAB_RE.test(name)) {
       tabSummaries.push({ gid: tab.gid, name: tab.name, skipped: 'template', rowCount: 0 });
       continue;

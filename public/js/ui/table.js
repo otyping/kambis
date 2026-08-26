@@ -13,6 +13,10 @@ import { comparePeriod, looksLikePeriod } from '../shared/agg-core.js';
 /**
  * @param {Array<{key:string,label:string,align?:'n',get:(row)=>any,render?:(row)=>string}>} columns
  * @param {Array<object>} rows
+ * @param {object} [opts]
+ * @param {{of:(row)=>string, order?:string[], head:(key:string, rows:object[])=>string[]}} [opts.groups]
+ *        แบ่งแถวเป็นบล็อกพร้อมแถวหัวบล็อก — `head()` คืนอาร์เรย์ยาวเท่าจำนวนคอลัมน์
+ *        เหมือน `foot()` (ช่องแรกคือชื่อหมวด ช่องตัวเลขคือยอดรวมของหมวดนั้น)
  */
 export function sortableTable(columns, rows, opts = {}) {
   const wrap = document.createElement('div');
@@ -104,18 +108,51 @@ export function sortableTable(columns, rows, opts = {}) {
     /* `opts.rowKey(row)` ติด `data-key` ให้แถว เพื่อให้ผู้เรียกผูก event แบบ delegate
      * ได้โดยไม่ต้องถือ reference ของ <tr> ไว้เอง — ตารางวาด tbody ใหม่ทุกครั้งที่เรียงใหม่
      * reference ที่เก็บไว้จะกลายเป็น element ที่หลุด DOM ไปแล้ว */
-    tbody.innerHTML = shown
-      .map((row) => {
-        const key = opts.rowKey ? opts.rowKey(row) : null;
-        const attr = key ? ` data-key="${esc(String(key))}"` : '';
-        return `<tr${attr}>${columns
-          .map((col) => {
-            const html = col.render ? col.render(row) : esc(col.get(row) ?? '—');
-            return `<td class="${col.align === 'n' ? 'n' : ''}">${html}</td>`;
-          })
-          .join('')}</tr>`;
-      })
-      .join('');
+    const rowHtml = (row) => {
+      const key = opts.rowKey ? opts.rowKey(row) : null;
+      const attr = key ? ` data-key="${esc(String(key))}"` : '';
+      return `<tr${attr}>${columns
+        .map((col) => {
+          const html = col.render ? col.render(row) : esc(col.get(row) ?? '—');
+          return `<td class="${col.align === 'n' ? 'n' : ''}">${html}</td>`;
+        })
+        .join('')}</tr>`;
+    };
+
+    /* แบ่งเป็นบล็อกตามหมวด โดย **ไม่แตะลำดับที่เรียงไว้แล้ว** ภายในแต่ละบล็อก
+     *
+     * ลำดับของบล็อกมาจาก `groups.order` ซึ่งเป็นลำดับตายตัวของผู้เรียก ไม่ใช่ลำดับ
+     * ที่เจอในข้อมูล — ไม่งั้นเปลี่ยนตัวกรองทีบล็อกจะสลับที่กันทั้งตาราง
+     * **หมวดที่ไม่อยู่ใน order ต้องต่อท้าย ห้ามทิ้ง** ไม่งั้นแถวจะหายเงียบ ๆ
+     * เวลามีหมวดใหม่โผล่มาจากชีตที่ผู้เรียกยังไม่รู้จัก */
+    function groupedHtml(list) {
+      const buckets = new Map();
+      for (const row of list) {
+        const key = String(opts.groups.of(row) ?? '');
+        if (!buckets.has(key)) buckets.set(key, []);
+        buckets.get(key).push(row);
+      }
+      const order = opts.groups.order ?? [];
+      const keys = [
+        ...order.filter((k) => buckets.has(k)),
+        ...[...buckets.keys()].filter((k) => !order.includes(k)),
+      ];
+      return keys
+        .map((key) => {
+          const cells = opts.groups.head(key, buckets.get(key)) ?? [];
+          const head = `<tr class="row-group">${columns
+            .map((col, i) =>
+              i === 0
+                ? `<th scope="rowgroup">${cells[0] ?? ''}</th>`
+                : `<td class="${col.align === 'n' ? 'n' : ''}">${cells[i] ?? ''}</td>`
+            )
+            .join('')}</tr>`;
+          return head + buckets.get(key).map(rowHtml).join('');
+        })
+        .join('');
+    }
+
+    tbody.innerHTML = opts.groups ? groupedHtml(shown) : shown.map(rowHtml).join('');
 
     if (data.length > limit) {
       const tr = document.createElement('tr');

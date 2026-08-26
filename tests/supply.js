@@ -166,6 +166,37 @@ describe('KPI วัสดุสิ้นเปลือง', () => {
     assert.deepEqual([...kpi.supply.months].sort(comparePeriod), kpi.supply.months);
   });
 
+  /* **เคสจริง ส.ค. 69** — แท็บ `Bloom A` ลงหน่วยผิดเป็น `ถุง` มาหลายเดือน
+   * ผู้ใช้แก้เป็น `ถัง` ตั้งแต่แถวที่ 36 เป็นต้นมา ตารางสต๊อกอ่านได้ `ถัง` ถูกแล้ว
+   * แต่ตารางการเบิกยังขึ้น `ถุง` เพราะหยิบหน่วยจาก **แถวแรกที่เจอใน log**
+   *
+   * ผลคือหน้าเดียวกันบอกหน่วยของรายการเดียวกันไม่ตรงกันสองที่ และแถวหัวหมวด
+   * "ปุ๋ยหลัก" บวกจำนวนไม่ได้ตลอดไป — ผู้ใช้แก้ชีตถูกแล้วแต่หน้าเว็บไม่ยอมขยับ
+   * ซึ่งเป็นอาการที่ไม่มีทางเดาสาเหตุถูกเลยว่าเป็นเรื่องแถวเก่าในชีต */
+  test('หน่วยในตารางการเบิกต้องเป็นหน่วยปัจจุบัน ไม่ใช่หน่วยของ log แถวเก่าสุด', () => {
+    const kpi = buildFrom([
+      {
+        gid: '1',
+        name: 'Bloom A',
+        rows: [
+          ['h', 'รับ', 'เบิก', 'คงเหลือ', 'หน่วย', 'ขั้นต่ำ', 'Index'],
+          ['15/06/2569', '', '2', '10', 'ถุง', '2', '8'],
+          ['15/07/2569', '', '3', '7', 'ถัง', '2', '5'],
+        ],
+      },
+    ]);
+    const item = kpi.supply.items.find((i) => i.item === 'Bloom A');
+    const usage = kpi.supply.usage.find((u) => u.item === 'Bloom A');
+    assert.equal(item.unit, 'ถัง', 'ยอดคงเหลือใช้แถวล่าสุดที่วันที่ ≤ วันนี้ (กฎข้อ 11)');
+    assert.equal(
+      usage.unit,
+      item.unit,
+      'ตารางการเบิกกับตารางสต๊อกต้องบอกหน่วยเดียวกัน ไม่งั้นหน้าเดียวขัดกันเอง'
+    );
+    // จำนวนที่เบิกต้องไม่ถูกแตะ — แก้เรื่องหน่วยห้ามทำให้ยอดขยับ
+    assert.equal(usage.total, 5);
+  });
+
   test('ของที่ต้องสั่งซื้อคือของที่คงเหลือ ≤ ขั้นต่ำ และเรียงขาดหนักสุดก่อน', () => {
     const kpi = buildFrom([
       { gid: '1', name: '1.ขาดนิดเดียว', rows: [
@@ -952,19 +983,29 @@ describe('ใบขอซื้อ (.xlsx)', () => {
   });
 
   /* บริษัทใช้แบบฟอร์มปุ๋ย (Athena/Coco/Co2) คนละแบบกับฟอร์มวัสดุทั่วไป
-   * เลือกปนกันมาในครั้งเดียวจึงต้องออกสองใบ ไม่ใช่ยัดลงใบเดียว */
+   * เลือกปนกันมาในครั้งเดียวจึงต้องออกสองใบ ไม่ใช่ยัดลงใบเดียว
+   *
+   * **หมวดบนหน้าจอ 4 หมวด แต่แบบฟอร์มยังมีสองใบ** — ผู้ใช้แยกปุ๋ยเป็น
+   * ปุ๋ยหลัก/COCO/CO2/สารเสริม เพื่อดูกราฟการเบิก ไม่ใช่เพื่อสั่งของแยกใบ
+   * ถ้าเผลอแยกใบตามหมวดที่แสดงผล จะกลายเป็นสั่งของเจ้าเดียวกันสี่ใบ */
   test('แยกใบตามกลุ่ม — ปุ๋ยคนละใบกับวัสดุทั่วไป', () => {
     const mixed = [
       { item: 'รองเท้า', unit: 'คู่', unitPrice: 88, group: 'item' },
-      { item: 'Pro Bloom', unit: 'ถุง', unitPrice: 4250, group: 'nutrient' },
-      { item: 'COCO', unit: 'ถุง', unitPrice: 350, group: 'nutrient' },
+      { item: 'Bloom A', unit: 'ถัง', unitPrice: 4250, group: 'base' },
+      { item: 'COCO', unit: 'ถุง', unitPrice: 350, group: 'coco' },
+      { item: 'CO2', unit: 'ถัง', unitPrice: 900, group: 'co2' },
+      { item: 'Cuts', unit: 'ขวด', unitPrice: 700, group: 'additive' },
     ];
     const groups = splitByForm(mixed);
-    assert.equal(groups.length, 2);
+    assert.equal(groups.length, 2, 'ทั้ง 4 หมวดปุ๋ยต้องรวมอยู่ในใบเดียว');
     assert.equal(groups[0].form, 'general', 'วัสดุทั่วไปต้องมาก่อน เลขที่เอกสารจะได้คาดเดาได้');
     assert.deepEqual(groups[0].items.map((i) => i.item), ['รองเท้า']);
     assert.equal(groups[1].form, 'nutrient');
-    assert.deepEqual(groups[1].items.map((i) => i.item), ['Pro Bloom', 'COCO']);
+    assert.deepEqual(
+      groups[1].items.map((i) => i.item),
+      ['Bloom A', 'COCO', 'CO2', 'Cuts'],
+      'ทุกหมวดปุ๋ยต้องอยู่ในฟอร์ม Athena ไม่ใช่หลุดไปฟอร์มวัสดุทั่วไป'
+    );
 
     // เลือกกลุ่มเดียวต้องได้ใบเดียว ไม่ใช่ใบเปล่าพ่วงมาด้วย
     assert.equal(splitByForm([mixed[0]]).length, 1);
@@ -974,9 +1015,15 @@ describe('ใบขอซื้อ (.xlsx)', () => {
 
   test('group มาจากชีตเสมอ ไม่ใช่จากที่เบราว์เซอร์ส่งมา', () => {
     const src = [{ item: 'รองเท้า', unit: 'คู่', unitPrice: 88, group: 'item' }];
-    // client แกล้งส่ง group: 'nutrient' มาเพื่อให้ออกฟอร์มผิดแบบ
-    const { items } = validateItems([{ item: 'รองเท้า', qty: 1, group: 'nutrient' }], src);
+    // client แกล้งส่ง group ปุ๋ยมาเพื่อให้ออกฟอร์มผิดแบบ
+    const { items } = validateItems([{ item: 'รองเท้า', qty: 1, group: 'base' }], src);
     assert.equal(items[0].group, 'item');
+
+    /* และในทางกลับกัน หมวดปุ๋ยที่ชีตบอกต้องรอดมาถึงใบ ไม่ถูกยุบเป็น item
+     * ไม่งั้นปุ๋ยจะไปโผล่ในฟอร์มวัสดุทั่วไปเงียบ ๆ */
+    const nutrientSrc = [{ item: 'CaMg', unit: 'ขวด', unitPrice: 500, group: 'additive' }];
+    const out = validateItems([{ item: 'CaMg', qty: 1, group: 'item' }], nutrientSrc);
+    assert.equal(out.items[0].group, 'additive');
   });
 
   test('ไฟล์ที่สร้างเป็น ZIP ที่แกะกลับได้ และค่าในเซลล์ตรงกับที่ใส่ไป', () => {
@@ -1138,12 +1185,51 @@ describe('มูลค่าของที่เบิกต่อเดือ�
   test('มูลค่า = จำนวนเบิก × ราคา/หน่วย แยกตามเดือนและหมวด', () => {
     const { rows, total } = usageValueByMonth(kpi.usage, ['2026-07', '2026-08'], lookup);
     assert.deepEqual(rows.map((r) => r.month), ['2026-07', '2026-08']);
-    assert.deepEqual(rows[0].byGroup, { item: 500, nutrient: 1640 });
+    assert.deepEqual(rows[0].byGroup, { item: 500, coco: 1640 });
     assert.equal(rows[0].total, 2140);
     assert.deepEqual(rows[1].byGroup, { item: 200 });
     assert.equal(rows[1].total, 200);
     // ยอดบนหัวแผงต้องเท่ากับผลรวมของแท่งที่เห็นเสมอ
     assert.equal(total, rows.reduce((s, r) => s + r.total, 0));
+  });
+
+  /* แถวหัวบล็อกของตาราง "จำนวนเบิกต่อเดือน" คิดยอดของหมวดด้วยฟังก์ชันตัวนี้เอง
+   * โดยส่งเข้าไปเฉพาะแถวของหมวดนั้น (ดู `usageGroups()` ใน pages/supply.js)
+   *
+   * **ยอดของทุกบล็อกรวมกันต้องเท่ากับยอดทั้งชุดเสมอ** เพราะสองอย่างนี้อยู่บนหน้าจอ
+   * เดียวกันห่างกันไม่กี่ร้อย px — กราฟบอก 302,601 แต่บล็อกบวกได้ 301,900 เมื่อไร
+   * ผู้ใช้จะไม่มีทางรู้ว่าอันไหนเชื่อได้ แล้วเลิกเชื่อทั้งสองอัน */
+  test('ยอดของทุกหมวดรวมกัน = ยอดทั้งชุด (แถวหัวบล็อกต้องไม่หลุดจากกราฟ)', () => {
+    const months = ['2026-07', '2026-08'];
+    const whole = usageValueByMonth(kpi.usage, months, lookup);
+
+    const byGroup = new Map();
+    for (const row of kpi.usage) {
+      const g = lookup.groupOf(row.item) ?? '';
+      if (!byGroup.has(g)) byGroup.set(g, []);
+      byGroup.get(g).push(row);
+    }
+    const parts = [...byGroup.values()].map((rows) => usageValueByMonth(rows, months, lookup));
+
+    assert.equal(
+      parts.reduce((sum, p) => sum + p.total, 0),
+      whole.total,
+      'ยอดรวมของบล็อกต้องเท่ากับยอดบนหัวแผงกราฟ'
+    );
+    months.forEach((m, i) => {
+      assert.equal(
+        parts.reduce((sum, p) => sum + p.rows[i].total, 0),
+        whole.rows[i].total,
+        `เดือน ${m} ต้องตรงกันด้วย ไม่ใช่แค่ยอดรวมทั้งช่วง`
+      );
+    });
+
+    /* และต้องไม่มีแถวไหนหายระหว่างแบ่งบล็อก — รายการที่ไม่มีราคาก็ยังต้องอยู่ในตาราง
+     * (มันหายจาก "ยอด" ได้ แต่ห้ามหายจาก "แถว") */
+    assert.equal(
+      [...byGroup.values()].reduce((sum, rows) => sum + rows.length, 0),
+      kpi.usage.length
+    );
   });
 
   /* เดือนที่ไม่ได้แสดงต้องไม่ถูกนับ ไม่งั้นกรองปีแล้วยอดบนกราฟจะไม่ตรงกับคอลัมน์
@@ -1671,11 +1757,54 @@ describe('แท็บปุ๋ยที่แยกเป็นสูตร A/B
       assert.equal(t.unitPrice, 1037.5, `${t.name} ต้องอ่านราคาได้`);
       assert.equal(t.current.balance, 9);
     }
-    // group ต้องเป็น nutrient เพราะใบขอซื้อของปุ๋ยใช้แบบฟอร์ม Athena คนละใบกับวัสดุทั่วไป
+    // group ต้องเป็น base (ปุ๋ยหลัก) ทั้งหมด — หลุดไปเป็น item เมื่อไรใบขอซื้อจะออกผิดแบบฟอร์ม
     assert.ok(
-      out.rows.every((r) => r.group === 'nutrient'),
+      out.rows.every((r) => r.group === 'base'),
       'ถ้าหลุดไปเป็น item ใบขอซื้อจะออกผิดแบบฟอร์ม'
     );
+  });
+
+  /* หมวดของ 12 แท็บปุ๋ย — ผู้ใช้กำหนดมาเองทีละชื่อ (ส.ค. 69)
+   *
+   * ผูกเทสต์ไว้กับ **ชื่อแท็บจริงทั้ง 12 อัน** เพราะนี่คือลิสต์ที่คนอ่านแล้วตรวจทานได้
+   * ถ้าหลุดไปหมวดผิด กราฟการเบิกจะเปลี่ยนสีชั้นโดยไม่มี error และไม่มีตัวเลขไหนขยับ
+   * — ต้องมีอะไรจับให้ได้ก่อนถึงหน้าจอ */
+  test('12 แท็บปุ๋ยต้องเข้าหมวดที่ผู้ใช้กำหนดไว้ทีละชื่อ', () => {
+    const expected = {
+      'Bloom A': 'base',
+      'Bloom B': 'base',
+      'Grow A': 'base',
+      'Grow B': 'base',
+      COCO: 'coco',
+      CO2: 'co2',
+      Fade: 'additive',
+      Cuts: 'additive',
+      'pH Up': 'additive',
+      CaMg: 'additive',
+      IPM: 'additive',
+      อะบา: 'additive',
+    };
+    const out = parseSupplyLog({
+      tabs: Object.keys(expected).map((n) =>
+        nutrientTab(n, [['01/08/2569', '', '', '5', 'ถุง', '2', '3']])
+      ),
+      today: '2026-08-21',
+    });
+    assert.equal(out.tabs.filter((t) => t.skipped).length, 0, 'ห้ามมีแท็บไหนถูกข้าม');
+    for (const [name, group] of Object.entries(expected)) {
+      const row = out.rows.find((r) => r.tab === name);
+      assert.equal(row?.group, group, `${name} ต้องอยู่หมวด ${group}`);
+    }
+  });
+
+  /* วัสดุทั่วไปคือ "ทุกแท็บที่มีเลขนำหน้า" ไม่ใช่ลิสต์ที่ต้องมาไล่เติม
+   * ถ้าเผลอเอาแท็บมีเลขไปเทียบกับลิสต์ปุ๋ยก่อน `1.Bloom` จะกลายเป็นปุ๋ยหลักทันที */
+  test('แท็บที่มีเลขนำหน้าเป็นวัสดุทั่วไปเสมอ แม้ชื่อจะพ้องกับปุ๋ย', () => {
+    const out = parseSupplyLog({
+      tabs: [nutrientTab('42.Bloom', [['01/08/2569', '', '', '5', 'ถุง', '2', '3']])],
+      today: '2026-08-21',
+    });
+    assert.equal(out.rows[0].group, 'item');
   });
 
   test('ตัดหางเฉพาะตัวอักษรเดี่ยวที่มีช่องว่างคั่น ห้ามกินตัวท้ายของชื่อจริง', () => {

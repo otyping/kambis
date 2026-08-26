@@ -452,13 +452,32 @@ function buildSupply(source, purchaseRequests = [], today = null) {
 
   const months = [...new Set(logRows.map((r) => r.month).filter(Boolean))].sort(comparePeriod);
 
+  /* หน่วยปัจจุบันของแต่ละรายการ — มาจาก `items[]` ซึ่งอ่านจาก **แถวล่าสุดที่วันที่ ≤ วันนี้**
+   * ตามกฎข้อ 11 ไม่ใช่จาก log แถวใดแถวหนึ่ง
+   *
+   * **เคสจริง ส.ค. 69** แท็บ `Bloom A` เคยลงหน่วยผิดเป็น `ถุง` (แถวบนสุดถึงกับเป็น
+   * `ถุุง` สระอุซ้อนสองตัว) แล้วผู้ใช้แก้เป็น `ถัง` ตั้งแต่แถวที่ 36 เป็นต้นมา
+   * ตัวสต๊อกอ่านได้ `ถัง` ถูกแล้ว แต่ `matrix()` หยิบหน่วยจาก **แถวแรกที่เจอ**
+   * ซึ่งเป็นแถวเมื่อหลายเดือนก่อน ตารางการเบิกจึงยังขึ้น `ถุุง` อยู่
+   *
+   * ผลคือหน้าเดียวกันบอกหน่วยของรายการเดียวกันไม่ตรงกันสองที่ และแถวหัวหมวด
+   * "ปุ๋ยหลัก" บวกจำนวนไม่ได้ตลอดไป เพราะ log แถวเก่าไม่มีวันเปลี่ยนหน่วยตัวเอง
+   * — ผู้ใช้แก้ชีตถูกแล้วแต่หน้าเว็บยังไม่ยอมขยับ ซึ่งอธิบายไม่ได้เลย */
+  const unitOf = new Map(items.map((i) => [i.item, i.unit ?? null]));
+
   const matrix = (valueKey) => {
     const byItem = new Map();
     for (const r of logRows) {
       const v = r[valueKey];
       if (v === null || v === undefined) continue;
       if (!byItem.has(r.item)) {
-        byItem.set(r.item, { item: r.item, unit: r.unit ?? null, byMonth: {}, total: 0 });
+        byItem.set(r.item, {
+          item: r.item,
+          // หน่วยปัจจุบันก่อนเสมอ ตกไปใช้หน่วยในแถว log เฉพาะรายการที่ไม่มีใน items[]
+          unit: unitOf.get(r.item) ?? r.unit ?? null,
+          byMonth: {},
+          total: 0,
+        });
       }
       const e = byItem.get(r.item);
       e.byMonth[r.month] = (e.byMonth[r.month] ?? 0) + v;

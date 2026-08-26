@@ -516,6 +516,23 @@ const STRINGS = {
   'supply.usageValueFuture': ['ล่วงหน้า', 'Future'],
   'supply.usageTitle': ['จำนวนเบิกต่อเดือน', 'Stock usage summary'],
   'supply.usageNote': ['แถวคือรายการ คอลัมน์คือเดือน', 'Rows are items, columns are months'],
+  /* ยอดจำนวนของหมวดขึ้นได้เฉพาะหมวดที่ทุกรายการใช้หน่วยเดียวกัน
+   * (ถัง + หลอด + แผ่น) บวกกันเป็นตัวเลขเดียวไม่ได้
+   *
+   * **ชี้ไปแผงกราฟด้านบน ไม่ใช่คอลัมน์ในตารางนี้** — คอลัมน์มูลค่าถูกเอาออกแล้ว
+   * ตารางนี้เป็นจำนวนล้วนทั้งใบ เรื่องเงินเป็นหน้าที่ของแผง "มูลค่าของที่เบิกต่อเดือน" */
+  'supply.usageGroupNote': [
+    'ยอดจำนวนของหมวดขึ้นเฉพาะหมวดที่ใช้หน่วยเดียวกันทั้งหมวด — คนละหน่วยบวกกันไม่ได้ ดูเป็นเงินได้ที่แผงมูลค่าด้านบน',
+    'A category shows a quantity total only when every item shares one unit — for money, see the value chart above',
+  ],
+  'supply.usageGroupCount': ['{n} รายการ', '{n} items'],
+  /* บอกหน่วยที่เจอ เพื่อให้คนที่เห็น "—" รู้ทันทีว่าต้องไปแก้เซลล์ไหนในชีต
+   * ถ้าปล่อยเป็นขีดเปล่า ๆ มันจะดูเหมือนระบบอ่านไม่ได้ ทั้งที่เป็นเรื่องหน่วยไม่ตรงกัน */
+  'supply.usageGroupUnits': ['{n} หน่วย', '{n} units'],
+  'supply.usageGroupMixed': [
+    'บวกไม่ได้ — หมวดนี้มีหลายหน่วย: {units}',
+    'Cannot be added — this category mixes units: {units}',
+  ],
   'supply.noUsage': ['ยังไม่มีการเบิกในช่วงที่มีข้อมูล', 'No withdrawals in the recorded period'],
   'supply.noUsageInYear': ['ยังไม่มีการเบิกในปี {year}', 'No withdrawals recorded in {year}'],
   'supply.leadTime': ['รอของ (วัน)', 'Lead time (d)'],
@@ -529,8 +546,12 @@ const STRINGS = {
   ],
   'supply.searchItem': ['ค้นหารายการ…', 'Search items…'],
   'supply.group': ['หมวด', 'Category'],
+  // หมวดวัสดุ — ลำดับของป้ายอยู่ที่ SUPPLY_GROUPS ใน ui/supply-filters.js (สีผูกกับลำดับนั้น)
+  'supply.groupBase': ['ปุ๋ยหลัก', 'Base nutrients'],
+  'supply.groupCoco': ['ดิน', 'Growing medium'],
+  'supply.groupCo2': ['ก๊าซ', 'Gas'],
+  'supply.groupAdditive': ['สารเสริมธาตุ', 'Nutrient additives'],
   'supply.groupItem': ['วัสดุทั่วไป', 'General supplies'],
-  'supply.groupNutrient': ['ปุ๋ยและสารเคมี', 'Nutrients & chemicals'],
   'supply.priceFilter': ['ราคา', 'Price'],
   'supply.hasPrice': ['เฉพาะที่มีราคา', 'Priced only'],
   'supply.noPriceOnly': ['เฉพาะที่ไม่มีราคา', 'Unpriced only'],

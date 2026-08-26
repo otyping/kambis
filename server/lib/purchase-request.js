@@ -203,14 +203,25 @@ export function validateItems(requested, known) {
       amount: unitPrice === null ? null : qty * unitPrice,
       balance: source.balance ?? null,
       minimum: source.minimum ?? null,
-      /* group มาจาก parser (แท็บปุ๋ย 12 แท็บ = 'nutrient' ที่เหลือ = 'item')
+      /* group มาจาก parser (12 แท็บปุ๋ย = base/coco/co2/additive · ที่เหลือ = 'item')
        * ใช้แยกว่าจะออกด้วยแบบฟอร์มไหน — ห้ามให้เบราว์เซอร์ส่งมาเอง */
-      group: source.group === 'nutrient' ? 'nutrient' : 'item',
+      group: NUTRIENT_GROUPS.has(source.group) ? source.group : 'item',
     });
   }
 
   return { items, errors };
 }
+
+/**
+ * หมวดที่ออกด้วย **ฟอร์มปุ๋ย (Athena)** — คนละเรื่องกับหมวดที่ผู้ใช้เห็นบนหน้าจอ
+ *
+ * ผู้ใช้แยกปุ๋ยออกเป็น 4 หมวดเพื่อดูกราฟการเบิก (ส.ค. 69) แต่ **แบบฟอร์มยังมีสองใบเท่าเดิม**
+ * ทั้งสี่หมวดนี้สั่งกับผู้ขายเจ้าเดียวกันบนใบเดียวกัน — แยกใบตามหมวดที่แสดงผล
+ * จะกลายเป็นสั่งของเจ้าเดียวสี่ใบ ซึ่งไม่มีใครขอ
+ *
+ * เพิ่มหมวดปุ๋ยใหม่เมื่อไร **ต้องเติมที่นี่ด้วย** ไม่งั้นมันจะไปโผล่ในฟอร์มวัสดุทั่วไปเงียบ ๆ
+ */
+const NUTRIENT_GROUPS = new Set(['base', 'coco', 'co2', 'additive']);
 
 /**
  * แยกรายการเป็นใบละแบบฟอร์ม
@@ -220,8 +231,8 @@ export function validateItems(requested, known) {
  * เรียงวัสดุก่อนเสมอเพื่อให้เลขที่เอกสารคาดเดาได้
  */
 export function splitByForm(items) {
-  const general = items.filter((i) => i.group !== 'nutrient');
-  const nutrient = items.filter((i) => i.group === 'nutrient');
+  const general = items.filter((i) => !NUTRIENT_GROUPS.has(i.group));
+  const nutrient = items.filter((i) => NUTRIENT_GROUPS.has(i.group));
   const out = [];
   if (general.length) out.push({ form: 'general', items: general });
   if (nutrient.length) out.push({ form: 'nutrient', items: nutrient });

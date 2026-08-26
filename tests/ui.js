@@ -26,6 +26,7 @@ import {
   supplyFilterParams,
   supplyMatcher,
   supplyLookup,
+  SUPPLY_GROUPS,
 } from '../public/js/ui/supply-filters.js';
 import { looksLikePeriod, comparePeriod } from '../public/js/shared/agg-core.js';
 import { parseHash, toHash } from '../public/js/router.js';
@@ -278,8 +279,8 @@ describe('ตัวกรองของรายงาน Supply', () => {
   const items = [
     { item: 'ถุงมือไนไตรสีดำ Size M', group: 'item', unitPrice: 120, matchedOrderRow: 'ถุงมือ-ไนไตร สีดำ (M)' },
     { item: 'ป้ายแท็กสีน้ำเงิน', group: 'item', unitPrice: null, matchedOrderRow: null },
-    { item: 'COCO', group: 'nutrient', unitPrice: 350, matchedOrderRow: 'COCO' },
-    { item: 'Cuts', group: 'nutrient', unitPrice: null, matchedOrderRow: null },
+    { item: 'COCO', group: 'coco', unitPrice: 350, matchedOrderRow: 'COCO' },
+    { item: 'Cuts', group: 'additive', unitPrice: null, matchedOrderRow: null },
   ];
   const lookup = supplyLookup(items);
   const run = (patch) =>
@@ -294,16 +295,34 @@ describe('ตัวกรองของรายงาน Supply', () => {
   });
 
   test('กรองตามหมวดและตามการมีราคา', () => {
-    assert.deepEqual(run({ group: 'nutrient' }), ['COCO', 'Cuts']);
+    /* ปุ๋ยแยกเป็น 4 หมวดแล้ว (ส.ค. 69) — เลือก COCO ต้องได้ COCO อย่างเดียว
+     * ไม่ใช่ได้สารเสริมติดมาด้วยเหมือนตอนที่ปุ๋ยทั้งหมดเป็นหมวดเดียวกัน */
+    assert.deepEqual(run({ group: 'coco' }), ['COCO']);
+    assert.deepEqual(run({ group: 'additive' }), ['Cuts']);
+    assert.deepEqual(run({ group: 'item' }), ['ถุงมือไนไตรสีดำ Size M', 'ป้ายแท็กสีน้ำเงิน']);
     assert.deepEqual(run({ price: 'without' }), ['ป้ายแท็กสีน้ำเงิน', 'Cuts']);
-    assert.deepEqual(run({ group: 'nutrient', price: 'with' }), ['COCO']);
+    assert.deepEqual(run({ group: 'coco', price: 'with' }), ['COCO']);
+    assert.deepEqual(run({ group: 'additive', price: 'with' }), []);
   });
 
   test('ตารางสั่งของที่ใช้ชื่อคนละแบบ ต้องกรองตามหมวดได้ด้วย', () => {
     // แถวจากตารางสั่งของรายเดือนไม่มีช่อง group ของตัวเอง ต้องหาจากชื่อที่จับคู่ไว้
     const orderRow = { item: 'ถุงมือ-ไนไตร สีดำ (M)', unitPrice: 120 };
     assert.ok(supplyMatcher({ q: '', group: 'item', price: 'all' }, lookup)(orderRow));
-    assert.ok(!supplyMatcher({ q: '', group: 'nutrient', price: 'all' }, lookup)(orderRow));
+    assert.ok(!supplyMatcher({ q: '', group: 'coco', price: 'all' }, lookup)(orderRow));
+  });
+
+  /* หมวดที่ไม่รู้จักใน URL = ไม่ได้เลือก
+   *
+   * `group=nutrient` คือลิงก์ที่คนบุ๊กมาร์กไว้ก่อนแยกปุ๋ยเป็น 4 หมวด ถ้าปล่อยผ่าน
+   * ตารางจะว่างทั้งหน้าทั้งที่ช่องเลือกหมวดโชว์ว่า "ทั้งหมด" (เพราะไม่มี option ค่านั้น
+   * ให้ <select> เลือก) — อาการที่ไม่มีทางเดาสาเหตุถูกเลย */
+  test('หมวดที่ไม่รู้จักใน URL ต้องตกกลับเป็นทั้งหมด', () => {
+    assert.equal(readSupplyFilters(new URLSearchParams('group=nutrient')).group, 'all');
+    assert.equal(readSupplyFilters(new URLSearchParams('group=<script>')).group, 'all');
+    for (const g of SUPPLY_GROUPS) {
+      assert.equal(readSupplyFilters(new URLSearchParams(`group=${g.code}`)).group, g.code);
+    }
   });
 
   test('URL เก็บเฉพาะค่าที่ไม่ใช่ค่าเริ่มต้น', () => {
@@ -325,14 +344,14 @@ describe('ตัวกรองของรายงาน Supply', () => {
       supplyFilterParams({
         year: '2025',
         q: ' ถุงมือ ',
-        group: 'nutrient',
+        group: 'additive',
         price: 'with',
         asOf: '2026-07-31',
       }),
       {
         year: '2025',
         q: 'ถุงมือ',
-        group: 'nutrient',
+        group: 'additive',
         price: 'with',
         asOf: '2026-07-31',
       }

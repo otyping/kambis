@@ -15,6 +15,28 @@ import { esc, dateFull } from '../format.js';
 import { normalizeItemName } from '../shared/agg-core.js';
 import { datePicker } from './datepicker.js';
 
+/**
+ * หมวดของวัสดุ — **ลำดับตายตัว ไม่ได้มาจากข้อมูล**
+ *
+ * สีของชั้นในกราฟการเบิกผูกกับ *ตำแหน่งในลิสต์นี้* ถ้าเรียงตามยอดของข้อมูลที่กรองแล้ว
+ * พอเปลี่ยนตัวกรองทีสีจะสลับกันทั้งกราฟ (กฎเดียวกับ topCategories — CLAUDE.md §9)
+ *
+ * ป้ายเป็นฟังก์ชันเพราะ t() อ่านภาษาปัจจุบันตอนเรียก ถ้าเก็บเป็นสตริงตั้งแต่ import
+ * ป้ายจะค้างเป็นภาษาที่เปิดหน้าเว็บครั้งแรกตลอดอายุแท็บ
+ *
+ * รหัสต้องตรงกับที่ `parsers/supplyLog.js` ติดให้แต่ละแท็บ — ที่นั่นคือคนตัดสินว่า
+ * แท็บไหนอยู่หมวดไหน ที่นี่แค่กำหนดว่าจะเรียงและเรียกมันว่าอะไรบนหน้าจอ
+ */
+export const SUPPLY_GROUPS = [
+  { code: 'base', label: () => t('supply.groupBase') },
+  { code: 'coco', label: () => t('supply.groupCoco') },
+  { code: 'co2', label: () => t('supply.groupCo2') },
+  { code: 'additive', label: () => t('supply.groupAdditive') },
+  { code: 'item', label: () => t('supply.groupItem') },
+];
+
+const GROUP_CODES = new Set(SUPPLY_GROUPS.map((g) => g.code));
+
 /** อ่านตัวกรองจาก URLSearchParams */
 /** วันที่ต้องเป็น YYYY-MM-DD จริง ๆ — ค่าจาก URL เชื่อไม่ได้ */
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -22,10 +44,14 @@ const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export function readSupplyFilters(params) {
   const get = (key, fallback) => params?.get(key) || fallback;
   const asOf = get('asOf', '');
+  const group = get('group', 'all');
   return {
     year: get('year', ''),
     q: get('q', ''),
-    group: get('group', 'all'),
+    /* หมวดที่ไม่รู้จักถือว่าไม่ได้เลือก — ลิงก์เก่าที่ยังเขียน `group=nutrient`
+     * (หมวดรวมของปุ๋ยก่อนแยกเป็น 4 หมวด) ไม่งั้นจะกรองจนตารางว่างทั้งหน้า
+     * โดยที่ช่องเลือกหมวดกลับโชว์ว่า "ทั้งหมด" เพราะไม่มี option ให้เลือกค่านั้น */
+    group: group === 'all' || GROUP_CODES.has(group) ? group : 'all',
     price: get('price', 'all'),
     /* วันที่ที่อยากดูสต๊อกย้อนหลัง — ว่าง = ดูยอดปัจจุบันที่ server คิดมาให้
      * รูปแบบผิดถือว่าไม่ได้เลือก ดีกว่าเอาไปคิดแล้วได้ตารางว่างโดยไม่มีอะไรบอก */
@@ -198,15 +224,15 @@ export function supplyFilterBar({ filters, options, onChange }) {
     picks.push({ sel, key });
   };
 
-  if (show.group && (options.groups ?? []).length > 1) {
+  /* โชว์เฉพาะหมวดที่มีของจริงในชีต — ตัวเลือกที่กดแล้วได้ตารางว่างเสมอคือคำสัญญาที่ทำไม่ได้
+   * (ลำดับยังยึด SUPPLY_GROUPS ไม่ใช่ลำดับที่เจอในข้อมูล จะได้ตรงกับลำดับสีในกราฟ) */
+  const present = new Set(options.groups ?? []);
+  const groupChoices = SUPPLY_GROUPS.filter((g) => present.has(g.code));
+  if (show.group && groupChoices.length > 1) {
     pick(
       t('supply.group'),
       state.group,
-      [
-        ['all', t('filter.all')],
-        ['item', t('supply.groupItem')],
-        ['nutrient', t('supply.groupNutrient')],
-      ],
+      [['all', t('filter.all')], ...groupChoices.map((g) => [g.code, g.label()])],
       'group'
     );
   }
