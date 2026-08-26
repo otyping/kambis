@@ -195,6 +195,11 @@ git pull && docker compose build && docker compose up -d
 grep -rn "proxy_read_timeout" /etc/nginx/     # ไม่เจอ = ยังใช้ค่า default 60 วินาที
 ```
 
+> **มีไฟล์ที่ก๊อปไปวางทับได้เลย** — `deploy/nginx/report.kambis.co.th.conf`
+> อิงจากคอนฟิกที่ใช้งานอยู่จริงทุกบรรทัด (ชื่อโดเมน · พาธใบรับรอง · ปลายทาง)
+> แล้วเติมเฉพาะส่วนที่ขาด ส่วน `kambis.conf` เป็นแม่แบบสำหรับกรณี nginx
+> อยู่เครื่องเดียวกับแอป
+
 ### บล็อกที่ต้องมีใน `server { listen 443 ssl; … }`
 
 ```nginx
