@@ -183,7 +183,79 @@ git pull && docker compose build && docker compose up -d
 
 ---
 
-## 8. กับดักที่รู้แล้ว
+## 8. เจอ 504 ตอนหน้าจอกำลังโหลด
+
+**504 มาจาก nginx ไม่ใช่จากแอป** ดูได้จากหน้าจอโหลดเอง: ถ้ามีบางรายงานขึ้น ✓ ไปแล้ว
+แล้วค่อยตาย แปลว่าแอปยังทำงานอยู่และ nginx เป็นฝ่ายตัดสายทิ้ง
+
+ตัวแอปกันไว้ให้แล้ว (เสิร์ฟชุดเดิมทันทีแล้วดึงใหม่เบื้องหลัง + อุ่นล่วงหน้า — ดู CLAUDE.md §8)
+**แต่ nginx ยังต้องตั้ง timeout ให้ถูก** เพราะปุ่มรีเฟรชที่ผู้ใช้กดเองยังรอของจริงเสมอ
+
+```bash
+grep -rn "proxy_read_timeout" /etc/nginx/     # ไม่เจอ = ยังใช้ค่า default 60 วินาที
+```
+
+### บล็อกที่ต้องมีใน `server { listen 443 ssl; … }`
+
+```nginx
+proxy_read_timeout 300s;      # รอบโหลดเต็มตอน Google ช้าใช้ถึง ~3 นาที
+proxy_send_timeout 300s;
+proxy_connect_timeout 10s;
+
+proxy_http_version 1.1;
+proxy_set_header Connection "";
+proxy_set_header Host              $host;
+proxy_set_header X-Real-IP         $remote_addr;
+proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $scheme;
+
+location /api/progress {          # SSE — ไม่งั้นหน้าจอโหลดค้างที่ 0%
+    proxy_pass http://<ip:port ของแอป>;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Host              $host;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 3600s;
+}
+```
+
+**สองหัวที่ขาดแล้วเจ็บกว่า 504** (เจอจริงในคอนฟิกที่ใช้งานอยู่ ส.ค. 69):
+
+| ขาด | ผลที่เกิด |
+|---|---|
+| `X-Forwarded-Proto` | `isSecureRequest()` มองไม่เห็นว่าเป็น https → **คุกกี้ session ไม่ติดธง `Secure`** ทั้งที่เว็บวิ่งบน https |
+| `X-Forwarded-For` | `clientIp()` เห็นเป็น IP ของ nginx ทุกคน → **คนเดียวพิมพ์รหัสผิด 5 ครั้ง ล็อกทุกคน 15 นาที** |
+
+**ต้องตั้ง `TRUST_PROXY=1` ใน `.env` ของแอปคู่กันเสมอ** — ใส่หัวใน nginx อย่างเดียวไม่พอ
+และตั้ง `TRUST_PROXY=1` โดยไม่ส่งหัวมาก็ไม่พอ ต้องมีทั้งคู่
+
+### ถ้า nginx อยู่คนละเครื่องกับแอป
+
+`docker-compose.yml` ผูกพอร์ตไว้ที่ `127.0.0.1` ซึ่งใช้ได้เฉพาะตอน nginx อยู่เครื่องเดียวกัน
+ถ้าอยู่คนละเครื่อง ต้องเปลี่ยนเป็น `<ip ภายในของเครื่องแอป>:<port>:5173`
+
+**แล้วปิดพอร์ตนั้นด้วย firewall ให้รับเฉพาะ IP ของเครื่อง nginx** ไม่งั้นใครที่เข้าถึง
+วงแลนได้ก็ข้าม nginx เข้าตรงได้ — ยังต้องล็อกอินอยู่ แต่ไม่มี https และคุกกี้ไม่ติดธง Secure
+
+### ถ้าตั้ง timeout แล้วยังช้า — วัดว่าเซิร์ฟเวอร์ต่อ Google ช้าแค่ไหน
+
+อาการที่มักมาคู่กันคือแถบ "ค้นรายชื่อแท็บสดไม่สำเร็จ" ซึ่งแปลว่าเส้นทางไป Google
+มีปัญหา ไม่ใช่ชีตหรือ parser
+
+```bash
+docker compose exec kambis node -e "
+const t=Date.now();
+fetch('https://docs.google.com/spreadsheets/d/1/htmlview')
+  .then(r=>console.log('ตอบใน',Date.now()-t,'ms · status',r.status))
+  .catch(e=>console.log('ต่อไม่ติด:',e.message))"
+```
+
+---
+
+## 9. กับดักที่รู้แล้ว
 
 - **`ports` ต้องเป็น `127.0.0.1:5173:5173`** เขียนเป็น `5173:5173` เฉย ๆ คือเปิดพอร์ตดิบ
   สู่อินเทอร์เน็ต ข้าม nginx ไปเลย — ไม่มี HTTPS และคุกกี้ session จะไม่ติดธง `Secure`

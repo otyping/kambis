@@ -18,6 +18,7 @@ import { writeSnapshot, readSnapshot, CACHE_DIR } from '../server/lib/cache.js';
 import { csvUrl } from '../server/lib/fetcher.js';
 import { diffTabs, stripOrdinal } from '../server/lib/tabs.js';
 import { sameUsername } from '../server/lib/auth.js';
+import { inPreloadWindow } from '../server/lib/preload-window.js';
 
 describe('endpoint ที่ใช้ดึง CSV', () => {
   /* gviz/tq เป็น endpoint ของ Query API — มันเดาเองว่าแถวบน ๆ เป็นหัวตารางแล้วตัดทิ้ง
@@ -305,5 +306,47 @@ describe('การเทียบชื่อผู้ใช้', () => {
     assert.equal(sameUsername('', 'supakorn'), false);
     assert.equal(sameUsername(null, 'supakorn'), false);
     assert.equal(sameUsername(undefined, 'supakorn'), false);
+  });
+});
+
+/* ── ช่วงเวลาที่อุ่นข้อมูลล่วงหน้า ──────────────────────────────
+ *
+ * ตัวอุ่นมีไว้กัน 504: เดิมคนแรกหลังรีสตาร์ท (หรือหลังปล่อยว่างเกิน 5 นาที)
+ * ต้องรอโหลดเต็มรอบ ซึ่งนานกว่า proxy_read_timeout ของ nginx
+ *
+ * ตรรกะข้ามเที่ยงคืนเป็นของที่เขียนผิดแล้ว **ไม่มีอะไรฟ้อง** — ตัวอุ่นจะเงียบไปเฉย ๆ
+ * แล้วผู้ใช้กลับไปเจอ 504 เหมือนเดิมโดยไม่มีใครรู้ว่าทำไม */
+describe('ช่วงเวลาที่อุ่นข้อมูลล่วงหน้า', () => {
+  /** เวลาท้องถิ่นตามชั่วโมงที่ระบุ */
+  const at = (h) => new Date(2026, 7, 25, h, 30, 0);
+
+  test('ช่วงปกติในวันเดียวกัน', () => {
+    assert.equal(inPreloadWindow('6-21', at(6)), true, 'ชั่วโมงเริ่มต้องนับด้วย');
+    assert.equal(inPreloadWindow('6-21', at(13)), true);
+    assert.equal(inPreloadWindow('6-21', at(21)), true, 'ชั่วโมงสุดท้ายต้องนับด้วย');
+    assert.equal(inPreloadWindow('6-21', at(5)), false);
+    assert.equal(inPreloadWindow('6-21', at(22)), false);
+    assert.equal(inPreloadWindow('6-21', at(3)), false, 'ตี 3 ไม่มีใครกรอกชีตและไม่มีใครเปิดดู');
+  });
+
+  test('ช่วงที่ข้ามเที่ยงคืน', () => {
+    assert.equal(inPreloadWindow('22-2', at(23)), true);
+    assert.equal(inPreloadWindow('22-2', at(0)), true);
+    assert.equal(inPreloadWindow('22-2', at(2)), true);
+    assert.equal(inPreloadWindow('22-2', at(3)), false);
+    assert.equal(inPreloadWindow('22-2', at(12)), false);
+  });
+
+  /* พิมพ์ผิดหนึ่งตัวไม่ควรทำให้ฟีเจอร์ตายเงียบ ๆ
+   * ผลที่แย่กว่า "อุ่นบ่อยเกินไป" คือ "ไม่อุ่นเลยแล้วกลับไปเจอ 504" */
+  test('ค่าที่อ่านไม่ออก = อุ่นตลอดเวลา ไม่ใช่หยุดอุ่น', () => {
+    for (const bad of ['', 'ทั้งวัน', '6..21', '99-100', null, undefined]) {
+      assert.equal(inPreloadWindow(bad, at(3)), true, `"${bad}" ต้องไม่ทำให้ตัวอุ่นตาย`);
+    }
+  });
+
+  test('เว้นวรรครอบขีดยังอ่านได้', () => {
+    assert.equal(inPreloadWindow(' 6 - 21 ', at(13)), true);
+    assert.equal(inPreloadWindow(' 6 - 21 ', at(2)), false);
   });
 });
