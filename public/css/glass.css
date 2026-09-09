@@ -8,6 +8,9 @@
 
 .glass {
   position: relative;
+  /* กล่องนี้เป็น stacking context ของตัวเอง เพื่อให้ ::after (แสงสะท้อน) ใช้ z-index ติดลบ
+   * แล้วไปอยู่ **ใต้ข้อความ** แต่ยังอยู่บนพื้นกระจก — ดู .glass::after */
+  isolation: isolate;
   background: var(--glass-fill);
   border: 1px solid var(--glass-border-soft);
   border-radius: var(--r-lg);
@@ -25,11 +28,17 @@
   }
 }
 
-/* แสงสะท้อนบางบนขอบบน ทำให้ดูเป็นแผ่นกระจกจริง */
+/* แสงสะท้อนบางบนขอบบน ทำให้ดูเป็นแผ่นกระจกจริง
+ *
+ * **ต้องอยู่ใต้ข้อความเสมอ** (ผู้ใช้ทัก ก.ย. 69) — เดิม pseudo-element ที่ position:absolute
+ * ถูกวาดทับลูกที่ไม่ได้ positioned ทั้งหมด แถบขาว 70% มุมบนซ้ายจึงทับป้ายกับตัวเลขในโหมดสว่าง
+ * จนตัวอักษรซีดบางลงครึ่งหนึ่ง เห็นชัดที่ช่องตัวเลขที่ซ้อนอยู่ในแผง (กระจกบนกระจก)
+ * z-index ติดลบใน stacking context ของ .glass = อยู่บนพื้นกระจก แต่ใต้เนื้อหาทุกชิ้น */
 .glass::after {
   content: '';
   position: absolute;
   inset: 0;
+  z-index: -1;
   border-radius: inherit;
   pointer-events: none;
   background: var(--glass-sheen);
