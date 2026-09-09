@@ -56,6 +56,8 @@ const GAP = 2;
 function fmtValue(value, unit) {
   if (unit === '%') return pct(value);
   if (!unit || unit === 'g') return weight(value);
+  // ต้นทุนต่อกรัมอยู่หลักสิบบาท ปัดเป็นจำนวนเต็มแล้ว 22.02 กับ 22.49 จะดูเท่ากัน
+  if (unit === '฿/g') return `${n(value, 2)} ${unit}`;
   return `${n(value)} ${unit}`;
 }
 
@@ -271,10 +273,12 @@ export function line(container, series, opts = {}) {
     if (si === 0 && count > 1) {
       ctx.beginPath();
       let started = false;
+      let lastX = null;
       s.points.forEach((pt, i) => {
         if (!Number.isFinite(pt.value)) return;
         const x = xAt(i);
         const y = yAt(pt.value);
+        lastX = x;
         if (!started) {
           // ฐานของพื้นที่ใต้เส้นคือเส้นศูนย์ ไม่ใช่ก้นกล่อง — ต่างกันเมื่อแกนลงต่ำกว่าศูนย์
           ctx.moveTo(x, zeroY);
@@ -283,7 +287,10 @@ export function line(container, series, opts = {}) {
         } else ctx.lineTo(x, y);
       });
       if (started) {
-        ctx.lineTo(xAt(count - 1), zeroY);
+        /* ปิดพื้นที่ที่จุดสุดท้ายที่มีข้อมูล ไม่ใช่ขอบขวาของแกน
+         * ไม่งั้นเดือนท้าย ๆ ที่ยังไม่มีค่า (ต้นทุนต่อกรัม ก.ค.–ก.ย.) จะได้ลิ่มสีลาดลงศูนย์
+         * ซึ่งอ่านเหมือนค่าตกลงมาเรื่อย ๆ ทั้งที่ความจริงคือ "ยังไม่มีข้อมูล" */
+        ctx.lineTo(lastX, zeroY);
         ctx.closePath();
         const grad = ctx.createLinearGradient(0, box.y, 0, box.y + box.h);
         grad.addColorStop(0, p.fade);

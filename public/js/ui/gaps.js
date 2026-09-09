@@ -24,8 +24,10 @@ import { esc } from '../format.js';
  */
 const DRYFLOWER = [
   {
-    /* รายได้รวมมีแล้วจากชีตต้นทุน — ที่ยังขาดคือการแยกว่ามาจากใคร/สายพันธุ์อะไร
-     * ข้อนี้จะหายไปเองถ้าวันหนึ่งชีตขายดอกมีคอลัมน์ราคา */
+    /* รายได้รวมมีแล้วจากชีตต้นทุน และรายลูกค้าก็มีแล้วจากแท็บ "Revenue" (ก.ย. 69)
+     * ที่ยังขาดคือการแยกตามสายพันธุ์/ขนาดดอก ซึ่งต้องมีราคาในชีตขายดอก
+     * ข้อนี้จะหายไปเองถ้าวันหนึ่งชีตขายดอกมีคอลัมน์ราคา — ส่วน detailOf() เติมบรรทัด
+     * บอกว่ารายลูกค้าทำได้แล้วหรือยัง (แท็บ Revenue หายไปเมื่อไรก็บอกตามนั้น) */
     id: 'revenueSplit',
     titleKey: 'awaiting.revenueSplit.title',
     whyKey: 'awaiting.revenueSplit.why',
@@ -171,6 +173,16 @@ function detailOf(id, payload) {
    * เลือกปีที่ชีตไม่มีข้อมูลจะทำให้การ์ดนี้กล่าวหาว่าชีตล่มทั้งที่ชีตปกติดี */
   if (id === 'costPerGram' && kpi.cost && !kpi.cost.sheetAvailable) {
     return t('gap.detail.costSheetDown');
+  }
+  // แท็บ "ต้นทุนต่อกรัม" มีแถว Gram (g) แล้ว = กติกาที่รอ → ข้อนี้ไม่ใช่ปัญหาแล้ว
+  if (id === 'costPerGram' && kpi.cost?.perGram?.available) return false;
+
+  /* รายลูกค้าทำได้แล้วจากแท็บ Revenue — บอกให้ชัดว่าเหลือแค่รายสายพันธุ์
+   * ถ้าแท็บนั้นหายไป (คนลบ/เปลี่ยนชื่อ) ข้อความจะกลับไปบอกว่ารายลูกค้าก็ยังไม่มี */
+  if (id === 'revenueSplit' && kpi.cost?.sheetAvailable) {
+    return kpi.cost.revenueSplit?.available
+      ? t('gap.detail.revenueByCustomerOk')
+      : t('gap.detail.revenueByCustomerMissing');
   }
 
   if (id === 'supplyPrice') {

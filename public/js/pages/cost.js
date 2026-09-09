@@ -13,7 +13,7 @@
  * ดูได้ที่หน้า Supply ซึ่งเป็นเจ้าของข้อมูลชุดนั้น — ห้ามเอาไปบวกกับต้นทุนการปลูก
  */
 import { t } from '../i18n.js';
-import { n, esc, DASH } from '../format.js';
+import { n, esc, pct, monthSpan, DASH } from '../format.js';
 import * as charts from '../charts/index.js';
 import { sortableTable } from '../ui/table.js';
 import {
@@ -167,6 +167,8 @@ function renderFinance(host, cost, drawLater) {
     }
   }
 
+  renderRevenueSplit(host, cost, span, drawLater);
+
   /* ต้นทุนการปลูกกับเบ็ดเตล็ดต้องอยู่แถวเดียวกัน — เป็นคู่ที่มีไว้เทียบกัน
    * ถ้าปล่อยให้โดนัทแทรกอยู่ข้างหน้า แผงเบ็ดเตล็ดจะตกไปอยู่แถวถัดไปตัวเดียว
    * แล้วสองกราฟที่ควรมองพร้อมกันจะอยู่คนละแถว */
@@ -241,6 +243,9 @@ function renderFinance(host, cost, drawLater) {
     }
   }
 
+  renderRevenueCustomers(host, cost, span);
+  renderCostPerGram(host, cost, drawLater);
+
   // ── ตารางงบรายเดือน ──
   {
     const body = panel(host, t('cost.monthTable'), t('cost.monthTableNote'), { wide: true });
@@ -284,4 +289,202 @@ function renderFinance(host, cost, drawLater) {
       )
     );
   }
+}
+
+/** ต้นทุนต่อกรัม 2 ตำแหน่ง — หลักสิบบาท ปัดเป็นจำนวนเต็มแล้ว 22.02 กับ 22.49 จะดูเท่ากัน */
+const perGramText = (v) => (v === null || v === undefined || !Number.isFinite(v) ? DASH : `${n(v, 2)} ฿/g`);
+
+/**
+ * ต้นทุนต่อกรัม — ตามกติกาในแท็บ "ต้นทุนต่อกรัม" ของชีตต้นทุน (ผู้ใช้ตัดสิน ก.ย. 69)
+ *
+ * เดิมข้อนี้อยู่ในทะเบียน "ข้อมูลที่ยังขาด" เพราะไม่มีกติกาผูกต้นทุนกับครอป
+ * ตอนนี้ชีตมีแถว `Gram (g)` รายเดือนที่คนกรอกเอง = กติกาที่รอ Dashboard จึงคิด
+ * `รวม Cost ทั้งหมด ÷ Gram` ของเดือนเดียวกันตามนั้น ไม่อ่านช่อง `Cost / gram` ในชีต
+ * (ดู buildCostPerGram) เดือนที่ยังไม่มีกรัมขึ้น — ไม่ใช่ 0 และไม่ถูกยกไปรวมกับเดือนอื่น
+ *
+ * เส้นงบประมาณเป็นเส้นประ — เป็นตัวเลขที่ตั้งไว้ ไม่ใช่ที่วัดได้จริง ต้องดูออกโดยไม่ต้องอ่าน legend
+ */
+function renderCostPerGram(host, cost, drawLater) {
+  const pg = cost.perGram;
+  const body = panel(host, t('cost.pg.title'), t('cost.pg.note'), { wide: true });
+
+  if (!pg?.available) {
+    emptyNote(body, t('cost.pg.noTab'));
+    return;
+  }
+
+  const tot = pg.totals;
+  const spanText = tot.from && tot.to ? monthSpan(tot.from, tot.to) : '';
+  const tileItems = [
+    {
+      label: `${t('cost.pg.cumulative')} (${spanText})`,
+      value: tot.costPerGram,
+      unit: ' ฿/g',
+      decimals: 2,
+      hint: t('cost.pg.cumulativeHint', { n: tot.monthsWithGrams }),
+    },
+    { label: `${t('cost.pg.grams')} (${spanText})`, value: tot.grams, unit: 'g', hint: t('cost.pg.gramsHint') },
+    { label: `${t('cost.pg.cost')} (${spanText})`, value: tot.cost, unit: '฿', hint: t('cost.pg.costHint') },
+  ];
+  if (pg.budget) {
+    tileItems.push({
+      label: `${t('cost.pg.budget')} (${pg.budget.label ?? ''})`,
+      value: pg.budget.costPerGram,
+      unit: ' ฿/g',
+      decimals: 2,
+      hint: `${fmtBaht(pg.budget.cost)} ÷ ${n(pg.budget.grams)} g`,
+    });
+  }
+  tiles(body, tileItems);
+
+  const box = well(body);
+  const series = [
+    {
+      label: t('cost.pg.actual'),
+      points: pg.months.map((m) => ({ date: m.month, value: m.costPerGram })),
+    },
+  ];
+  if (pg.budget) {
+    series.push({
+      label: t('cost.pg.budget'),
+      points: pg.months.map((m) => ({ date: m.month, value: pg.budget.costPerGram })),
+    });
+  }
+  drawLater.push({
+    node: box,
+    run: () => charts.line(box, series, { height: 220, format: 'month', unit: '฿/g', dashed: [1] }),
+  });
+
+  body.appendChild(
+    sortableTable(
+      [
+        { label: t('label.byMonth'), get: (r) => r.month },
+        { label: t('cost.pg.grams'), align: 'n', get: (r) => r.grams, render: (r) => (r.grams === null ? DASH : `${n(r.grams)} g`) },
+        { label: t('cost.pg.cost'), align: 'n', get: (r) => r.cost, render: (r) => baht(r.cost) },
+        {
+          label: t('cost.pg.actual'),
+          align: 'n',
+          get: (r) => r.costPerGram,
+          render: (r) => `<b>${perGramText(r.costPerGram)}</b>`,
+        },
+        /* ช่องที่ชีตคิดไว้เอง — โชว์ไว้ข้าง ๆ ให้เทียบได้ ถ้าไม่ตรงมี finding กำกับอยู่แล้ว
+         * ไม่ใช่ตัวเลขที่ Dashboard ใช้ */
+        {
+          label: t('cost.pg.stated'),
+          align: 'n',
+          get: (r) => r.statedCostPerGram,
+          render: (r) => `<span class="muted">${perGramText(r.statedCostPerGram)}</span>`,
+        },
+      ],
+      pg.months,
+      { sortIndex: 0, sortDir: 'asc' }
+    )
+  );
+}
+
+/** ป้ายกลุ่มลูกค้า — รหัสที่รู้จักแปลผ่าน i18n · กลุ่มที่ชีตตั้งชื่อเองใช้ชื่อนั้นตรง ๆ */
+function segmentLabel(seg) {
+  if (seg.key === 'domestic') return t('cost.rev.domestic');
+  if (seg.key === 'export') return t('cost.rev.export');
+  if (seg.key === null || seg.key === '') return t('cost.rev.noSegment');
+  return seg.label ?? String(seg.key);
+}
+
+/**
+ * รายได้แยกในประเทศ / ต่างประเทศ รายเดือน (แท็บ "Revenue" ของชีตต้นทุน — เพิ่ม ก.ย. 69)
+ *
+ * วางใต้กราฟ P&L เพราะตอบคำถามที่ตามมาทันทีจากเส้นรายได้: "เดือนที่พุ่งขึ้นมาจากใคร"
+ * (พ.ค.–มิ.ย. 69 รายได้ 5.6 / 3.5 ล้าน เป็นลูกค้าต่างประเทศรายเดียว 8.29 ล้าน = 73%)
+ *
+ * เดือนที่แสดงเป็นชุดเดียวกับกราฟ P&L (`byMonth` ถูกสร้างจาก months ที่ตัดที่ lastActive)
+ * แกน X สองแผงจึงตรงกัน กวาดตาจากเส้นรายได้ลงมาที่แท่งของเดือนเดียวกันได้เลย
+ */
+function renderRevenueSplit(host, cost, span, drawLater) {
+  const split = cost.revenueSplit;
+  const body = panel(host, t('cost.rev.title'), t('cost.rev.note'), { wide: true });
+
+  if (!split?.available) {
+    emptyNote(body, t('cost.rev.noTab'));
+    return;
+  }
+
+  /* ช่องสรุปของแต่ละกลุ่ม — จำนวนช่องตามกลุ่มที่ชีตมีจริง
+   * `tiles()` รับกี่ช่องก็ได้ ไม่ต้องตรึงว่ามีสองกลุ่ม */
+  tiles(
+    body,
+    split.segments.map((s) => ({
+      label: `${segmentLabel(s)} (${span})`,
+      value: s.amount,
+      unit: '฿',
+      hint: `${pct(s.share, 1)} ${t('cost.ofRevenue')} · ${s.customers} ${t('cost.rev.customerUnit')}`,
+    }))
+  );
+
+  /* keys ส่งครบทุกกลุ่มเสมอตามลำดับใน segments — สีของชั้นในแท่งมาจากตำแหน่งในลิสต์
+   * (กฎ "สีผูกกับหมวด ไม่ใช่กับอันดับในชุดที่กำลังดู" CLAUDE.md §9) */
+  const keys = split.segments.map(segmentLabel);
+  const data = split.byMonth.map((m) => ({
+    key: m.month,
+    parts: Object.fromEntries(split.segments.map((s) => [segmentLabel(s), m.bySegment[s.key ?? ''] ?? 0])),
+  }));
+
+  const box = well(body);
+  drawLater.push({
+    node: box,
+    run: () =>
+      charts.stackedBars(box, data, {
+        keys,
+        ramp: 'cat',
+        height: 240,
+        unit: '฿',
+        labelFormat: 'month',
+        max: data.length,
+      }),
+  });
+}
+
+/**
+ * ตารางรายได้รายลูกค้า — เรียงมากไปน้อย พร้อมกลุ่มและสัดส่วน
+ *
+ * ไม่ทำเป็นกราฟแท่งนอนเพราะชื่อลูกค้ายาว (`บริษัท กรีนรูม ทีเอชซี จำกัด`) ถูกตัดที่ 150px
+ * แล้วอ่านไม่ออกว่าเป็นใคร ตารางเรียงได้ทุกคอลัมน์และมีที่ให้ชื่อเต็ม
+ * "เดือนที่มียอด" บอกว่าเป็นลูกค้าประจำหรือซื้อครั้งเดียว ซึ่งยอดรวมอย่างเดียวบอกไม่ได้
+ */
+function renderRevenueCustomers(host, cost, span) {
+  const split = cost.revenueSplit;
+  if (!split?.available) return;
+
+  const body = panel(host, t('cost.rev.customers'), `${fmtBaht(split.total)} · ${span}`, { wide: true });
+  const segLabel = (c) => segmentLabel({ key: c.segment, label: c.segmentLabel });
+
+  body.appendChild(
+    sortableTable(
+      [
+        { label: t('cost.rev.customer'), get: (r) => r.customer, render: (r) => esc(r.customer) },
+        { label: t('cost.rev.segment'), get: (r) => segLabel(r), render: (r) => esc(segLabel(r)) },
+        { label: t('cost.revenue'), align: 'n', get: (r) => r.amount, render: (r) => `<b>${baht(r.amount)}</b>` },
+        { label: t('cost.rev.share'), align: 'n', get: (r) => r.share, render: (r) => pct(r.share, 1) },
+        {
+          label: t('cost.rev.monthsActive'),
+          align: 'n',
+          get: (r) => r.monthsWithValue,
+          render: (r) => String(r.monthsWithValue),
+        },
+        { label: t('cost.rev.lastMonth'), get: (r) => r.lastMonth, render: (r) => r.lastMonth ?? DASH },
+      ],
+      split.customers,
+      {
+        sortIndex: 2,
+        sortDir: 'desc',
+        foot: (rows) => [
+          t('label.total'),
+          '',
+          `<b>${baht(rows.reduce((a, r) => a + r.amount, 0))}</b>`,
+          '',
+          '',
+          '',
+        ],
+      }
+    )
+  );
 }

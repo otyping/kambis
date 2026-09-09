@@ -8,13 +8,24 @@
  * (รายได้รวมมีแล้วจากชีตต้นทุน แต่แยกรายลูกค้า/สายพันธุ์ยังทำไม่ได้)
  */
 import { t, pick } from '../i18n.js';
-import { n, monthYear } from '../format.js';
+import { n, pct, monthYear } from '../format.js';
 import { renderCards } from '../ui/cards.js';
 import { awaitingCard } from '../ui/placeholder.js';
 import { pageHeader, tiles, lossHint, grid, appendQualityCard, costSpan } from './shared.js';
 import { monthlySeries, sum, comparePeriod } from '../shared/agg-core.js';
 
 export const meta = { report: 'dryflower', page: 'overview' };
+
+/** `ในประเทศ 27% · ต่างประเทศ 73%` — เฉพาะกลุ่มที่รู้จัก กลุ่มอื่น/ไม่ระบุดูที่หน้าต้นทุน */
+function revenueSplitHint(fin) {
+  const split = fin?.revenueSplit;
+  if (!fin?.available || !split?.available) return '';
+  const known = { domestic: 'cost.rev.domestic', export: 'cost.rev.export' };
+  const parts = split.segments
+    .filter((s) => known[s.key] && Number.isFinite(s.share))
+    .map((s) => `${t(known[s.key])} ${pct(s.share, 0)}`);
+  return parts.join(' · ');
+}
 
 export function render(ctx) {
   const { host, payload, sources, filters, onOpen, drawLater } = ctx;
@@ -108,7 +119,9 @@ export function render(ctx) {
       label: `${t('exec.revenue')} (${finSpan})`,
       value: fin?.revenueByYear ?? null,
       unit: '฿',
-      hint: finHint,
+      /* มีแท็บ Revenue รายลูกค้า → บอกสัดส่วนในประเทศ/ต่างประเทศแทนคำว่า "จากชีตต้นทุน"
+       * เป็นบรรทัดเดียวตัดท้ายด้วย … จึงใส่แค่ % ไม่ใส่จำนวนเงิน (รายละเอียดอยู่หน้าต้นทุน) */
+      hint: revenueSplitHint(fin) || finHint,
       awaiting: !fin?.available,
     },
     {

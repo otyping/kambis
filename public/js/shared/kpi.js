@@ -643,9 +643,15 @@ export function buildCostBreakdown(detail) {
  */
 /* ชื่อพารามิเตอร์ต้องไม่ใช่ `year` เพราะท้ายฟังก์ชันมี `const year` ของตัวเอง
  * (ปีที่อ่านได้จากข้อมูลจริง) ถ้าชนกันจะได้ ReferenceError จาก TDZ ตอน inYear ทำงาน */
-function buildCost(source, yearFilter = null) {
+function buildCost(source, yearFilter = null, today = null) {
   const rows = source?.rows ?? [];
   const allSummary = rows.filter((r) => r.kind === 'summary');
+
+  /* เดือนปัจจุบัน — เพดานของ "เดือนที่เกิดขึ้นจริง"
+   * ผู้ใช้ตัดสิน ก.ย. 69: **ไม่นับเดือนหลังวันนี้** ไม่ว่าชีตจะกรอกอะไรไว้ล่วงหน้า
+   * (ดูเหตุผลที่ lastActive ด้านล่าง) รับ `today` มาจากผู้เรียกให้เทสต์คุมได้
+   * ไม่ส่งมาก็ใช้วันจริง — เบราว์เซอร์กับเซิร์ฟเวอร์จึงตัดที่เดือนเดียวกัน */
+  const todayMonth = String(today ?? new Date().toISOString().slice(0, 10)).slice(0, 7);
 
   /* ปีที่ชีตนี้มีข้อมูลจริง — ต้องรู้ก่อนกรอง เพื่อบอกผู้ใช้ได้ว่า "มีปีไหนให้ดูบ้าง"
    * ตอนที่เขาเลือกปีที่ชีตไม่มี */
@@ -687,6 +693,8 @@ function buildCost(source, yearFilter = null) {
       byGroup: [],
       breakdown: { growing: [], misc: [], growingTotal: 0, miscTotal: 0, subtotalItems: new Set() },
       detailTotals: {},
+      revenueSplit: buildRevenueSplit([], []),
+      perGram: buildCostPerGram([], null),
     };
   }
 
@@ -715,8 +723,15 @@ function buildCost(source, yearFilter = null) {
    * ถ้านับรวมด้วย กราฟจะลากเส้นแบนที่ศูนย์ไปจนถึงธันวาคม ซึ่งอ่านผิดทันที
    * ว่าธุรกิจหยุดเดิน ทั้งที่ความจริงคือ "ยังไม่ถึงเดือนนั้น" */
   const OPERATING = ['revenue', 'materialCost'];
+  /* …และต้องไม่เลยเดือนปัจจุบัน
+   *
+   * เคสจริง ก.ย. 69: ชีตเริ่มกรอก `ต้นทุนวัตถุดิบ` ล่วงหน้าถึงธันวาคม (248,000/เดือน)
+   * กฎ "เดือนล่าสุดที่มีรายได้หรือต้นทุนวัตถุดิบ" จึงเลื่อนไปธันวาคมเอง ป้ายบนการ์ดกลายเป็น
+   * "ม.ค.–ธ.ค." และกำไรขั้นต้นรวมต้นทุน 5 เดือนที่ยังไม่มีรายได้มาหัก — ทั้งที่วันนี้เพิ่งกันยายน
+   * เดือนที่ยังมาไม่ถึงเป็นตัวเลขที่ตั้งไว้ ไม่ใช่ผลประกอบการ ไม่ว่าบรรทัดไหนจะกรอกไว้ก็ตาม */
   const lastActive = months.reduce(
-    (last, m) => (OPERATING.some((l) => at(l, m) !== null && at(l, m) !== 0) ? m : last),
+    (last, m) =>
+      m <= todayMonth && OPERATING.some((l) => at(l, m) !== null && at(l, m) !== 0) ? m : last,
     null
   );
   const lastRevenueMonth = months.reduce((last, m) => (at('revenue', m) ? m : last), null);
@@ -815,9 +830,25 @@ function buildCost(source, yearFilter = null) {
 
   const year = months[0]?.slice(0, 4) ?? null;
 
+  /* รายได้รายลูกค้า (แท็บ Revenue) — ตัดช่วงเดือนเดียวกับ totals เสมอ
+   * ไม่งั้นผลรวมของลูกค้าทุกรายจะไม่เท่ากับช่อง "รายได้" ที่อยู่บนหน้าจอเดียวกัน */
+  const revenueSplit = buildRevenueSplit(
+    rows.filter((r) => r.kind === 'revenue' && inYear(r) && within(r.month)),
+    months.filter(within)
+  );
+
+  /* ต้นทุนต่อกรัม (แท็บ "ต้นทุนต่อกรัม") — ช่วงเดือนเดียวกับ totals เช่นกัน
+   * งบประมาณอยู่ใน summary ของแท็บ ไม่ใช่ใน record เพราะเป็นตัวเลขทั้งปี ไม่มีเดือน */
+  const perGram = buildCostPerGram(
+    rows.filter((r) => r.kind === 'perGram' && inYear(r) && within(r.month)),
+    (source?.tabs ?? []).find((t) => t.role === 'perGram')?.budget ?? null
+  );
+
   return {
     available: true,
     sheetAvailable: true,
+    revenueSplit,
+    perGram,
     // ปีที่ถูกขอ (null = ไม่ได้กรอง) และปีที่ชีตมีทั้งหมด — UI ใช้ทั้งคู่ตอนเลือกปีที่ไม่มีข้อมูล
     requestedYear: yearFilter,
     years,
@@ -850,6 +881,151 @@ function buildCost(source, yearFilter = null) {
           at('officeExpense', lastActive),
         ])
       : null,
+  };
+}
+
+/** ลำดับกลุ่มลูกค้าที่รู้จัก — กลุ่มที่ชีตตั้งชื่อใหม่ต่อท้าย · ไม่ระบุกลุ่มอยู่ท้ายสุด */
+const REVENUE_SEGMENT_ORDER = ['domestic', 'export'];
+
+/**
+ * รายได้รายลูกค้า จัดกลุ่มในประเทศ/ต่างประเทศ จากแท็บ "Revenue" ของชีตต้นทุน
+ *
+ * `rows` คือ record `kind: 'revenue'` ที่ตัดปีและช่วงเดือนมาแล้ว (ผู้เรียกเป็นคนตัด
+ * ด้วยกฎเดียวกับ totals) `months` คือเดือนที่หน้าจะวาดในกราฟ P&L ข้าง ๆ —
+ * ส่งมาให้ byMonth มีทุกเดือนเท่ากันแม้เดือนนั้นไม่มีลูกค้าเลย กราฟสองแผงจะได้แกนตรงกัน
+ *
+ * สัดส่วนคิดจากผลรวมของลูกค้าเอง ไม่ใช่จากช่อง Revenue ของแท็บ "สรุป" —
+ * ถ้าสองยอดนั้นไม่ตรงกันเป็นเรื่องของ finding `finance.revenueMismatch` ไม่ใช่ที่นี่
+ *
+ * @param {Array} rows
+ * @param {string[]} months
+ */
+export function buildRevenueSplit(rows, months) {
+  const empty = { available: false, total: 0, segments: [], customers: [], byMonth: [] };
+  if (!rows?.length) return empty;
+
+  const segOf = (r) => r.segment ?? null;
+  const segKey = (s) => s ?? ''; // '' = ลูกค้าที่ยังไม่มีแถว Total ปิดกลุ่มในชีต
+
+  const segMap = new Map();
+  const custMap = new Map();
+  for (const r of rows) {
+    const amt = r.amount ?? 0;
+    const s = segOf(r);
+    const seg = segMap.get(segKey(s)) ?? { key: s, label: r.segmentLabel ?? null, amount: 0, byMonth: {}, customers: new Set() };
+    seg.amount += amt;
+    seg.byMonth[r.month] = (seg.byMonth[r.month] ?? 0) + amt;
+    seg.customers.add(r.customer);
+    segMap.set(segKey(s), seg);
+
+    const ck = `${segKey(s)}|${r.customer}`;
+    const c = custMap.get(ck) ?? { customer: r.customer, segment: s, segmentLabel: r.segmentLabel ?? null, amount: 0, byMonth: {} };
+    c.amount += amt;
+    c.byMonth[r.month] = (c.byMonth[r.month] ?? 0) + amt;
+    custMap.set(ck, c);
+  }
+
+  const total = [...custMap.values()].reduce((a, c) => a + c.amount, 0);
+  const share = (v) => (total > 0 ? (v / total) * 100 : null);
+
+  const rank = (s) => {
+    if (s === null) return REVENUE_SEGMENT_ORDER.length + 1;
+    const i = REVENUE_SEGMENT_ORDER.indexOf(s);
+    return i < 0 ? REVENUE_SEGMENT_ORDER.length : i;
+  };
+  const segments = [...segMap.values()]
+    .map((s) => ({ ...s, customers: s.customers.size, share: share(s.amount) }))
+    .sort((a, b) => rank(a.key) - rank(b.key) || String(a.label).localeCompare(String(b.label)));
+
+  const customers = [...custMap.values()]
+    .map((c) => {
+      const active = Object.entries(c.byMonth).filter(([, v]) => v !== 0).map(([m]) => m).sort(comparePeriod);
+      return {
+        ...c,
+        share: share(c.amount),
+        monthsWithValue: active.length,
+        firstMonth: active[0] ?? null,
+        lastMonth: active[active.length - 1] ?? null,
+      };
+    })
+    .sort((a, b) => b.amount - a.amount || a.customer.localeCompare(b.customer));
+
+  const monthList = [...new Set([...(months ?? []), ...rows.map((r) => r.month)])].sort(comparePeriod);
+  const byMonth = monthList.map((month) => {
+    const bySegment = {};
+    let sum = 0;
+    for (const s of segments) {
+      const v = s.byMonth[month];
+      if (v === undefined) continue;
+      bySegment[segKey(s.key)] = v;
+      sum += v;
+    }
+    return { month, bySegment, total: Object.keys(bySegment).length ? sum : null };
+  });
+
+  return { available: true, total, segments, customers, byMonth };
+}
+
+/**
+ * ต้นทุนต่อกรัม — ตามกติกาในแท็บ "ต้นทุนต่อกรัม" ของชีตต้นทุน (ผู้ใช้ตัดสิน ก.ย. 69)
+ *
+ * กติกาคือ **รวม Cost ทั้งหมดของเดือน ÷ กรัมที่ผลิตในเดือนเดียวกัน** ตามที่ชีตเขียนไว้เอง
+ * Dashboard คิดใหม่จากสองแถวนั้นเสมอ ไม่อ่านช่อง `Cost / gram` ในชีต (เก็บไว้เทียบเป็น
+ * `stated` ให้ analysis ออก finding เมื่อไม่ตรง)
+ *
+ * - เดือนที่มีต้นทุนแต่ยังไม่มีกรัม (ก.ค. 69 — ชีตขึ้น `#DIV/0!`) → `costPerGram: null`
+ *   ห้ามเป็น 0 และ **ห้ามยกต้นทุนไปรวมกับเดือนอื่น** เพราะกติกาในชีตเป็นรายเดือน
+ * - ยอดสะสม = Σ ต้นทุน ÷ Σ กรัม **เฉพาะเดือนที่มีกรัด** ด้วยเหตุผลเดียวกัน
+ *   ป้ายบนจอต้องบอกว่าคิดจากกี่เดือน
+ * - งบประมาณ (`budget`) เป็นตัวเลขทั้งปีจากคอลัมน์ Budget ของแท็บ คิด ÷ เองเหมือนกัน
+ *
+ * **ห้ามใช้ฟังก์ชันนี้กับผลผลิตจากรายงานอื่น** (dailyTrim/perCrop) — กรัมต้องมาจากแถว
+ * `Gram (g)` ที่คนกรอกไว้ในแท็บนี้ ซึ่งเป็นตัวที่ผูกกับต้นทุนตามกติกาของเขา
+ *
+ * @param {Array} rows record `kind: 'perGram'` ที่ตัดปีและช่วงเดือนมาแล้ว
+ * @param {{label?:string, grams?:number, cost?:number, revenue?:number}|null} budget
+ */
+export function buildCostPerGram(rows, budget) {
+  const empty = { available: false, months: [], totals: null, budget: null };
+  if (!rows?.length) return empty;
+
+  const at = (line, month) => rows.find((r) => r.line === line && r.month === month)?.amount ?? null;
+  const monthList = [...new Set(rows.map((r) => r.month))].sort(comparePeriod);
+
+  const months = monthList.map((month) => {
+    const grams = at('grams', month);
+    const cost = at('cost', month);
+    return {
+      month,
+      grams,
+      cost,
+      revenue: at('revenue', month),
+      costPerGram: grams !== null && grams > 0 && cost !== null ? cost / grams : null,
+      statedCostPerGram: at('costPerGram', month),
+    };
+  });
+
+  const withGrams = months.filter((m) => m.costPerGram !== null);
+  const sumGrams = withGrams.reduce((a, m) => a + m.grams, 0);
+  const sumCost = withGrams.reduce((a, m) => a + m.cost, 0);
+
+  const b =
+    budget && Number.isFinite(budget.cost) && Number.isFinite(budget.grams) && budget.grams > 0
+      ? { label: budget.label ?? null, grams: budget.grams, cost: budget.cost, costPerGram: budget.cost / budget.grams }
+      : null;
+
+  return {
+    available: true,
+    months,
+    totals: {
+      grams: sumGrams,
+      cost: sumCost,
+      costPerGram: sumGrams > 0 ? sumCost / sumGrams : null,
+      monthsWithGrams: withGrams.length,
+      from: withGrams[0]?.month ?? null,
+      to: withGrams[withGrams.length - 1]?.month ?? null,
+    },
+    budget: b,
   };
 }
 
@@ -986,7 +1162,7 @@ export function buildKpi(sources, analysis, options = {}) {
   const harvested = perCrop.filter((r) => r.hasYield);
   const planned = perCrop.filter((r) => !r.hasYield);
 
-  const cost = buildCost(sources.cost, options.year ?? null);
+  const cost = buildCost(sources.cost, options.year ?? null, options.today ?? null);
 
   const totalYield = sum(harvested.map((r) => r.flowerTotal));
   const totalPlants = sum(harvested.map((r) => r.plants));

@@ -612,6 +612,45 @@ const STRINGS = {
     'ยอดด้านบนคิดถึง {span} เท่านั้น — ชีตกรอกค่าเสื่อมราคาและค่าใช้จ่าย Office ไว้ล่วงหน้าจนถึงสิ้นปี ถ้าบวกครบ 12 เดือนจะได้ EBIT {full} ซึ่งเป็นการเอารายได้ที่มีไปหักค่าใช้จ่ายของเดือนที่ยังไม่ถึง',
     'The figures above cover {span} only — the sheet pre-fills depreciation and office costs to year end. Summing all 12 months gives EBIT {full}, which offsets actual revenue against months that have not happened yet',
   ],
+  // ── รายได้รายลูกค้า (แท็บ Revenue ของชีตต้นทุน) ──
+  'cost.rev.title': ['รายได้ในประเทศ / ต่างประเทศ รายเดือน', 'Domestic vs export revenue by month'],
+  'cost.rev.note': [
+    'จากแท็บ "Revenue" ของชีตต้นทุน · รวมลูกค้าทุกรายในกลุ่ม · ช่วงเดือนเดียวกับกราฟด้านบน',
+    'From the “Revenue” tab of the cost sheet · all customers in each group · same months as the chart above',
+  ],
+  'cost.rev.noTab': [
+    'ชีตต้นทุนยังไม่มีแท็บ "Revenue" ที่แยกรายได้รายลูกค้า — ยอดรายได้รวมด้านบนยังใช้ได้ตามปกติ',
+    'The cost sheet has no “Revenue” tab with per-customer revenue yet — the total revenue above is unaffected',
+  ],
+  'cost.rev.domestic': ['ในประเทศ', 'Domestic'],
+  'cost.rev.export': ['ต่างประเทศ', 'Export'],
+  'cost.rev.noSegment': ['ไม่ระบุกลุ่ม', 'Unassigned'],
+  'cost.rev.customerUnit': ['ราย', 'customer(s)'],
+  'cost.rev.customers': ['รายได้ตามลูกค้า', 'Revenue by customer'],
+  'cost.rev.customer': ['ลูกค้า', 'Customer'],
+  'cost.rev.segment': ['กลุ่ม', 'Group'],
+  'cost.rev.share': ['สัดส่วน', 'Share'],
+  'cost.rev.monthsActive': ['เดือนที่มียอด', 'Months with sales'],
+  'cost.rev.lastMonth': ['ล่าสุด', 'Latest'],
+  // ── ต้นทุนต่อกรัม (แท็บ "ต้นทุนต่อกรัม" ของชีตต้นทุน) ──
+  'cost.pg.title': ['ต้นทุนต่อกรัม', 'Cost per gram'],
+  'cost.pg.note': [
+    'ตามกติกาในแท็บ "ต้นทุนต่อกรัม": รวม Cost ทั้งหมด ÷ กรัมของเดือนเดียวกัน · Dashboard คิดใหม่เอง ไม่อ่านช่อง Cost / gram ในชีต · เดือนที่ยังไม่มีกรัมเป็น —',
+    'Per the “ต้นทุนต่อกรัม” tab: total cost ÷ grams of the same month · recomputed here, not read from the sheet’s Cost / gram cell · months without grams show —',
+  ],
+  'cost.pg.noTab': [
+    'ชีตต้นทุนยังไม่มีแท็บ "ต้นทุนต่อกรัม" ที่มีแถวกรัมรายเดือน — ยังคำนวณต้นทุนต่อกรัมไม่ได้',
+    'The cost sheet has no “ต้นทุนต่อกรัม” tab with monthly grams yet — cost per gram cannot be computed',
+  ],
+  'cost.pg.cumulative': ['ต้นทุนต่อกรัมสะสม', 'Cumulative cost per gram'],
+  'cost.pg.cumulativeHint': ['Σ ต้นทุน ÷ Σ กรัม เฉพาะ {n} เดือนที่มีกรัม', 'Σ cost ÷ Σ grams over the {n} months with grams'],
+  'cost.pg.grams': ['กรัมที่ผลิต', 'Grams produced'],
+  'cost.pg.gramsHint': ['แถว Gram (g) ที่กรอกในแท็บ', 'From the Gram (g) row of the tab'],
+  'cost.pg.cost': ['ต้นทุนของเดือนที่มีกรัม', 'Cost of months with grams'],
+  'cost.pg.costHint': ['แถว "รวม Cost ทั้งหมด" ของแท็บ', 'From the tab’s “รวม Cost ทั้งหมด” row'],
+  'cost.pg.budget': ['งบประมาณ', 'Budget'],
+  'cost.pg.actual': ['ต้นทุน/กรัม (คำนวณใหม่)', 'Cost/g (recomputed)'],
+  'cost.pg.stated': ['ที่ชีตคิดไว้', 'Sheet’s value'],
   'cost.split': ['สัดส่วนต้นทุน', 'Cost split'],
   /* เดิมเขียนว่า "ทั้งปีตามงบสรุป" — ยอดตัดที่เดือนล่าสุดที่มีความเคลื่อนไหว
    * และผูกกับปีที่เลือกบนแถบตัวกรอง จึงไม่ใช่ทั้งปีทั้งสองความหมาย */
@@ -667,16 +706,24 @@ const STRINGS = {
   'awaiting.col.depreciation': ['ค่าเสื่อมราคา', 'Depreciation'],
   'awaiting.col.perCropOrMonth': ['ระบุต่อครอปหรือต่อเดือน', 'Per crop or per month'],
   'awaiting.col.snapshotDaily': ['บันทึกยอดคงเหลือต่อท้ายรายวัน แทนการเขียนทับ', 'Append the balance daily instead of overwriting'],
-  'awaiting.revenueSplit.title': ['รายได้แยกตามลูกค้า / สายพันธุ์', 'Revenue by customer / strain'],
+  'awaiting.revenueSplit.title': ['รายได้แยกตามสายพันธุ์ / ขนาดดอก', 'Revenue by strain / size'],
   'awaiting.revenueSplit.why': [
-    'รายได้รวมรายเดือนมีแล้วจากชีตต้นทุน แต่ชีตขายดอกยังไม่มีคอลัมน์ราคา จึงบอกไม่ได้ว่ารายได้ก้อนนี้มาจากลูกค้าคนไหนหรือสายพันธุ์ใด',
-    'Monthly revenue now comes from the cost sheet, but the sales sheet still has no price column — so revenue cannot be attributed to a customer or strain',
+    'ชีตขายดอกยังไม่มีคอลัมน์ราคา จึงบอกไม่ได้ว่ารายได้มาจากสายพันธุ์หรือขนาดไหน (รายได้รวมและรายลูกค้ามาจากชีตต้นทุน ซึ่งไม่มีสายพันธุ์)',
+    'The sales sheet still has no price column, so revenue cannot be attributed to a strain or size (total and per-customer revenue come from the cost sheet, which has no strain)',
+  ],
+  'gap.detail.revenueByCustomerOk': [
+    'รายได้รายลูกค้า (ในประเทศ / ต่างประเทศ) มีแล้วจากแท็บ "Revenue" ของชีตต้นทุน — ดูที่หน้าต้นทุน',
+    'Per-customer revenue (domestic / export) is available from the “Revenue” tab of the cost sheet — see the Cost page',
+  ],
+  'gap.detail.revenueByCustomerMissing': [
+    'ชีตต้นทุนยังไม่มีแท็บ "Revenue" ที่แยกรายลูกค้า จึงยังแยกรายลูกค้าไม่ได้เช่นกัน',
+    'The cost sheet has no “Revenue” tab with per-customer rows, so revenue by customer is not available either',
   ],
   'awaiting.col.summaryTab': ['แท็บ "สรุป" ที่อ่านได้', 'A readable “สรุป” tab'],
   'awaiting.costPerGram.title': ['ต้นทุนต่อกรัม', 'Cost per gram'],
   'awaiting.costPerGram.why': [
-    'มีทั้งต้นทุนรายเดือนและผลผลิตรายเดือนแล้ว แต่ยังหารกันตรง ๆ ไม่ได้ เพราะต้นทุนของเดือนหนึ่งเป็นของครอปที่เก็บเกี่ยวอีกเดือนหนึ่ง ต้องมีคนกำหนดก่อนว่าจะผูกต้นทุนกับครอปอย่างไร',
-    'Monthly cost and monthly yield both exist, but dividing them is wrong: a month’s cost belongs to a crop harvested in another month — someone must define how cost maps to crops first',
+    'ต้องมีแถว Gram (g) รายเดือนในแท็บ "ต้นทุนต่อกรัม" ของชีตต้นทุน ซึ่งเป็นกติกาที่คนกำหนดว่าต้นทุนเดือนไหนผูกกับกรัมเท่าไร — Dashboard ไม่หารต้นทุนด้วยผลผลิตจากรายงานอื่นเอง',
+    'Needs a monthly Gram (g) row in the cost sheet’s “ต้นทุนต่อกรัม” tab — the human-defined rule for which grams a month’s cost belongs to. The dashboard never divides cost by yield from another report on its own',
   ],
   'awaiting.costPerGram.sheet': [
     'ชีตต้นทุน — แท็บ "ต้นทุน ต่อ กรัม 2026" (ตอนนี้ยังเป็นสำเนาของแท็บ Office)',

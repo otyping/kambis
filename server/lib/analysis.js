@@ -904,6 +904,198 @@ function checkFinance(source, out) {
       })
     );
   }
+
+  checkRevenueTab(source, summary, out);
+  checkPerGramTab(source, summary, out);
+}
+
+/**
+ * แท็บต้นทุนต่อกรัม — ชีตคิด `Cost / gram` เองไว้ Dashboard คิดใหม่แล้วต้องได้เท่ากัน
+ * และแถว Revenue(B) ในแท็บนี้เป็นสำเนาของแท็บสรุป ถ้าไม่ตรงแปลว่ามีคนแก้ฝั่งเดียว
+ *
+ * **เคสจริง ก.ย. 69:** ช่อง Per gram ของแถว Gram บอก 15.94 แต่ 11,389,604.50 ÷ 699,300 = 16.29
+ * ค่าในชีตค้างจากตอนที่รายได้ยังไม่ครบ — ตัวอย่างว่าทำไมห้ามอ่านช่องอัตราส่วนมาแสดงตรง ๆ
+ */
+function checkPerGramTab(source, summary, out) {
+  const tab = (source.tabs ?? []).find((t) => t.role === 'perGram');
+  if (!tab) return;
+  const rows = source.rows.filter((r) => r.kind === 'perGram');
+  const at = (line, month) => rows.find((r) => r.line === line && r.month === month)?.amount ?? null;
+  const months = [...new Set(rows.map((r) => r.month))].sort();
+
+  for (const month of months) {
+    const grams = at('grams', month);
+    const cost = at('cost', month);
+    const said = at('costPerGram', month);
+
+    // ช่อง Cost / gram ในชีต vs ต้นทุน ÷ กรัม ที่คิดใหม่
+    if (grams !== null && grams > 0 && cost !== null && said !== null) {
+      const actual = cost / grams;
+      const delta = Number((actual - said).toFixed(2));
+      if (Math.abs(delta) > 0.05) {
+        out.push(
+          finding('finance.perGramMismatch', 'warning', {
+            source: source.key,
+            tab: tab.name,
+            field: month,
+            expected: Number(actual.toFixed(2)),
+            actual: said,
+            delta,
+            messageTh:
+              `${month}: ช่อง Cost / gram ในชีตบอก ${fmtNum(said)} แต่ ${money(cost)} ÷ ${money(grams)} g = ` +
+              `${fmtNum(actual)} บาท/กรัม — Dashboard ใช้ค่าที่คิดใหม่`,
+            messageEn:
+              `${month}: the Cost / gram cell says ${fmtNum(said)} but ${money(cost)} ÷ ${money(grams)} g = ` +
+              `${fmtNum(actual)} THB/g — the dashboard uses the recomputed value`,
+          })
+        );
+      }
+    }
+
+    // Σ รายการ vs แถว "รวม Cost ทั้งหมด" ของเดือนเดียวกัน
+    if (cost !== null && tab.items?.length) {
+      const sumItems = tab.items.reduce((a, it) => a + (it.byMonth?.[month] ?? 0), 0);
+      const delta = Number((sumItems - cost).toFixed(2));
+      if (Math.abs(delta) > MONEY_TOL) {
+        out.push(
+          finding('finance.perGramItemsMismatch', 'warning', {
+            source: source.key,
+            tab: tab.name,
+            field: month,
+            expected: cost,
+            actual: sumItems,
+            delta,
+            messageTh:
+              `${month}: แถว "รวม Cost ทั้งหมด" บอก ${money(cost)} บาท แต่บวกรายการในแท็บได้ ${money(sumItems)} บาท ` +
+              `(ต่าง ${money(Math.abs(delta))}) — ต้นทุนต่อกรัมของเดือนนี้จึงยังเชื่อไม่ได้`,
+            messageEn:
+              `${month}: the "รวม Cost ทั้งหมด" row says ${money(cost)} THB but the items add up to ${money(sumItems)} THB ` +
+              `(off by ${money(Math.abs(delta))}) — this month's cost per gram is not reliable yet`,
+          })
+        );
+      }
+    }
+
+    // Revenue(B) ในแท็บนี้ vs Revenue ในแท็บสรุป
+    const rev = at('revenue', month);
+    const saidRev = summary.find((r) => r.line === 'revenue' && r.month === month)?.amount ?? null;
+    if (rev !== null && saidRev !== null && Math.abs(rev - saidRev) > MONEY_TOL) {
+      out.push(
+        finding('finance.perGramRevenueMismatch', 'warning', {
+          source: source.key,
+          tab: tab.name,
+          field: month,
+          expected: saidRev,
+          actual: rev,
+          delta: Number((rev - saidRev).toFixed(2)),
+          related: [{ source: source.key, tab: 'สรุป' }],
+          messageTh:
+            `${month}: Revenue(B) ในแท็บ "${tab.name}" บอก ${money(rev)} แต่แท็บ "สรุป" บอก ${money(saidRev)} บาท ` +
+            '— สองแท็บควรเป็นตัวเลขเดียวกัน มีคนแก้ฝั่งเดียว',
+          messageEn:
+            `${month}: Revenue(B) in "${tab.name}" says ${money(rev)} but the "สรุป" tab says ${money(saidRev)} THB ` +
+            '— both should be the same figure; one side was edited alone',
+        })
+      );
+    }
+  }
+}
+
+/**
+ * แท็บ Revenue (รายได้รายลูกค้า) ต้องกระทบยอดกับแท็บ "สรุป" ได้ทุกเดือน
+ *
+ * หน้าต้นทุนโชว์สองอย่างบนจอเดียวกัน: ช่อง "รายได้" จากแท็บสรุป กับกราฟแยกลูกค้า
+ * จากแท็บ Revenue ถ้าสองแท็บนี้ไม่ตรงกัน ผู้ใช้จะเห็นเลขสองชุดโดยไม่มีอะไรอธิบาย
+ *
+ * **เคสจริง ก.ย. 69 ที่จับได้ตั้งแต่วันแรก:** ลูกค้ารายหนึ่งกรอกยอดเดือนมีนาคม 132,090
+ * แต่ช่อง Total ของแถวนั้นว่าง สูตร `Total ในประเทศ` ในคอลัมน์ Total จึงขาดไป 132,090
+ * และแถว `Revenue` ท้ายแท็บบอก 11.26 ล้าน ทั้งที่แท็บสรุปบอก 11.39 ล้าน —
+ * ยอดรายเดือนกลับตรงกันทุกเดือน ผิดเฉพาะคอลัมน์ Total ของชีต
+ */
+function checkRevenueTab(source, summary, out) {
+  const tab = (source.tabs ?? []).find((t) => t.role === 'revenue');
+  if (!tab) return;
+  const rows = source.rows.filter((r) => r.kind === 'revenue');
+
+  const sumBy = (pred) => rows.filter(pred).reduce((a, r) => a + (r.amount ?? 0), 0);
+  const months = [...new Set([...rows.map((r) => r.month), ...summary.map((r) => r.month)])].sort();
+
+  /* ลูกค้าที่ช่อง Total ว่างทั้งที่มีตัวเลขรายเดือน — ยอดรวมท้ายแท็บในชีตจะขาดรายนี้
+   * Dashboard บวกจากรายเดือนเองจึงไม่ขาด แต่คนที่อ่านคอลัมน์ Total ในชีตจะได้เลขผิด */
+  for (const customer of tab.missingTotal ?? []) {
+    const amt = sumBy((r) => r.customer === customer);
+    out.push(
+      finding('finance.revenueRowTotalMissing', 'warning', {
+        source: source.key,
+        tab: tab.name,
+        field: customer,
+        expected: amt,
+        actual: null,
+        messageTh:
+          `ลูกค้า "${customer}" มียอดรายเดือนรวม ${money(amt)} บาท แต่ช่อง Total ของแถวนั้นว่าง ` +
+          '— สูตรยอดรวมของกลุ่มและแถว Revenue ในคอลัมน์ Total จะขาดยอดนี้ไป (Dashboard บวกจากรายเดือนจึงไม่ขาด)',
+        messageEn:
+          `Customer "${customer}" has ${money(amt)} THB across the months but an empty Total cell ` +
+          '— the group and Revenue totals in the Total column miss this amount (the dashboard sums the months, so it does not)',
+      })
+    );
+  }
+
+  /* ยอดกลุ่มที่ชีตบอก (แถว Total ต่างประเทศ / ในประเทศ) vs Σ ลูกค้าในกลุ่ม รายเดือน */
+  for (const st of tab.stated ?? []) {
+    if (st.grand || !st.segment) continue;
+    for (const month of months) {
+      const said = st.byMonth?.[month];
+      const actual = sumBy((r) => r.segment === st.segment && r.month === month);
+      if (said === undefined && actual === 0) continue;
+      const delta = Number((actual - (said ?? 0)).toFixed(2));
+      if (Math.abs(delta) <= MONEY_TOL) continue;
+      out.push(
+        finding('finance.revenueSegmentMismatch', 'warning', {
+          source: source.key,
+          tab: tab.name,
+          row: st.rowIndex + 1,
+          field: month,
+          expected: said ?? null,
+          actual,
+          delta,
+          messageTh:
+            `${month}: แถว "${st.label}" บอก ${money(said ?? 0)} บาท แต่บวกลูกค้าในกลุ่มได้ ${money(actual)} บาท ` +
+            `(ต่าง ${money(Math.abs(delta))}) — มักเกิดจากสูตรรวมไม่ครอบแถวลูกค้าที่เพิ่งเพิ่ม`,
+          messageEn:
+            `${month}: row "${st.label}" says ${money(said ?? 0)} THB but the customers in that group add up to ` +
+            `${money(actual)} THB (off by ${money(Math.abs(delta))}) — usually a SUM range that misses a newly added customer`,
+        })
+      );
+    }
+  }
+
+  /* Σ ลูกค้าทุกราย vs ช่อง Revenue ของแท็บ "สรุป" รายเดือน
+   * เป็น critical เพราะสองตัวเลขนี้อยู่บนหน้าต้นทุนพร้อมกัน — ไม่ตรง = หน้าจอขัดกันเอง */
+  for (const month of months) {
+    const said = summary.find((r) => r.line === 'revenue' && r.month === month)?.amount ?? null;
+    const actual = sumBy((r) => r.month === month);
+    if (said === null && actual === 0) continue;
+    const delta = Number((actual - (said ?? 0)).toFixed(2));
+    if (Math.abs(delta) <= MONEY_TOL) continue;
+    out.push(
+      finding('finance.revenueMismatch', 'critical', {
+        source: source.key,
+        tab: tab.name,
+        field: month,
+        expected: said,
+        actual,
+        delta,
+        related: [{ source: source.key, tab: 'สรุป' }],
+        messageTh:
+          `${month}: แท็บ "สรุป" บอกรายได้ ${money(said ?? 0)} บาท แต่รวมลูกค้าทุกรายในแท็บ "${tab.name}" ได้ ` +
+          `${money(actual)} บาท (ต่าง ${money(Math.abs(delta))}) — ช่องรายได้กับกราฟรายลูกค้าบนหน้าต้นทุนจะไม่ตรงกัน`,
+        messageEn:
+          `${month}: the "สรุป" tab says revenue ${money(said ?? 0)} THB but all customers in "${tab.name}" add up to ` +
+          `${money(actual)} THB (off by ${money(Math.abs(delta))}) — the revenue tile and the per-customer chart will disagree`,
+      })
+    );
+  }
 }
 
 /** จำนวนเงินแบบอ่านง่ายในข้อความ finding */
@@ -1131,6 +1323,59 @@ function checkSupply(source, out, now) {
 // ─────────────────────────────────────────────────────────────
 // Cross-source — ข้อมูลข้ามรายงานสอดคล้องกันไหม
 // ─────────────────────────────────────────────────────────────
+/**
+ * กรัมในแท็บ "ต้นทุนต่อกรัม" vs ผลผลิตทริมรายวันของเดือนเดียวกัน
+ *
+ * แถว Gram (g) เป็นตัวเลขที่คนกรอกเอง — เป็น "กติกา" ว่าต้นทุนเดือนนั้นผูกกับกรัมเท่าไร
+ * จึงไม่จำเป็นต้องเท่ากับผลผลิตที่ทริมได้ในเดือนนั้น (ครอปเก็บคนละเดือนกับที่จ่ายเงิน)
+ * ออกเป็น **info** ให้เห็นว่าห่างกันแค่ไหน ไม่ใช่บอกว่าผิด — แต่ถ้าห่างกันมาก คนที่กรอก
+ * ควรได้เห็น เพราะต้นทุนต่อกรัมทั้งแผงขึ้นกับตัวเลขนี้
+ */
+function checkPerGramYield(sources, out) {
+  const cost = sources.cost;
+  const daily = sources.dailyTrim;
+  if (!cost?.rows?.length || !daily?.rows?.length) return;
+  const tab = (cost.tabs ?? []).find((t) => t.role === 'perGram');
+  if (!tab) return;
+
+  const trimmed = new Map();
+  for (const r of daily.rows) {
+    if (!r.date || typeof r.flowerTotal !== 'number') continue;
+    const m = String(r.date).slice(0, 7);
+    trimmed.set(m, (trimmed.get(m) ?? 0) + r.flowerTotal);
+  }
+
+  const diffs = [];
+  for (const r of cost.rows) {
+    if (r.kind !== 'perGram' || r.line !== 'grams' || !(r.amount > 0)) continue;
+    const actual = trimmed.get(r.month);
+    if (actual === undefined) continue;
+    const delta = actual - r.amount;
+    // เกิน 1% และเกิน 100 g ถึงจะรายงาน — ต่ำกว่านั้นเป็นการปัดเศษ
+    if (Math.abs(delta) > Math.max(100, r.amount * 0.01)) {
+      diffs.push({ month: r.month, sheet: r.amount, trimmed: actual, delta });
+    }
+  }
+  if (!diffs.length) return;
+
+  const listTh = diffs.map((d) => `${d.month}: แท็บ ${fmtNum(d.sheet)} g · ทริมได้ ${fmtNum(d.trimmed)} g`).join(' · ');
+  const listEn = diffs.map((d) => `${d.month}: tab ${fmtNum(d.sheet)} g · trimmed ${fmtNum(d.trimmed)} g`).join(' · ');
+  out.push(
+    finding('finance.perGramYieldGap', 'info', {
+      source: cost.key,
+      tab: tab.name,
+      field: 'Gram (g)',
+      related: [{ source: 'dailyTrim' }],
+      messageTh:
+        `กรัมที่กรอกในแท็บ "${tab.name}" ต่างจากผลผลิตทริมรายวันของเดือนเดียวกัน ${diffs.length} เดือน (${listTh}) ` +
+        '— ไม่จำเป็นต้องเท่ากัน (ครอปเก็บคนละเดือนกับที่จ่ายเงิน) แต่ต้นทุนต่อกรัมทั้งแผงคิดจากตัวเลขในแท็บนี้',
+      messageEn:
+        `Grams entered in "${tab.name}" differ from the daily-trim yield of the same month for ${diffs.length} month(s) (${listEn}) ` +
+        '— they need not match (crops are harvested in a different month than paid for), but every cost-per-gram figure rests on this row',
+    })
+  );
+}
+
 function checkCrossSource(sources, out) {
   const outbound = sources.outbound;
   const inbound = sources.inbound;
@@ -1317,6 +1562,7 @@ export function analyze(sources) {
   }
 
   checkCrossSource(sources, findings);
+  checkPerGramYield(sources, findings);
 
   // เติม gid ของ tab ให้ทุก finding — front-end ใช้ทำลิงก์ตรงไปยัง tab ที่มีปัญหา
   const gidOf = makeGidResolver(sources);
@@ -1492,6 +1738,39 @@ export function verifyPresentation(analysis, kpi, sources = null) {
           (r) => r.amount
         );
         addTotalFinding('cost', line, labelTh, labelEn, shown, actual, MONEY_TOL, 'บาท');
+      }
+
+      /* รายได้รายลูกค้า — บวกใหม่จาก record ดิบด้วยลูปธรรมดา แล้วเทียบกับที่กราฟใช้
+       * ตัดช่วงเดือนด้วยกฎเดียวกับหน้าเว็บ (ถึง coverage.to) ไม่ใช่กฎที่ง่ายกว่า */
+      const split = fin.revenueSplit;
+      if (split?.available) {
+        const revRows = (sources.cost.rows ?? []).filter(
+          (r) => r.kind === 'revenue' && r.month <= upTo
+        );
+        const actual = plainSum(revRows, (r) => r.amount);
+        addTotalFinding('cost', 'revenueSplit', 'รายได้รายลูกค้ารวม', 'Total revenue by customer', split.total, actual, MONEY_TOL, 'บาท');
+        const shownCustomers = plainSum(split.customers ?? [], (c) => c.amount);
+        addTotalFinding('cost', 'revenueSplit.customers', 'ผลรวมลูกค้าทุกราย', 'Sum of all customers', shownCustomers, actual, MONEY_TOL, 'บาท');
+      }
+
+      /* ต้นทุนต่อกรัมสะสม — คิดใหม่ด้วยลูปธรรมดาจาก record: Σ ต้นทุน ÷ Σ กรัม
+       * เฉพาะเดือนที่มีกรัม (กฎเดียวกับหน้าเว็บ ไม่ใช่กฎที่ง่ายกว่า — ดู §2) */
+      const pg = fin.perGram;
+      if (pg?.available && typeof pg.totals?.costPerGram === 'number') {
+        const pgRows = (sources.cost.rows ?? []).filter((r) => r.kind === 'perGram' && r.month <= upTo);
+        let g = 0;
+        let c = 0;
+        for (const r of pgRows) {
+          if (r.line !== 'grams' || !(r.amount > 0)) continue;
+          const costRow = pgRows.find((x) => x.line === 'cost' && x.month === r.month);
+          if (!costRow || typeof costRow.amount !== 'number') continue;
+          g += r.amount;
+          c += costRow.amount;
+        }
+        const actual = g > 0 ? c / g : null;
+        if (actual !== null) {
+          addTotalFinding('cost', 'perGram', 'ต้นทุนต่อกรัมสะสม', 'Cumulative cost per gram', pg.totals.costPerGram, actual, 0.01, 'บาท/กรัม');
+        }
       }
     }
 

@@ -186,10 +186,10 @@ describe('parser ชีตต้นทุน', () => {
   });
 
   test('แท็บ "ต่อกรัม" ต้องไม่ถูกอ่านเป็นแท็บต้นทุน แม้ชื่อขึ้นต้นด้วยต้นทุน', () => {
-    // เนื้อหาไม่ซ้ำกับใคร แต่ชื่อบอกว่าเป็นคนละรายงาน → ต้องข้ามพร้อมส่งเสียง
+    // เนื้อหาไม่ซ้ำกับใคร ชื่อบอกว่าเป็นตารางต้นทุนต่อกรัม → อ่านด้วย parser ของมันเอง ไม่ใช่ต้นทุนการปลูก
     const perGram = { gid: '77', name: 'ต้นทุน ต่อ กรัม 2026', rows: GROWING_TAB.rows };
     const out = build([SUMMARY_TAB, perGram]);
-    assert.equal(out.tabs.find((t) => t.name === 'ต้นทุน ต่อ กรัม 2026').skipped, 'unknown-tab');
+    assert.equal(out.tabs.find((t) => t.name === 'ต้นทุน ต่อ กรัม 2026').role, 'perGram');
     assert.equal(out.rows.filter((r) => r.group === 'growing').length, 0);
   });
 
@@ -629,5 +629,336 @@ describe('KPI และกฎตรวจของงบต้นทุน', () 
     assert.ok(hit);
     assert.equal(hit.severity, 'warning');
     assert.match(hit.messageTh, /Office/);
+  });
+});
+
+/* ── แท็บ Revenue — รายได้รายลูกค้า แยกในประเทศ/ต่างประเทศ (เพิ่ม ก.ย. 69) ──
+ *
+ * โครงเหมือนชีตจริง: ลูกค้าอยู่ *ก่อน* แถว Total ของกลุ่มตัวเอง · ชื่อบางรายขึ้นต้นด้วยขีด ·
+ * ลูกค้ารายหนึ่งกรอกยอดรายเดือนแต่ช่อง Total ว่าง (เคสจริงที่ทำให้ยอดรวมในชีตขาด 132,090) */
+const REVENUE_TAB = {
+  gid: '5',
+  name: 'Revenue',
+  rows: [
+    ['บริษัท …', '', '', '', '', '', '', '', '', '', '', '', '', ''],
+    ['ยอดขายรายเดือน', 'Jan-26', 'Feb-26', 'Mar-26', 'Apr-26', 'May-26', 'Jun-26', 'Jul-26', 'Aug-26', 'Sep-26', 'Oct-26', 'Nov-26', 'Dec-26', 'Total'],
+    row(['- Overseas Co.'], ['-', '-', 250, null, null, null, null, null, null, null, null, null], '250'),
+    row(['Total ต่างประเทศ'], ['-', '-', 250, '-', '-', '-', '-', '-', '-', '-', '-', '-'], '250'),
+    row(['Shop A'], [60, 150, 20, null, null, null, null, null, null, null, null, null], '230'),
+    row(['Shop B'], [40, 50, '-', null, null, null, null, null, null, null, null, null], '90'),
+    // ช่อง Total ว่างทั้งที่มียอดเดือนมีนาคม — ยอดรวมในคอลัมน์ Total ของชีตจึงขาด 30
+    row(['Walk-in'], ['-', '-', 30, null, null, null, null, null, null, null, null, null], ''),
+    row(['Total ในประเทศ'], [100, 200, 50, '-', '-', '-', '-', '-', '-', '-', '-', '-'], '320'),
+    row(['Revenue'], [100, 200, 300, '-', '-', '-', '-', '-', '-', '-', '-', '-'], '570'),
+  ],
+};
+
+describe('แท็บ Revenue — รายได้รายลูกค้า', () => {
+  const sourcesOf = (tabs) => {
+    const out = build(tabs);
+    return {
+      cost: {
+        key: 'cost',
+        kind: 'finance',
+        titleTh: 'ต้นทุนและรายได้',
+        titleEn: 'Cost & Revenue',
+        status: 'ok',
+        rows: out.rows,
+        tabs: out.tabs,
+        rowCount: out.rows.length,
+        tabCount: out.tabs.length,
+        tabsOk: out.tabs.length,
+      },
+    };
+  };
+
+  test('อ่านลูกค้าเป็น record รายเดือน จัดกลุ่มจากแถว Total ที่ตามหลัง และไม่นับแถวรวม', () => {
+    const out = build([SUMMARY_TAB, REVENUE_TAB]);
+    const rev = out.rows.filter((r) => r.kind === 'revenue');
+    // Overseas 1 · Shop A 3 · Shop B 2 (ขีดคือไม่มีข้อมูล ไม่ใช่ศูนย์) · Walk-in 1
+    assert.equal(rev.length, 7);
+    const tab = out.tabs.find((t) => t.name === 'Revenue');
+    assert.equal(tab.role, 'revenue');
+    assert.equal(tab.rowCount, rev.length);
+
+    // ชื่อลูกค้าตัดขีดนำหน้า · กลุ่มมาจากแถว Total ที่ปิดกลุ่ม
+    const overseas = rev.find((r) => r.customer === 'Overseas Co.');
+    assert.ok(overseas, 'ต้องตัด "- " หน้าชื่อออก');
+    assert.equal(overseas.segment, 'export');
+    assert.equal(overseas.month, '2026-03');
+    assert.equal(overseas.amount, 250);
+    assert.ok(rev.filter((r) => r.customer === 'Shop A').every((r) => r.segment === 'domestic'));
+
+    // แถวรวมไม่เป็น record แต่เก็บไว้ใน stated พร้อมยอดรายเดือน
+    assert.ok(!rev.some((r) => /^total|^revenue/i.test(r.customer)));
+    const grand = tab.stated.find((s) => s.grand);
+    assert.equal(grand.byMonth['2026-03'], 300);
+    assert.equal(tab.stated.find((s) => s.segment === 'domestic').byMonth['2026-01'], 100);
+
+    // ลูกค้าที่ช่อง Total ว่างต้องถูกจดไว้ และยอดรายเดือนของเขายังเข้า record ตามปกติ
+    assert.deepEqual(tab.missingTotal, ['Walk-in']);
+    assert.equal(rev.find((r) => r.customer === 'Walk-in').amount, 30);
+  });
+
+  test('ลูกค้าที่ไม่มีแถว Total ปิดกลุ่มตามหลังต้องไม่หาย — ได้ segment null', () => {
+    const noClose = {
+      ...REVENUE_TAB,
+      rows: [...REVENUE_TAB.rows, row(['Late Customer'], [null, null, null, 5, null, null, null, null, null, null, null, null], '5')],
+    };
+    const rev = build([noClose]).rows.filter((r) => r.kind === 'revenue');
+    const late = rev.find((r) => r.customer === 'Late Customer');
+    assert.ok(late);
+    assert.equal(late.segment, null);
+  });
+
+  test('ชื่อแท็บ Revenue/รายได้ ต้องถูกจับเป็นแท็บรายได้ ไม่ใช่ unknown', () => {
+    for (const name of ['Revenue', 'รายได้ 2026', 'ยอดขาย']) {
+      const out = build([{ ...REVENUE_TAB, name }]);
+      assert.equal(out.tabs[0].role, 'revenue', name);
+      assert.ok(out.rows.length > 0, name);
+    }
+  });
+
+  test('KPI: กลุ่ม/ลูกค้า/รายเดือน บวกกันได้เท่ารายได้ในงบสรุป และตัดช่วงเดือนเดียวกับ totals', () => {
+    const kpi = buildKpi(sourcesOf([SUMMARY_TAB, REVENUE_TAB]), { findings: [] });
+    const split = kpi.cost.revenueSplit;
+    assert.equal(split.available, true);
+    assert.equal(split.total, 600);
+    assert.equal(split.total, kpi.cost.totals.revenue);
+
+    // ในประเทศมาก่อนต่างประเทศเสมอ (ลำดับสีในกราฟ) และสัดส่วนคิดจากผลรวมลูกค้า
+    assert.deepEqual(split.segments.map((s) => s.key), ['domestic', 'export']);
+    const dom = split.segments[0];
+    assert.equal(dom.amount, 350);
+    assert.equal(dom.customers, 3);
+    assert.ok(Math.abs(dom.share - (350 / 600) * 100) < 1e-9);
+
+    // ลูกค้าเรียงมากไปน้อย · นับเดือนที่มียอดจริง
+    assert.equal(split.customers[0].customer, 'Overseas Co.');
+    const shopA = split.customers.find((c) => c.customer === 'Shop A');
+    assert.equal(shopA.monthsWithValue, 3);
+    assert.equal(shopA.lastMonth, '2026-03');
+    assert.equal(split.customers.reduce((a, c) => a + c.amount, 0), 600);
+
+    // byMonth มีทุกเดือนที่กราฟ P&L ใช้ และแต่ละเดือนบวกกลุ่มได้เท่ากับงบสรุป
+    assert.deepEqual(split.byMonth.map((m) => m.month), ['2026-01', '2026-02', '2026-03']);
+    const mar = split.byMonth.find((m) => m.month === '2026-03');
+    assert.equal(mar.bySegment.export, 250);
+    assert.equal(mar.bySegment.domestic, 50);
+    assert.equal(mar.total, 300);
+  });
+
+  test('ตัวกรองปีต้องใช้กับรายได้รายลูกค้าด้วย และไม่มีแท็บ = available:false ไม่ใช่ศูนย์', () => {
+    const noTab = buildKpi(sourcesOf([SUMMARY_TAB]), { findings: [] }).cost.revenueSplit;
+    assert.equal(noTab.available, false);
+    assert.deepEqual(noTab.customers, []);
+
+    const otherYear = buildKpi(sourcesOf([SUMMARY_TAB, REVENUE_TAB]), { findings: [] }, { year: '2025' }).cost;
+    assert.equal(otherYear.available, false);
+    assert.equal(otherYear.revenueSplit.available, false);
+  });
+
+  test('ลูกค้าที่ช่อง Total ว่างต้องออกเป็น finding ที่บอกชื่อและยอดที่ขาด', () => {
+    const findings = analyze(sourcesOf([SUMMARY_TAB, REVENUE_TAB])).findings;
+    const hit = findings.find((f) => f.id === 'finance.revenueRowTotalMissing');
+    assert.ok(hit);
+    assert.equal(hit.tab, 'Revenue');
+    assert.match(hit.messageTh, /Walk-in/);
+    assert.match(hit.messageTh, /30 บาท/);
+    // ยอดรายเดือนตรงกับงบสรุปทุกเดือน จึงต้องไม่มี revenueMismatch ปลอม
+    assert.ok(!findings.some((f) => f.id === 'finance.revenueMismatch'));
+    assert.ok(!findings.some((f) => f.id === 'finance.revenueSegmentMismatch'));
+  });
+
+  test('Σ ลูกค้าไม่เท่ากับรายได้ในงบสรุป → critical พร้อมลิงก์ทั้งสองแท็บ', () => {
+    const drifted = {
+      ...REVENUE_TAB,
+      rows: REVENUE_TAB.rows.map((r) => (r[0] === 'Shop A' ? row(['Shop A'], [60, 150, 70, null, null, null, null, null, null, null, null, null], '280') : r)),
+    };
+    const findings = analyze(sourcesOf([SUMMARY_TAB, drifted])).findings;
+    const hit = findings.find((f) => f.id === 'finance.revenueMismatch');
+    assert.ok(hit);
+    assert.equal(hit.severity, 'critical');
+    assert.equal(hit.field, '2026-03');
+    assert.equal(hit.delta, 50);
+    assert.deepEqual(hit.related.map((x) => x.tab), ['สรุป']);
+    // แถว Total ในประเทศ ก็ไม่ตรงกับลูกค้าในกลุ่มแล้วเช่นกัน
+    const seg = findings.find((f) => f.id === 'finance.revenueSegmentMismatch');
+    assert.ok(seg);
+    assert.match(seg.messageTh, /Total ในประเทศ/);
+  });
+
+  test('แท็บต่อกรัมต้องไม่ถูกอ่านเป็นรายได้รายลูกค้า แม้มีแถว Revenue', () => {
+    const perGram = {
+      gid: '78',
+      name: 'ต้นทุนต่อกรัม 2026',
+      rows: [head(1), row(['Revenue(B)'], [100, 200, 300, null, null, null, null, null, null, null, null, null], '600'), row(['Gram (g)'], [10, 20, 30, null, null, null, null, null, null, null, null, null], '60')],
+    };
+    const out = build([SUMMARY_TAB, perGram]);
+    assert.equal(out.tabs.find((t) => t.name === 'ต้นทุนต่อกรัม 2026').role, 'perGram');
+    assert.equal(out.rows.filter((r) => r.kind === 'revenue').length, 0);
+  });
+});
+
+/* ── ยอดรวมต้องไม่นับเดือนหลังวันนี้ (ผู้ใช้ตัดสิน ก.ย. 69) ──
+ *
+ * เคสจริง: ชีตกรอกต้นทุนวัตถุดิบล่วงหน้าถึงธันวาคม กฎ "เดือนล่าสุดที่มีความเคลื่อนไหว"
+ * จึงเลื่อนไปธันวาคมเอง แล้วกำไรขั้นต้นรวมต้นทุน 5 เดือนที่ยังไม่มาถึงเข้ามาหัก */
+describe('ยอดรวมของงบต้องตัดที่เดือนปัจจุบัน', () => {
+  const sourcesOf = (tabs) => {
+    const out = build(tabs);
+    return { cost: { key: 'cost', kind: 'finance', status: 'ok', rows: out.rows, tabs: out.tabs, rowCount: out.rows.length } };
+  };
+
+  test('ต้นทุนที่กรอกล่วงหน้าเลยวันนี้ต้องไม่ถูกนับ แม้จะเป็นบรรทัดที่ใช้ตัดสินความเคลื่อนไหว', () => {
+    const prefilled = {
+      ...SUMMARY_TAB,
+      rows: [
+        head(1),
+        row(['Revenue'], [100, 200, null, null, null, null, null, null, null, null, null, null], '300'),
+        row(['ต้นทุนวัตถุดิบ'], [40, 50, 60, 70, 70, 70, 70, 70, 70, 70, 70, 70], '780'),
+        row(['ค่าใช้จ่าย - Farm'], [10, 10, 10, null, null, null, null, null, null, null, null, null], '30'),
+        row(['ค่าใช้จ่าย - Office'], [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5], '60'),
+        row(['รวมต้นทุนการปลูก'], [55, 65, 75, 75, 75, 75, 75, 75, 75, 75, 75, 75], '870'),
+        row(['ค่าเสื่อมราคา'], [20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20], '240'),
+      ],
+    };
+    // วันนี้คือ 10 มี.ค. → นับถึงมีนาคม แม้ต้นทุนวัตถุดิบจะกรอกไว้ถึงธันวาคม
+    const c = buildKpi(sourcesOf([prefilled]), { findings: [] }, { today: '2026-03-10' }).cost;
+    assert.equal(c.lastActiveMonth, '2026-03');
+    assert.equal(c.coverage.to, '2026-03');
+    assert.equal(c.totals.materialCost, 150);
+    assert.equal(c.totals.revenue, 300);
+    assert.equal(c.totals.depreciation, 60);
+    // ยอด 12 เดือนตามชีตยังอยู่ที่ totalsFullYear ไม่ได้ซ่อน
+    assert.equal(c.totalsFullYear.materialCost, 780);
+
+    // ไม่ส่ง today มา = ใช้วันจริง (ข้อมูลทดสอบอยู่ในอดีตทั้งหมด) → ตัดที่เดือนสุดท้ายที่มีข้อมูล
+    const now = new Date().toISOString().slice(0, 7);
+    const real = buildKpi(sourcesOf([prefilled]), { findings: [] }).cost;
+    assert.ok(real.lastActiveMonth <= now);
+  });
+});
+
+/* ── แท็บ "ต้นทุนต่อกรัม" — กติกาผูกต้นทุนกับกรัมที่ผู้ใช้กำหนดเอง (ก.ย. 69) ──
+ *
+ * โครงเหมือนชีตจริง: หัวเดือนเป็นไทย · ช่อง Total ของแถวรายการอยู่ติดเดือนสุดท้าย
+ * แต่แถว Revenue/Gram/รวม เว้นหนึ่งช่อง · คอลัมน์ Budget อยู่ท้าย · Cost / gram บางเดือนเป็น #DIV/0! */
+const PER_GRAM_TAB = {
+  gid: '7',
+  name: 'ต้นทุนต่อกรัม 2026',
+  rows: [
+    ['บริษัท …'],
+    ['', 'คำนวณต้นทุน / กรัม ปี 2026'],
+    ['', 'ม.ค.-26', 'ก.พ.-26', 'มี.ค.-26', 'เม.ย.-26', 'พ.ค.-26', 'มิ.ย.-26', 'ก.ค.-26', 'ส.ค.-26', 'ก.ย.-26', 'ต.ค.-26', 'พ.ย.-26', 'ธ.ค.-26', '', 'ปี 2026', 'Per gram', '%', 'Budget ปี 2025', '', 'Per gram', '%'],
+    [...row(['Revenue(B)'], [100, 200, 300, '-', '-', '-', '-', '-', '-', '-', '-', '-'], ''), '600', '', '', '1,200', '', ''],
+    [...row(['Gram (g)'], [10000, 20000, 30000, null, null, null, null, null, null, null, null, null], ''), '60,000', '0.01', '', '100,000', '', '0.012'],
+    row(['Cost'], [null, null, null, null, null, null, null, null, null, null, null, null], ''),
+    [...row(['- ค่าไฟฟ้า'], [30000, 40000, 50000, 50000, '-', '-', '-', '-', '-', '-', '-', '-'], '170,000'), '', '', '', '700,000'],
+    [...row(['- ค่ายาม'], [10000, 10000, 10000, 20000, '-', '-', '-', '-', '-', '-', '-', '-'], '50,000'), '220,000', '', '1.00', '200,000', '900,000', '9.00', '100%'],
+    [],
+    [...row(['รวม Cost ทั้งหมด'], [40000, 50000, 60000, 70000, '-', '-', '-', '-', '-', '-', '-', '-'], ''), '220,000', '', '1.00', '', '900,000', '9.00', '100%'],
+    [],
+    // มี.ค. ชีตคิดไว้ 2.5 แต่ 60,000 ÷ 30,000 = 2.0 (ค่าค้างจากตอนที่กรัมยังไม่ครบ) · เม.ย. ยังไม่มีกรัม
+    row(['Cost / gram'], [4, 2.5, 2.5, '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!', '#DIV/0!'], ''),
+  ],
+};
+
+describe('แท็บต้นทุนต่อกรัม', () => {
+  const sourcesOf = (tabs, extra = {}) => {
+    const out = build(tabs);
+    return {
+      cost: { key: 'cost', kind: 'finance', titleTh: 'ต้นทุน', titleEn: 'Cost', status: 'ok', rows: out.rows, tabs: out.tabs, rowCount: out.rows.length, tabCount: out.tabs.length, tabsOk: out.tabs.length },
+      ...extra,
+    };
+  };
+
+  test('อ่านหัวเดือนภาษาไทย บรรทัดหลัก งบประมาณ และรายการ โดยยอดที่ชีตบอกอยู่คนละคอลัมน์', () => {
+    const out = build([PER_GRAM_TAB]);
+    const tab = out.tabs[0];
+    assert.equal(tab.role, 'perGram');
+    assert.equal(tab.year, 2026);
+
+    const grams = out.rows.filter((r) => r.kind === 'perGram' && r.line === 'grams');
+    assert.deepEqual(grams.map((r) => [r.month, r.amount]), [['2026-01', 10000], ['2026-02', 20000], ['2026-03', 30000]]);
+    // #DIV/0! ต้องเป็น "ไม่มีข้อมูล" ไม่ใช่ 0
+    const cpg = out.rows.filter((r) => r.kind === 'perGram' && r.line === 'costPerGram');
+    assert.equal(cpg.length, 3);
+
+    // ยอดที่ชีตบอก: แถวรายการติดเดือนสุดท้าย · แถวหลักเว้นหนึ่งช่อง — ต้องอ่านได้ทั้งสองแบบ
+    assert.equal(tab.lines.grams.statedTotal, 60000);
+    assert.equal(tab.lines.cost.statedTotal, 220000);
+    assert.equal(tab.items.find((i) => i.label === 'ค่าไฟฟ้า').statedTotal, 170000);
+    assert.equal(tab.rowMismatches, 0);
+
+    // งบประมาณจากคอลัมน์ที่หัวเขียนว่า Budget — ตัวเลขแรกตั้งแต่คอลัมน์นั้นไป
+    assert.equal(tab.budget.label, 'Budget ปี 2025');
+    assert.equal(tab.budget.grams, 100000);
+    assert.equal(tab.budget.cost, 900000);
+    assert.equal(tab.budget.revenue, 1200);
+
+    // รายการไม่กลายเป็น record (มีอยู่ในแท็บต้นทุนวัตถุดิบแล้ว)
+    assert.equal(out.rows.filter((r) => r.kind === 'expense').length, 0);
+  });
+
+  test('KPI: คิดต้นทุน ÷ กรัม ใหม่เอง · เดือนไม่มีกรัมเป็น null · ตัดช่วงเดือนเดียวกับงบ', () => {
+    const c = buildKpi(sourcesOf([SUMMARY_TAB, PER_GRAM_TAB]), { findings: [] }).cost;
+    const pg = c.perGram;
+    assert.equal(pg.available, true);
+    // งบสรุปมีถึงมีนาคม → เมษายนที่มีต้นทุนแต่ไม่มีกรัมถูกตัดออกตาม coverage
+    assert.deepEqual(pg.months.map((m) => m.month), ['2026-01', '2026-02', '2026-03']);
+    assert.deepEqual(pg.months.map((m) => m.costPerGram), [4, 2.5, 2]);
+    assert.equal(pg.months[2].statedCostPerGram, 2.5, 'ค่าที่ชีตคิดไว้ยังเก็บไว้เทียบ');
+    assert.equal(pg.totals.costPerGram, 150000 / 60000);
+    assert.equal(pg.totals.monthsWithGrams, 3);
+    assert.equal(pg.budget.costPerGram, 9);
+
+    // ขยับวันนี้ให้เลยเมษายน + งบสรุปมีถึงเมษายน → เดือนที่ไม่มีกรัมต้องเป็น null ไม่ใช่ 0 และไม่รวมเข้าสะสม
+    const aprSummary = { ...SUMMARY_TAB, rows: [head(1), row(['Revenue'], [100, 200, 300, 50, null, null, null, null, null, null, null, null], '650')] };
+    const c2 = buildKpi(sourcesOf([aprSummary, PER_GRAM_TAB]), { findings: [] }, { today: '2026-05-01' }).cost;
+    const apr = c2.perGram.months.find((m) => m.month === '2026-04');
+    assert.equal(apr.cost, 70000);
+    assert.equal(apr.grams, null);
+    assert.equal(apr.costPerGram, null);
+    assert.equal(c2.perGram.totals.cost, 150000, 'ต้นทุนของเดือนที่ไม่มีกรัมห้ามยกไปรวม');
+  });
+
+  test('ไม่มีแท็บ = available:false และทะเบียนข้อมูลที่ยังขาดยังแสดงข้อต้นทุนต่อกรัม', () => {
+    const c = buildKpi(sourcesOf([SUMMARY_TAB]), { findings: [] }).cost;
+    assert.equal(c.perGram.available, false);
+  });
+
+  test('ช่อง Cost / gram ที่ค้างค่าเก่าต้องถูกจับ และแถว Revenue(B) ต้องตรงกับแท็บสรุป', () => {
+    const findings = analyze(sourcesOf([SUMMARY_TAB, PER_GRAM_TAB])).findings;
+    const mis = findings.filter((f) => f.id === 'finance.perGramMismatch');
+    assert.equal(mis.length, 1);
+    assert.equal(mis[0].field, '2026-03');
+    assert.equal(mis[0].expected, 2);
+    assert.equal(mis[0].actual, 2.5);
+    assert.ok(!findings.some((f) => f.id === 'finance.perGramItemsMismatch'));
+    assert.ok(!findings.some((f) => f.id === 'finance.perGramRevenueMismatch'));
+    assert.ok(!findings.some((f) => f.id === 'structural.tabIgnored' && /ต่อกรัม/.test(f.tab)), 'ต้องไม่ขึ้นว่าถูกข้ามอีกแล้ว');
+
+    // แก้ Revenue(B) ให้ต่างจากแท็บสรุป → ต้องขึ้น
+    const drifted = { ...PER_GRAM_TAB, rows: PER_GRAM_TAB.rows.map((r) => (r[0] === 'Revenue(B)' ? [...row(['Revenue(B)'], [100, 250, 300, '-', '-', '-', '-', '-', '-', '-', '-', '-'], ''), '650'] : r)) };
+    const f2 = analyze(sourcesOf([SUMMARY_TAB, drifted])).findings.find((f) => f.id === 'finance.perGramRevenueMismatch');
+    assert.ok(f2);
+    assert.equal(f2.field, '2026-02');
+  });
+
+  test('กรัมในแท็บต่างจากผลผลิตทริมรายวันมาก → info ที่บอกทั้งสองตัวเลข', () => {
+    const rec = (date, g) => ({ date, flowerTotal: g, sizes: {}, nonFlower: {}, source: 'dailyTrim', tab: 'x' });
+    const daily = {
+      key: 'dailyTrim', kind: 'flower', status: 'ok', tabs: [],
+      rows: [rec('2026-01-05', 6000), rec('2026-01-20', 4000), rec('2026-02-10', 25000), rec('2026-03-03', 30050)],
+      rowCount: 4,
+    };
+    const findings = analyze(sourcesOf([SUMMARY_TAB, PER_GRAM_TAB], { dailyTrim: daily })).findings;
+    const hit = findings.find((f) => f.id === 'finance.perGramYieldGap');
+    assert.ok(hit);
+    assert.equal(hit.severity, 'info');
+    assert.match(hit.messageTh, /2026-02/);
+    assert.ok(!/2026-01/.test(hit.messageTh), 'มกราคมเท่ากันพอดี');
+    assert.ok(!/2026-03/.test(hit.messageTh), 'มีนาคมต่าง 50 g อยู่ในเกณฑ์ปัดเศษ');
   });
 });
