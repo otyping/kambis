@@ -176,10 +176,24 @@ docker compose restart kambis
 ### อัปเดตโค้ด
 
 ```bash
+tar czf kambis-backup-$(date +%F).tgz config/users.json data/purchase-requests/   # สำรองก่อนเสมอ
+git checkout -- config/sources.json   # ดูหมายเหตุด้านล่าง
 git pull && docker compose build && docker compose up -d
 ```
 
 `config/` กับ `data/` เป็น bind mount จึงไม่ถูกแตะ — บัญชีและใบขอซื้อยังอยู่ครบ
+
+**ทำไมต้อง `git checkout -- config/sources.json` ก่อน:** ไฟล์นี้ถูก commit ไว้ใน git แต่เซิร์ฟเวอร์
+ที่รันอยู่เขียน `tabs[]` ทับมันทุกครั้งที่ค้นเจอแท็บใหม่ (เดือนใหม่ · ครอปใหม่) working copy บนเซิร์ฟเวอร์
+จึงต่างจากใน git เสมอ ถ้า commit ที่ดึงมาแตะไฟล์นี้ด้วย `git pull` จะปฏิเสธว่า local changes
+would be overwritten การทิ้งสำเนาบนเซิร์ฟเวอร์ปลอดภัย — `sheetId`/`parser` มาจากไฟล์ .txt
+ส่วนรายชื่อแท็บถูกค้นใหม่และเขียนกลับเองตอนรีเฟรชครั้งแรกหลังขึ้น
+
+**ใบขอซื้อที่ออกไปแล้วไม่ถูกกระทบ:** `data/purchase-requests/` (ไฟล์ .xlsx + `index.json`) อยู่นอก git
+และเป็น bind mount · เลขที่เอกสารรุ่นใหม่ยังนับต่อจากทั้งทะเบียนและชื่อไฟล์เดิม จึงไม่มีทางออกเลขซ้ำ
+· ทะเบียนรุ่นเก่าที่ไม่มีฟิลด์ `packs`/`purchaseUnit`/`form` อ่านได้ตามปกติ (มี test คุม)
+· สถานะ "รอของ" ยังเทียบด้วย `qty`/`unit` หน่วยสต๊อกเหมือนเดิม · โหลดสำเนาใบเก่าได้จากแท็ก `PR-…`
+ตรวจหลังขึ้นด้วย `docker compose exec kambis ls data/purchase-requests | wc -l` ต้องได้จำนวนเท่าก่อนขึ้น
 
 ---
 
